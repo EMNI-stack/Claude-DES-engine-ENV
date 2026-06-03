@@ -168,6 +168,7 @@
         <button id="step">⏭ Step</button>
         <button id="ff">⏩ FF 1000 events</button>
         <button id="reset">↺ Reset</button>
+        <button id="xlsx">⇩ Export to Excel</button>
       </div>
       <div class="views" style="margin-top:12px" id="views">
         <button class="vchip on" data-t="pStage">Flow view</button>
@@ -242,6 +243,7 @@
   <p class="note" style="margin-top:10px">Single self-contained file. The engine is the <code>Sim</code> class (a general line of stations with blocking, scrap, and breakdowns); distributions live in <code>sample()</code>. No closed-form theory panel here — once you add blocking, non-exponential service, breakdowns or scrap, exact formulas stop applying, so the simulation <i>is</i> the answer. That's the whole reason DES exists.</p>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script type="module">
 import { Sim, station, defaultConfig } from './src/engine.js';
 import { DISTS, newDist, sample, distMean, mulberry32 } from './src/distributions.js';
@@ -549,6 +551,99 @@ $('step').onclick=()=>{playing=false;$('play').textContent='▶ Play';if(sim.fel
 $('ff').onclick=()=>{playing=false;$('play').textContent='▶ Play';for(let i=0;i<1000&&sim.fel.length;i++){sim.step();if(i%5===0)pushSample();}pushSample();simCursor=sim.now;renderAll();};
 $('reset').onclick=()=>{playing=false;$('play').textContent='▶ Play';build();};
 $('spd').oninput=e=>{speed=parseFloat(e.target.value);$('spdV').textContent=speed+'×';};
+
+/* ---- export to Excel ---- */
+const round=(v,d=2)=>{const m=10**d;return Math.round(v*m)/m;};
+function distStr(d){
+  const ps=DISTS[d.type].f.map(([key,label])=>`${label}=${d.params[key]}`).join(', ');
+  return `${DISTS[d.type].label} (${ps})`+(d.variability>0?` +${Math.round(d.variability*100)}% noise`:'');
+}
+function bold(row,size){row.font={bold:true,size:size||11};return row;}
+$('xlsx').onclick=async()=>{
+  const isProd=config.type==='production', T=sim.now||1e-9;
+  const wb=new ExcelJS.Workbook(); wb.created=new Date();
+
+  /* Sheet 1 — Assumptions */
+  const A=wb.addWorksheet('Assumptions');
+  [24,10,12,46,11,12,34,30].forEach((w,i)=>A.getColumn(i+1).width=w);
+  bold(A.addRow(['Simulation assumptions']),14);
+  A.addRow([]);
+  A.addRow(['System type',isProd?'Production system':'Server system']).getCell(1).font={bold:true};
+  A.addRow(['Arrivals (interarrival)',distStr(config.source)]).getCell(1).font={bold:true};
+  A.addRow([]);
+  bold(A.addRow(['Stations']),12);
+  bold(A.addRow(['Station',isProd?'Machines':'Servers','Buffer','Service time','Scrap prob','Breakdowns','Time to failure','Time to repair']));
+  config.stations.forEach((s,k)=>{
+    A.addRow([`${k+1}. ${s.name}`,s.machines,s.finite?('K = '+s.cap):'unlimited',distStr(s.service),
+      isProd?s.scrap:'—',isProd?(s.brk?'yes':'no'):'—',
+      isProd&&s.brk?distStr(s.ttf):'—',isProd&&s.brk?distStr(s.ttr):'—']);
+  });
+
+  /* Sheet 2 — Output */
+  const O=wb.addWorksheet('Output');
+  [26,12,10,11,11,10,11].forEach((w,i)=>O.getColumn(i+1).width=w);
+  bold(O.addRow(['Simulation output']),14);
+  O.addRow(['Simulated time (min)',round(sim.now,1),'',`${sim.events} events`]);
+  O.addRow([]);
+  bold(O.addRow(['System metrics']),12);
+  bold(O.addRow(['Metric','Value']));
+  const fin=sim.completed+sim.scrapped;
+  const metrics=[
+    ['Throughput (parts/min)',round(sim.completed/T,3)],
+    ['Entered',sim.entered],['Completed',sim.completed],
+    ['Scrapped',sim.scrapped],['Rejected at entry',sim.rejected],
+    ['Yield',fin?round(sim.completed/fin,4):'—'],
+    ['Avg WIP',round(sim.areaWIP/T,2)],
+    ['Avg cycle time (min)',sim.completed?round(sim.sumCycle/sim.completed,2):'—'],
+  ];
+  metrics.forEach(([k,v])=>{const r=O.addRow([k,v]);if(k==='Yield'&&fin)r.getCell(2).numFmt='0.0%';});
+  O.addRow([]);
+  bold(O.addRow(['Per-station statistics']),12);
+  bold(O.addRow(['Station','Utilization','Blocked','Down','Avg queue','Scrap','Processed']));
+  config.stations.forEach((s,k)=>{
+    const st=sim.stations[k],M=st.machines.length;
+    const r=O.addRow([`${k+1}. ${s.name}`,round(st.aBusy/(M*T),4),round(st.aBlk/(M*T),4),round(st.aDown/(M*T),4),round(st.aQ/T,2),st.scrapped,st.processed]);
+    [2,3,4].forEach(c=>r.getCell(c).numFmt='0.0%');
+  });
+  O.addRow([]);
+  bold(O.addRow(['Raw data — use these to build native Excel charts']),12);
+  bold(O.addRow(['Clock (min)','WIP','','Cycle time (min)']));
+  const n=Math.max(samples.length,sim.cycles.length);
+  for(let i=0;i<n;i++){
+    const s=samples[i],c=sim.cycles[i];
+    O.addRow([s?round(s.t,2):null,s?s.w:null,null,c!=null?round(c,3):null]);
+  }
+
+  /* Sheet 3 — Analysis */
+  const N=wb.addWorksheet('Analysis');
+  [26,14].forEach((w,i)=>N.getColumn(i+1).width=w);
+  bold(N.addRow(['Analysis']),14);
+  N.addRow([]);
+  let peakK=0;config.stations.forEach((s,k)=>{const st=sim.stations[k];if(st.aBusy/st.machines.length>sim.stations[peakK].aBusy/sim.stations[peakK].machines.length)peakK=k;});
+  [['Throughput (parts/min)',round(sim.completed/T,3)],
+   ['Avg WIP',round(sim.areaWIP/T,2)],
+   ['Avg cycle time (min)',sim.completed?round(sim.sumCycle/sim.completed,2):'—'],
+   ['Yield',fin?round(sim.completed/fin,4):'—'],
+   ['Bottleneck (highest util)',`${peakK+1}. ${config.stations[peakK].name}`],
+  ].forEach(([k,v])=>{const r=N.addRow([k,v]);r.getCell(1).font={bold:true};if(k==='Yield'&&fin)r.getCell(2).numFmt='0.0%';});
+  drawWip();drawCyc();   // make sure both canvases are freshly rendered
+  let imgRow=N.rowCount+2;
+  for(const[title,cv]of[['Work-in-process over time',wipC],['Cycle-time distribution',cycC]]){
+    if(!cv.width)continue;   // canvas hidden / zero-size
+    bold(N.getRow(imgRow),12).getCell(1).value=title;
+    const id=wb.addImage({base64:cv.toDataURL('image/png'),extension:'png'});
+    N.addImage(id,{tl:{col:0,row:imgRow},ext:{width:620,height:210}});
+    imgRow+=17;  // ~210px of default 15px rows, plus a gap
+  }
+
+  const buf=await wb.xlsx.writeBuffer();
+  const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`des-results-${config.type}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
 
 /* views */
 function setView(id,on){$(id).classList.toggle('hidden',!on);const c=document.querySelector(`.vchip[data-t="${id}"]`);if(c)c.classList.toggle('on',on);}
