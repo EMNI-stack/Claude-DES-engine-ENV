@@ -134,9 +134,14 @@
   <!-- BUILDER -->
   <div class="panel">
     <div class="panel-h"><h2>1 · System type &amp; source</h2>
-      <span class="segwrap">
-        <button class="seg" id="tServer" onclick="setType('server')">Server system</button>
-        <button class="seg on" id="tProd" onclick="setType('production')">Production system</button>
+      <span style="display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button id="saveCfg">⇣ Save configuration</button>
+        <button id="loadCfg">⇡ Load configuration</button>
+        <input type="file" id="cfgFile" accept=".json,application/json" style="display:none">
+        <span class="segwrap">
+          <button class="seg" id="tServer" onclick="setType('server')">Server system</button>
+          <button class="seg on" id="tProd" onclick="setType('production')">Production system</button>
+        </span>
       </span>
     </div>
     <div class="panel-b">
@@ -247,13 +252,59 @@ import { DISTS, newDist, sample, distMean, mulberry32 } from './src/distribution
 const $=id=>document.getElementById(id);
 let config=defaultConfig('production');
 
-function setType(t){
-  config=defaultConfig(t);
-  $('tServer').classList.toggle('on',t==='server');
-  $('tProd').classList.toggle('on',t==='production');
+function applyConfig(cfg){
+  config=cfg;
+  $('tServer').classList.toggle('on',cfg.type==='server');
+  $('tProd').classList.toggle('on',cfg.type==='production');
   renderBuilder(); build();
 }
+function setType(t){ applyConfig(defaultConfig(t)); }
 window.setType=setType;
+
+/* ---- save / load configuration ---- */
+$('saveCfg').onclick=()=>{
+  const blob=new Blob([JSON.stringify(config,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`des-config-${config.type}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+$('loadCfg').onclick=()=>$('cfgFile').click();
+$('cfgFile').onchange=e=>{
+  const f=e.target.files[0]; if(!f)return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    e.target.value='';
+    try{ applyConfig(parseConfig(rd.result)); }
+    catch(err){ alert('Could not load configuration: '+err.message); }
+  };
+  rd.readAsText(f);
+};
+function normDist(d,what){
+  if(!d||typeof d!=='object'||!DISTS[d.type])throw new Error(`invalid ${what} distribution`);
+  return {type:d.type,params:Object.assign({},d.params),variability:Math.max(0,parseFloat(d.variability)||0)};
+}
+function parseConfig(text){
+  const cfg=JSON.parse(text);
+  if(cfg.type!=='server'&&cfg.type!=='production')throw new Error('type must be "server" or "production"');
+  if(!Array.isArray(cfg.stations)||!cfg.stations.length)throw new Error('stations must be a non-empty array');
+  return {
+    type:cfg.type,
+    source:normDist(cfg.source,'source'),
+    stations:cfg.stations.map((s,k)=>station(
+      String(s.name||('Step '+(k+1))),
+      Math.max(1,parseInt(s.machines)||1),
+      !!s.finite,
+      Math.max(1,parseInt(s.cap)||1),
+      normDist(s.service,`station ${k+1} service`),
+      Math.min(1,Math.max(0,parseFloat(s.scrap)||0)),
+      !!s.brk,
+      s.ttf?normDist(s.ttf,`station ${k+1} time-to-failure`):null,
+      s.ttr?normDist(s.ttr,`station ${k+1} time-to-repair`):null,
+    )),
+  };
+}
 
 function distEditor(d,onChange,opts={}){
   const wrap=document.createElement('div'); wrap.className='dist';
