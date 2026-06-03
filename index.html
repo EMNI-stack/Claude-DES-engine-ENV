@@ -237,185 +237,9 @@
   <p class="note" style="margin-top:10px">Single self-contained file. The engine is the <code>Sim</code> class (a general line of stations with blocking, scrap, and breakdowns); distributions live in <code>sample()</code>. No closed-form theory panel here — once you add blocking, non-exponential service, breakdowns or scrap, exact formulas stop applying, so the simulation <i>is</i> the answer. That's the whole reason DES exists.</p>
 </div>
 
-<script>
-/* ===================================================================
-   MODULAR DES ENGINE — a line of stations
-   Entities flow: SOURCE -> station 0 -> station 1 -> ... -> SINK
-   Each station: buffer (cap), c machines, service distribution.
-   Production extras: scrap probability, machine breakdown (TTF/TTR).
-   Blocking: a machine that finishes but can't pass the part downstream
-   stays "blocked" until a slot frees (classic production-line behavior).
-   =================================================================== */
-
-/* ---- RNG + distributions ---- */
-function mulberry32(s){return function(){s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
-function randn(rng){let u=0,v=0;while(!u)u=rng();while(!v)v=rng();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
-function gammaFn(z){const g=7,c=[0.99999999999980993,676.5203681218851,-1259.1392167224028,771.32342877765313,-176.61502916214059,12.507343278686905,-0.13857109526572012,9.9843695780195716e-6,1.5056327351493116e-7];if(z<0.5)return Math.PI/(Math.sin(Math.PI*z)*gammaFn(1-z));z-=1;let x=c[0];for(let i=1;i<g+2;i++)x+=c[i]/(z+i);const t=z+g+0.5;return Math.sqrt(2*Math.PI)*Math.pow(t,z+0.5)*Math.exp(-t)*x;}
-
-const DISTS={
-  const:{label:'Constant',f:[['value','value',1]]},
-  exp:{label:'Exponential',f:[['mean','mean',1]]},
-  uniform:{label:'Uniform',f:[['min','min',0.5],['max','max',1.5]]},
-  normal:{label:'Normal',f:[['mean','mean',1],['sd','std dev',0.3]]},
-  triangular:{label:'Triangular',f:[['min','min',0.4],['mode','mode',1],['max','max',2]]},
-  weibull:{label:'Weibull',f:[['shape','shape k',1.5],['scale','scale λ',1]]},
-  lognormal:{label:'Lognormal',f:[['mean','mean',1],['sd','std dev',0.5]]},
-};
-function newDist(type,params){return {type,params:Object.assign({},params),variability:0};}
-function sample(d,rng){
-  const p=d.params; let v, u=rng();
-  switch(d.type){
-    case 'const': v=p.value; break;
-    case 'exp': v=-(p.mean)*Math.log(1-u); break;
-    case 'uniform': v=p.min+(p.max-p.min)*u; break;
-    case 'normal': v=p.mean+p.sd*randn(rng); break;
-    case 'triangular':{const{min,mode,max}=p,fc=(mode-min)/(max-min);
-      v=u<fc? min+Math.sqrt(u*(max-min)*(mode-min)) : max-Math.sqrt((1-u)*(max-min)*(max-mode)); break;}
-    case 'weibull': v=p.scale*Math.pow(-Math.log(1-u),1/p.shape); break;
-    case 'lognormal':{const m=p.mean,s=p.sd,sig2=Math.log(1+(s*s)/(m*m)),mu=Math.log(m)-sig2/2;
-      v=Math.exp(mu+Math.sqrt(sig2)*randn(rng)); break;}
-    default: v=1;
-  }
-  if(d.variability>0) v*=Math.max(0.05, 1+d.variability*randn(rng)); // extra variability on top
-  return Math.max(0,v);
-}
-function distMean(d){const p=d.params;switch(d.type){
-  case 'const':return p.value; case 'exp':return p.mean; case 'uniform':return (p.min+p.max)/2;
-  case 'normal':return p.mean; case 'triangular':return (p.min+p.mode+p.max)/3;
-  case 'weibull':return p.scale*gammaFn(1+1/p.shape); case 'lognormal':return p.mean; default:return 1;}}
-
-/* ---- the simulation ---- */
-class Sim{
-  constructor(cfg,seed){
-    this.cfg=cfg; this.type=cfg.type; this.rng=mulberry32(seed);
-    this.now=0; this.seq=0; this.fel=[]; this.heapInit();
-    this.pid=0; this.events=0; this.lastT=0;
-    this.entered=0; this.completed=0; this.scrapped=0; this.rejected=0;
-    this.areaWIP=0; this.sumCycle=0; this.cycles=[]; this.logbuf=[]; this.exits=[];
-    this.stations=cfg.stations.map((s,k)=>({
-      cfg:s, cap:s.finite? s.cap : Infinity,
-      machines:Array.from({length:s.machines},()=>({part:null,busy:false,down:false,blocked:false,remaining:0,depTime:0,depSeq:0,failSeq:0})),
-      queue:[], processed:0, scrapped:0,
-      aBusy:0,aDown:0,aBlk:0,aQ:0,
-    }));
-    this.schedule(sample(cfg.source,this.rng),{t:'ARR'});
-    // schedule first failure for breakdown-enabled machines
-    this.stations.forEach((st,k)=>{ if(this.type==='production'&&st.cfg.brk){
-      st.machines.forEach((m,mi)=>this.scheduleFail(k,mi)); }});
-  }
-  /* tiny binary heap on this.fel, ordered by (time,seq) */
-  heapInit(){this.fel=[];}
-  hLess(a,b){return a.time<b.time||(a.time===b.time&&a.seq<b.seq);}
-  push(e){const a=this.fel;a.push(e);let i=a.length-1;while(i>0){const p=(i-1)>>1;if(this.hLess(a[i],a[p])){[a[i],a[p]]=[a[p],a[i]];i=p;}else break;}}
-  pop(){const a=this.fel,top=a[0],last=a.pop();if(a.length){a[0]=last;let i=0,n=a.length;while(1){let l=2*i+1,r=2*i+2,s=i;if(l<n&&this.hLess(a[l],a[s]))s=l;if(r<n&&this.hLess(a[r],a[s]))s=r;if(s!==i){[a[i],a[s]]=[a[s],a[i]];i=s;}else break;}}return top;}
-  schedule(dt,ev){ev.time=this.now+dt;ev.seq=this.seq++;this.push(ev);}
-  scheduleFail(k,mi){const st=this.stations[k];const m=st.machines[mi];
-    this.schedule(sample(st.cfg.ttf,this.rng),{t:'FAIL',k,mi,seq2:++m.failSeq});}
-  scheduleRepair(k,mi){const st=this.stations[k];this.schedule(sample(st.cfg.ttr,this.rng),{t:'REP',k,mi});}
-
-  occupancy(st){let n=st.queue.length;for(const m of st.machines)if(m.part)n++;return n;}
-  WIP(){let n=0;for(const st of this.stations)n+=this.occupancy(st);return n;}
-  idleMachine(st){for(let i=0;i<st.machines.length;i++){const m=st.machines[i];if(!m.part&&!m.down)return i;}return -1;}
-
-  startService(k,mi,part){const st=this.stations[k],m=st.machines[mi];
-    m.part=part;m.busy=true;m.blocked=false;
-    const w=sample(st.cfg.service,this.rng);m.remaining=w;m.depTime=this.now+w;
-    this.schedule(w,{t:'DEP',k,mi,seq2:m.depSeq=(m.depSeq+1)});}
-
-  tryAccept(k,part){const st=this.stations[k];
-    if(this.occupancy(st)>=st.cap) return false;
-    const mi=this.idleMachine(st);
-    if(mi>=0) this.startService(k,mi,part); else st.queue.push(part);
-    return true;}
-
-  freeAndPull(k,mi){const st=this.stations[k],m=st.machines[mi];
-    m.part=null;m.busy=false;m.blocked=false;
-    if(!m.down&&st.queue.length){const p=st.queue.shift();this.startService(k,mi,p);}
-    this.notifyUpstream(k);}            // a slot at station k just freed
-
-  notifyUpstream(k){ if(k-1<0)return; const up=this.stations[k-1];
-    for(let mi=0;mi<up.machines.length;mi++){const m=up.machines[mi];
-      if(m.blocked&&!m.down&&m.part){ if(this.tryAccept(k,m.part)){ m.part=null;m.blocked=false; this.freeAndPull(k-1,mi);} }}}
-
-  advance(k,mi,part){
-    if(k+1>=this.stations.length){ // completed the line
-      this.completed++; const ct=this.now-part.tA; this.sumCycle+=ct;
-      this.cycles.push(ct); if(this.cycles.length>4000)this.cycles.shift();
-      this.freeAndPull(k,mi); return; }
-    if(this.tryAccept(k+1,part)){ this.freeAndPull(k,mi); }
-    else { this.stations[k].machines[mi].blocked=true; } // stuck holding the part
-  }
-
-  accumulate(t){const dt=t-this.lastT; if(dt>0){
-    for(const st of this.stations){let b=0,d=0,bl=0;
-      for(const m of st.machines){ if(m.down)d++; else if(m.busy)b++; else if(m.blocked)bl++; }
-      st.aBusy+=b*dt; st.aDown+=d*dt; st.aBlk+=bl*dt; st.aQ+=st.queue.length*dt; }
-    this.areaWIP+=this.WIP()*dt; }
-    this.lastT=t;}
-  log(t,extra){this.logbuf.unshift(Object.assign({time:this.now,t},extra));if(this.logbuf.length>40)this.logbuf.pop();}
-
-  step(){
-    if(!this.fel.length)return false;
-    const ev=this.pop(); this.accumulate(ev.time); this.now=ev.time; this.events++;
-    const k=ev.k, mi=ev.mi; const st=k!=null?this.stations[k]:null; const m=st?st.machines[mi]:null;
-
-    if(ev.t==='ARR'){
-      this.schedule(sample(this.cfg.source,this.rng),{t:'ARR'});
-      const part={id:++this.pid,tA:this.now}; this.entered++;
-      if(this.tryAccept(0,part)) this.log('arr',{id:part.id});
-      else { this.rejected++; this.exit(part,0,'rej'); this.log('rej',{id:part.id}); }
-    }
-    else if(ev.t==='DEP'){
-      if(ev.seq2!==m.depSeq) return true;       // stale (interrupted) departure
-      m.busy=false; st.processed++; const part=m.part;
-      if(this.type==='production'&&st.cfg.scrap>0&&this.rng()<st.cfg.scrap){
-        st.scrapped++; this.scrapped++; this.exit(part,k,'scrap'); this.freeAndPull(k,mi);
-        this.log('scrap',{id:part.id,k});
-      } else { this.log('dep',{id:part.id,k}); this.advance(k,mi,part); }
-    }
-    else if(ev.t==='FAIL'){
-      if(ev.seq2!==m.failSeq||m.down) return true;
-      if(m.busy){ m.depSeq++; m.remaining=Math.max(0,m.depTime-this.now); m.busy=false; m.down=true; }
-      else { m.down=true; }                      // idle or blocked -> just goes down
-      this.scheduleRepair(k,mi); this.log('fail',{k,mi});
-    }
-    else if(ev.t==='REP'){
-      m.down=false; this.scheduleFail(k,mi); this.log('rep',{k,mi});
-      if(m.part){
-        if(m.blocked){ this.advance(k,mi,m.part); }                  // retry passing downstream
-        else { m.busy=true; m.depTime=this.now+m.remaining; this.schedule(m.remaining,{t:'DEP',k,mi,seq2:m.depSeq=(m.depSeq+1)}); }
-      } else if(st.queue.length){ const p=st.queue.shift(); this.startService(k,mi,p); }
-    }
-    return true;
-  }
-  exit(part,k,kind){ this.exits.push({id:part.id,k,kind}); }
-  pctile(p){if(!this.cycles.length)return 0;const a=[...this.cycles].sort((x,y)=>x-y);return a[Math.min(a.length-1,Math.floor(p*a.length))];}
-}
-
-/* ===================================================================
-   DEFAULT CONFIGS
-   =================================================================== */
-function defaultConfig(type){
-  if(type==='server'){
-    return {type:'server',
-      source:newDist('exp',{mean:0.7}),
-      stations:[ station('Service desk',3,false,8, newDist('exp',{mean:1.0})) ]};
-  }
-  return {type:'production',
-    source:newDist('exp',{mean:1.6}),
-    stations:[
-      station('Cutting',2,true,6, newDist('lognormal',{mean:1.4,sd:0.4}), 0.02, true,
-        newDist('weibull',{shape:1.8,scale:40}), newDist('exp',{mean:4})),
-      station('Welding',1,true,5, newDist('normal',{mean:1.2,sd:0.3}), 0.05, true,
-        newDist('weibull',{shape:1.5,scale:30}), newDist('exp',{mean:5})),
-      station('Inspection',2,true,6, newDist('triangular',{min:0.6,mode:1.0,max:1.8}), 0.0, false,
-        newDist('weibull',{shape:2,scale:50}), newDist('exp',{mean:3})),
-    ]};
-}
-function station(name,machines,finite,cap,service,scrap=0,brk=false,ttf=null,ttr=null){
-  return {name,machines,finite,cap,service,scrap,brk,
-    ttf:ttf||newDist('weibull',{shape:1.5,scale:40}), ttr:ttr||newDist('exp',{mean:4})};
-}
+<script type="module">
+import { Sim, station, defaultConfig } from './src/engine.js';
+import { DISTS, newDist, sample, distMean, mulberry32 } from './src/distributions.js';
 
 /* ===================================================================
    UI: builder
@@ -429,6 +253,8 @@ function setType(t){
   $('tProd').classList.toggle('on',t==='production');
   renderBuilder(); build();
 }
+window.setType=setType;
+
 function distEditor(d,onChange,opts={}){
   const wrap=document.createElement('div'); wrap.className='dist';
   const sel=document.createElement('select');
@@ -479,17 +305,14 @@ function distEditor(d,onChange,opts={}){
 function lab(text,el){const l=document.createElement('label');l.className='fld';l.appendChild(document.createTextNode(text));l.appendChild(el);return l;}
 
 function renderBuilder(){
-  // source
   $('sourceDist').innerHTML='';
   $('sourceDist').appendChild(distEditor(config.source,build));
-  // stations
   const box=$('stations'); box.innerHTML='';
   config.stations.forEach((s,k)=>box.appendChild(stationCard(s,k)));
 }
 function stationCard(s,k){
   const isProd=config.type==='production';
   const card=document.createElement('div');card.className='station';
-  // header
   const h=document.createElement('div');h.className='station-h';
   h.innerHTML=`<span class="num">STEP ${k+1}</span>`;
   const nm=document.createElement('input');nm.className='name';nm.value=s.name;nm.oninput=()=>{s.name=nm.value;};
@@ -497,7 +320,6 @@ function stationCard(s,k){
   if(config.stations.length>1){const del=document.createElement('button');del.className='danger';del.textContent='✕ remove';
     del.onclick=()=>{config.stations.splice(k,1);renderBuilder();build();};h.appendChild(del);}
   card.appendChild(h);
-  // basics row
   const r=document.createElement('div');r.className='row';
   const mc=document.createElement('input');mc.type='number';mc.min=1;mc.max=8;mc.value=s.machines;
   mc.oninput=()=>{s.machines=Math.max(1,parseInt(mc.value)||1);build();};
@@ -511,17 +333,14 @@ function stationCard(s,k){
   capWrap.appendChild(finLab);capWrap.appendChild(lab('capacity',capInp));
   r.appendChild(capWrap);
   card.appendChild(r);
-  // service dist
   const sh=document.createElement('div');sh.className='sub-h';sh.textContent='Processing time';card.appendChild(sh);
   card.appendChild(distEditor(s.service,build));
-  // production extras
   if(isProd){
     const sh2=document.createElement('div');sh2.className='sub-h';sh2.textContent='Quality — scrap probability';card.appendChild(sh2);
     const scr=document.createElement('input');scr.type='number';scr.min=0;scr.max=1;scr.step=0.01;scr.value=s.scrap;
     scr.oninput=()=>{s.scrap=Math.min(1,Math.max(0,parseFloat(scr.value)||0));build();};
     const scrRow=document.createElement('div');scrRow.className='row';scrRow.appendChild(lab('scrap prob (0–1)',scr));
     scrRow.appendChild(document.createTextNode(''));card.appendChild(scrRow);
-    // breakdown
     const sh3=document.createElement('div');sh3.className='sub-h';card.appendChild(sh3);
     const brkChk=document.createElement('input');brkChk.type='checkbox';brkChk.checked=s.brk;
     const brkLab=document.createElement('label');brkLab.className='check';brkLab.appendChild(brkChk);brkLab.appendChild(document.createTextNode('machine breakdowns'));
@@ -559,35 +378,28 @@ function buildStage(){
   const n=config.stations.length, segW=170, srcW=64, sinkW=56, H=360;
   const totalW=srcW+n*segW+sinkW+40;
   stageEl.style.width=totalW+'px'; geo={H,segW,srcW,sinkW,sx:[],my:[],midY:160};
-  // source
   const src=document.createElement('div');src.className='node';src.style.left='8px';src.style.top=(H/2-26)+'px';src.style.width=(srcW-12)+'px';src.style.height='52px';src.style.borderColor='var(--sim)';src.textContent='SOURCE';stageEl.appendChild(src);
   geo.entryX=srcW; geo.entryY=H/2;
   let x0=srcW+10;
   config.stations.forEach((s,k)=>{
     const sx=x0; geo.sx.push(sx);
     addLbl((k+1)+'. '+s.name, sx, 6, 'var(--ink)');
-    // buffer box
     const c=s.machines; const machX=sx+segW-72;
     const bufX=sx+8, bufW=machX-bufX-10;
     const buf=document.createElement('div');buf.className='buffer-box';buf.style.left=bufX+'px';buf.style.width=Math.max(30,bufW)+'px';buf.style.top=(H/2-15)+'px';stageEl.appendChild(buf);
     addLbl('buffer'+(s.finite?(' K='+s.cap):''), bufX, H/2+18,'var(--faint)');
-    geo.qfront=bufX+Math.max(30,bufW)-14; geo.qgap=16; // shared per-station? store per station
-    // machines stacked
+    geo.qfront=bufX+Math.max(30,bufW)-14; geo.qgap=16;
     const my=[]; const gap=Math.min(46,(H-90)/c); const startY=(H-gap*(c-1))/2-17;
     for(let mi=0;mi<c;mi++){const y=startY+gap*mi;my.push(y+17);
       const mb=document.createElement('div');mb.className='machine';mb.id=`m_${k}_${mi}`;mb.style.left=machX+'px';mb.style.top=y+'px';
       mb.innerHTML=`<span class="mi">M${mi+1}</span>`;stageEl.appendChild(mb);}
     geo.my.push(my);
-    // station footer counters
     const f=document.createElement('div');f.className='stfoot';f.id='f_'+k;f.style.left=sx+'px';f.style.top=(H-44)+'px';f.style.width=(segW-8)+'px';stageEl.appendChild(f);
-    // arrow to next
     const arr=document.createElement('div');arr.className='arrow';arr.style.left=(machX+58)+'px';arr.style.width='18px';arr.style.top=(H/2)+'px';stageEl.appendChild(arr);
     x0+=segW;
   });
-  // sink
   const sink=document.createElement('div');sink.className='node';sink.style.left=(x0+6)+'px';sink.style.top=(H/2-26)+'px';sink.style.width=(sinkW-12)+'px';sink.style.height='52px';sink.style.borderColor='var(--thy)';sink.textContent='SINK';stageEl.appendChild(sink);
   geo.sinkX=x0+sinkW/2; geo.scrapY=H-58;
-  // per-station queue front X (recompute properly per station)
   geo.qf=[]; config.stations.forEach((s,k)=>{const sx=geo.sx[k];const machX=sx+segW-72;geo.qf.push(machX-18);});
 }
 function addLbl(t,x,y,col){const l=document.createElement('div');l.className='lbl';l.textContent=t;l.style.left=x+'px';l.style.top=y+'px';if(col)l.style.color=col;stageEl.appendChild(l);}
@@ -598,31 +410,26 @@ function renderStage(){
   const present=new Set();
   config.stations.forEach((s,k)=>{
     const st=sim.stations[k];
-    // machines
     st.machines.forEach((m,mi)=>{
       const box=$(`m_${k}_${mi}`); if(!box)return;
       box.className='machine'+(m.down?' down':m.busy?' busy':m.blocked?' blocked':'');
       if(m.part){const el=tokenFor(m.part);el.classList.remove('q');setPos(el,geo.sx[k]+geo.segW-72+29,geo.my[k][mi]);present.add(m.part.id);}
     });
-    // queue
     const maxShow=Math.min(st.queue.length,8);
     for(let q=0;q<st.queue.length;q++){const part=st.queue[q];
       if(q<maxShow){const el=tokenFor(part);el.classList.add('q');setPos(el,geo.qf[k]-q*15,geo.H/2);present.add(part.id);}
       else{const el=tokenEls.get(part.id);if(el){el.remove();tokenEls.delete(part.id);}}}
-    // footer counters
     const M=st.machines.length,T=sim.now||1e-9;
     const util=st.aBusy/(M*T)*100, down=st.aDown/(M*T)*100;
     $('f_'+k).innerHTML=`util ${util.toFixed(0)}% · Q̄ ${(st.aQ/T).toFixed(1)}`+
       (config.type==='production'?` · scrap ${st.scrapped}`+(s.brk?` · down ${down.toFixed(0)}%`:''):'');
   });
-  // handle exits (scrap drops, completions to sink)
   for(const ex of sim.exits){const el=tokenEls.get(ex.id);if(el){
     if(ex.kind==='scrap'){el.classList.add('scrap');setPos(el,geo.sx[ex.k]+geo.segW-50,geo.scrapY);}
     else if(ex.kind==='rej'){el.style.opacity='0';}
     else setPos(el,geo.sinkX,geo.H/2);
     el.style.opacity='0';tokenEls.delete(ex.id);const e=el;setTimeout(()=>e.remove(),400);}}
   sim.exits.length=0;
-  // remove any token no longer present and not exiting
   for(const[id,el]of tokenEls){if(!present.has(id)){el.style.opacity='0';tokenEls.delete(id);const e=el;setTimeout(()=>e.remove(),400);}}
   $('nowpill').textContent='clock '+sim.now.toFixed(1);
 }
@@ -640,7 +447,6 @@ function renderMetrics(){
   $('m_yield').textContent=fin?((sim.completed/fin)*100).toFixed(1)+'%':'—';
   $('m_rej').textContent=sim.rejected;
   $('m_in').textContent=sim.entered;
-  // per-station table
   $('stTable').innerHTML=config.stations.map((s,k)=>{const st=sim.stations[k];const M=st.machines.length;
     const util=st.aBusy/(M*T),blk=st.aBlk/(M*T),down=st.aDown/(M*T);
     return `<tr><td>${k+1}. ${s.name}</td>
