@@ -26,6 +26,11 @@ export class Sim {
     this.control = cfg.control === 'pull' ? 'pull' : 'push';
     this.targets = bufCfg.map((b) =>
       Math.max(1, Math.floor(b.target) || (b.finite ? b.cap : 8)));
+    // Supply mode at the raw-material end, mirroring demand: 'limitless'
+    // feeds station 0 the moment it can start (raw material never runs dry);
+    // 'stream' generates arrivals from the source distribution (legacy
+    // configs without the field keep the stream behavior).
+    this.supply = cfg.supply === 'limitless' ? 'limitless' : 'stream';
     // Customer demand at the finished-goods end. 'instant' consumes every
     // finished unit immediately — the classic push-to-sink behavior.
     this.demand = (cfg.demand && cfg.demand.mode === 'stream') ? cfg.demand : { mode: 'instant' };
@@ -42,7 +47,7 @@ export class Sim {
       queue: [], processed: 0, scrapped: 0,
       aBusy: 0, aDown: 0, aBlk: 0, aQ: 0,
     }));
-    this.schedule(sample(cfg.source, this.rng), { t: 'ARR' });
+    if (this.supply === 'stream') this.schedule(sample(cfg.source, this.rng), { t: 'ARR' });
     this.stations.forEach((st, k) => {
       if (st.cfg.brk) {
         st.machines.forEach((m, mi) => this.scheduleFail(k, mi));
@@ -58,6 +63,7 @@ export class Sim {
     const seedOrder = [...this.stations.keys()];
     if (this.control === 'pull') seedOrder.reverse();
     for (const k of seedOrder) {
+      if (k === 0 && this.supply === 'limitless') continue;   // raw stock is implicit
       const lim = this.control === 'pull'
         ? Math.min(this.buffers[k].init, this.targets[k])
         : this.buffers[k].init;
@@ -66,6 +72,21 @@ export class Sim {
         if (!this.tryAccept(k, part)) break;
         this.entered++;
       }
+    }
+    this.feedSource();
+  }
+
+  // Limitless supply: create raw material the moment station 0 can take it —
+  // a free machine, and in pull mode a kanban authorization. The raw buffer
+  // never runs dry, so production is constrained only by capacity (and
+  // authorization). No-op in stream mode.
+  feedSource() {
+    if (this.supply !== 'limitless') return;
+    const st = this.stations[0];
+    let mi;
+    while ((mi = this.idleMachine(st)) >= 0 && this.authorized(0)) {
+      const part = { id: ++this.pid, tA: this.now }; this.entered++;
+      this.startService(0, mi, part);
     }
   }
 
@@ -123,6 +144,7 @@ export class Sim {
         const mi = this.idleMachine(st); if (mi < 0) break;
         this.startService(j, mi, st.queue.shift()); started = true;
       }
+      if (j === 0) this.feedSource();   // limitless supply: pull raw material in directly
       if (!started) break;   // buffer j untouched → upstream authorization unchanged
     }
   }
@@ -149,6 +171,7 @@ export class Sim {
       const p = st.queue.shift(); this.startService(k, mi, p);
       this.cascade(k);
     }
+    if (k === 0) this.feedSource();
     this.notifyUpstream(k);
   }
 
@@ -252,6 +275,7 @@ export class Sim {
         const p = st.queue.shift(); this.startService(k, mi, p);
         this.cascade(k);
       }
+      if (k === 0) this.feedSource();   // repaired machine at station 0 can take fresh material
     }
     return true;
   }
@@ -280,6 +304,7 @@ export function buffer(finite = false, cap = 10, init = 0, target = null) {
 export function defaultConfig() {
   return {
     control: 'push',
+    supply: 'limitless',
     source: newDist('exp', { mean: 1.6 }),
     stations: [
       station('Cutting', 2, true, 6, newDist('lognormal', { mean: 1.4, sd: 0.4 }), 0.02, true,

@@ -146,6 +146,10 @@
         <button id="saveCfg">⇣ Save configuration</button>
         <button id="loadCfg">⇡ Load configuration</button>
         <input type="file" id="cfgFile" accept=".json,application/json" style="display:none">
+        <span class="segwrap" id="supSeg">
+          <button class="seg on" id="sLimitless">Limitless source</button>
+          <button class="seg" id="sStream">Arrival stream</button>
+        </span>
         <span class="segwrap" id="ctrlSeg">
           <button class="seg on" id="cPush">Push</button>
           <button class="seg" id="cPull">Pull</button>
@@ -153,7 +157,7 @@
       </span>
     </div>
     <div class="panel-b">
-      <div class="sub-h">Arrivals (interarrival time distribution)</div>
+      <p class="note" id="sNote" style="margin:0 0 9px"></p>
       <div id="sourceDist"></div>
     </div>
   </div>
@@ -340,7 +344,9 @@ function parseConfig(text){
   const demand=cfg.demand&&cfg.demand.mode==='stream'
     ?{mode:'stream',dist:normDist(cfg.demand.dist,'demand')}
     :{mode:'instant',dist:cfg.demand&&cfg.demand.dist?normDist(cfg.demand.dist,'demand'):newDist('exp',{mean:2.5})};
-  return {control:cfg.control==='pull'?'pull':'push',source:normDist(cfg.source,'source'),stations,buffers,demand};
+  return {control:cfg.control==='pull'?'pull':'push',
+    supply:cfg.supply==='limitless'?'limitless':'stream',   // old files default to the stream they were saved with
+    source:normDist(cfg.source,'source'),stations,buffers,demand};
 }
 
 function distEditor(d,onChange,opts={}){
@@ -393,11 +399,20 @@ function distEditor(d,onChange,opts={}){
 function lab(text,el){const l=document.createElement('label');l.className='fld';l.appendChild(document.createTextNode(text));l.appendChild(el);return l;}
 
 function renderBuilder(){
+  const isPull=config.control==='pull', isLimitless=config.supply==='limitless';
+  // supply mode (mirrors the demand mode selector)
+  $('sLimitless').classList.toggle('on',isLimitless);
+  $('sStream').classList.toggle('on',!isLimitless);
+  $('sNote').textContent=isLimitless
+    ?'Raw material is always available — station 1 is fed the moment a machine'+(isPull?' and a kanban':'')+' frees up. Production is constrained only by capacity'+(isPull?' and authorization.':'.')
+    :(isPull?'Supplier deliveries arrive per the interarrival distribution below, accepted while raw stock is below its target.':'Raw material arrives per the interarrival time distribution below.');
   $('sourceDist').innerHTML='';
-  $('sourceDist').appendChild(distEditor(config.source,build));
+  if(!isLimitless)$('sourceDist').appendChild(distEditor(config.source,build));
   const box=$('stations'); box.innerHTML='';
-  const isPull=config.control==='pull';
-  config.stations.forEach((s,k)=>{box.appendChild(bufferCard(k));box.appendChild(stationCard(s,k));});
+  config.stations.forEach((s,k)=>{
+    if(!(k===0&&isLimitless))box.appendChild(bufferCard(k));   // raw buffer is implicit when supply is limitless
+    box.appendChild(stationCard(s,k));
+  });
   box.appendChild(bufferCard(config.stations.length));   // finished goods
   $('cPush').classList.toggle('on',config.control==='push');
   $('cPull').classList.toggle('on',config.control==='pull');
@@ -412,6 +427,8 @@ function renderBuilder(){
 }
 $('cPush').onclick=()=>{config.control='push';renderBuilder();build();};
 $('cPull').onclick=()=>{config.control='pull';renderBuilder();build();};
+$('sLimitless').onclick=()=>{config.supply='limitless';renderBuilder();build();};
+$('sStream').onclick=()=>{config.supply='stream';renderBuilder();build();};
 function bufferCard(k){
   const n=config.stations.length, isFG=k===n, b=config.buffers[k], isPull=config.control==='pull';
   const card=document.createElement('div');card.className='buffer-card';
@@ -503,7 +520,8 @@ function buildStage(){
   const n=config.stations.length, segW=170, srcW=64, sinkW=64, H=360, fgW=88;
   const totalW=srcW+n*segW+fgW+sinkW+40;
   stageEl.style.width=totalW+'px'; geo={H,segW,srcW,sinkW,sx:[],my:[],midY:160};
-  const src=document.createElement('div');src.className='node';src.style.left='8px';src.style.top=(H/2-26)+'px';src.style.width=(srcW-12)+'px';src.style.height='52px';src.style.borderColor='var(--sim)';src.textContent='SOURCE';stageEl.appendChild(src);
+  const src=document.createElement('div');src.className='node';src.style.left='8px';src.style.top=(H/2-26)+'px';src.style.width=(srcW-12)+'px';src.style.height='52px';src.style.borderColor='var(--sim)';
+  src.textContent=config.supply==='limitless'?'SOURCE ∞':'SOURCE';stageEl.appendChild(src);
   geo.entryX=srcW; geo.entryY=H/2;
   let x0=srcW+10;
   config.stations.forEach((s,k)=>{
@@ -560,8 +578,10 @@ function renderStage(){
     $('f_'+k).innerHTML=`util ${util.toFixed(0)}% · Q̄ ${(st.aQ/T).toFixed(1)}`+
       ` · scrap ${st.scrapped}`+(s.brk?` · down ${down.toFixed(0)}%`:'');
     const b=config.buffers[k];
-    $('bl_'+k).textContent=(k===0?'raw':'wip')+' '+st.queue.length
-      +(config.control==='pull'?'/T'+b.target:'')+(b.finite?' · K='+b.cap:'');
+    $('bl_'+k).textContent=k===0&&config.supply==='limitless'
+      ?'raw ∞ (limitless)'
+      :(k===0?'raw':'wip')+' '+st.queue.length
+        +(config.control==='pull'?'/T'+b.target:'')+(b.finite?' · K='+b.cap:'');
   });
   const fgEl=$('fglvl');if(fgEl)fgEl.textContent=sim.fg;
   const fb=config.buffers[config.stations.length];
@@ -667,7 +687,8 @@ $('xlsx').onclick=async()=>{
   A.addRow([]);
   const isPull=config.control==='pull';
   A.addRow(['Control mode',isPull?'Pull (kanban base-stock)':'Push']).getCell(1).font={bold:true};
-  A.addRow([isPull?'Supplier (replenishment)':'Arrivals (interarrival)',distStr(config.source)]).getCell(1).font={bold:true};
+  A.addRow([isPull?'Supplier (replenishment)':'Arrivals (interarrival)',
+    config.supply==='limitless'?'limitless — raw material always available':distStr(config.source)]).getCell(1).font={bold:true};
   const fgBuf=config.buffers[config.stations.length];
   A.addRow(['Customer demand',config.demand.mode==='stream'?distStr(config.demand.dist):'instant (push to sink)']).getCell(1).font={bold:true};
   A.addRow(['Finished goods buffer',(fgBuf.finite?'K = '+fgBuf.cap:'unlimited')+(isPull?`, target ${fgBuf.target}`:'')+(fgBuf.init?`, initial ${fgBuf.init}`:'')]).getCell(1).font={bold:true};

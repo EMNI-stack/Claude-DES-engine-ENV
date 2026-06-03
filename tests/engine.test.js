@@ -418,3 +418,89 @@ test('pull line fills to base stock and stops when there is no demand', () => {
     for (const m of st.machines) assert.ok(!m.busy && !m.part, 'machine should be idle awaiting authorization');
   }
 });
+
+/* ================================================================
+   14. Limitless supply (push): station 0 never starves — utilization
+       ≈ 100% and throughput ≈ machine capacity m/te.
+   ================================================================ */
+test('limitless supply saturates station 0 at machine capacity', () => {
+  const cfg = {
+    supply: 'limitless',
+    source: newDist('exp', { mean: 1.0 }),   // present but unused
+    stations: [station('A', 2, false, Infinity, newDist('exp', { mean: 0.5 }))],
+    buffers: [
+      { finite: false, cap: 99, init: 0, target: 5 },
+      { finite: false, cap: 99, init: 0, target: 5 },
+    ],
+    demand: { mode: 'instant', dist: newDist('exp', { mean: 2.5 }) },
+  };
+  const sim = new Sim(cfg, 3333);
+  runTo(sim, 100_000);
+
+  const T = sim.now;
+  const util = sim.stations[0].aBusy / (2 * T);
+  assert.ok(util > 0.999, `limitless supply should keep machines busy: util=${util.toFixed(4)}`);
+  const thru = sim.completed / T;
+  const capacity = 2 / 0.5;   // m/te = 4 parts/min
+  assert.ok(Math.abs(thru - capacity) / capacity < 0.02,
+    `throughput ${thru.toFixed(3)} should approach capacity ${capacity}`);
+  assert.equal(sim.rejected, 0, 'limitless supply never rejects');
+});
+
+/* ================================================================
+   15. Limitless supply + pull: line fills to base stock and stops;
+       raw buffer stays empty (material is pulled in directly), and
+       the kanban bound still holds at every event.
+   ================================================================ */
+test('limitless supply + pull fills to base stock with empty raw buffer', () => {
+  const cfg = {
+    control: 'pull',
+    supply: 'limitless',
+    source: newDist('exp', { mean: 1.0 }),   // unused
+    stations: [
+      station('A', 1, false, 99, newDist('const', { value: 1 })),
+      station('B', 1, false, 99, newDist('const', { value: 1 })),
+    ],
+    buffers: [
+      { finite: false, cap: 99, init: 0, target: 2 },
+      { finite: false, cap: 99, init: 0, target: 2 },
+      { finite: false, cap: 99, init: 0, target: 3 },
+    ],
+    demand: { mode: 'stream', dist: newDist('const', { value: 1e7 }) },
+  };
+  const sim = new Sim(cfg, 1);
+  const kanbanTotal = 2 + 2 + 3;
+  while (sim.fel.length && sim.fel[0].time < 1000) {
+    sim.step();
+    assert.ok(sim.WIP() + sim.fg <= kanbanTotal,
+      `inventory exceeded kanban total at t=${sim.now.toFixed(2)}`);
+  }
+  assert.equal(sim.fg, 3, 'FG should fill to its target');
+  assert.equal(sim.stations[0].queue.length, 0, 'raw buffer should stay empty under limitless supply');
+  assert.equal(sim.WIP(), 2, 'WIP buffer should hold its target (2); raw is pulled in directly');
+  for (const st of sim.stations) {
+    for (const m of st.machines) assert.ok(!m.busy && !m.part, 'machines should idle at base stock');
+  }
+});
+
+/* ================================================================
+   16. Configs without a supply field default to the arrival stream —
+       event-for-event identical to an explicit supply:'stream'.
+   ================================================================ */
+test('missing supply field defaults to arrival stream exactly', () => {
+  const mk = (extra) => ({
+    source: newDist('exp', { mean: 0.9 }),
+    stations: [
+      station('A', 1, true, 4, newDist('exp', { mean: 0.7 }), 0.05, false),
+      station('B', 2, true, 3, newDist('exp', { mean: 0.6 }), 0, false),
+    ],
+    ...extra,
+  });
+  const legacy = new Sim(mk({}), 3131);
+  const explicit = new Sim(mk({ supply: 'stream' }), 3131);
+  runTo(legacy, 60_000); runTo(explicit, 60_000);
+
+  assert.equal(explicit.completed, legacy.completed);
+  assert.equal(explicit.scrapped, legacy.scrapped);
+  assert.equal(explicit.now, legacy.now);
+});
