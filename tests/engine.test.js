@@ -300,3 +300,134 @@ test('full FG buffer blocks last station; throughput tracks demand rate', () => 
   // the machine must actually have spent time blocked on the FG buffer
   assert.ok(sim.stations[0].aBlk > 0, 'last station never blocked on full FG buffer');
 });
+
+/* ================================================================
+   10. Pull mode: total inventory never exceeds the sum of kanban
+       targets — the defining property of a kanban/CONWIP system.
+       Checked at EVERY event, with scrap and breakdowns active.
+   ================================================================ */
+test('pull mode: total inventory never exceeds sum of kanban targets', () => {
+  const cfg = {
+    type: 'production',
+    control: 'pull',
+    source: newDist('exp', { mean: 0.6 }),   // eager supplier
+    stations: [
+      station('A', 2, false, 99, newDist('exp', { mean: 0.8 }), 0.05, true,
+        newDist('exp', { mean: 25 }), newDist('exp', { mean: 4 })),
+      station('B', 1, false, 99, newDist('exp', { mean: 0.5 }), 0, false),
+    ],
+    buffers: [
+      { finite: false, cap: 99, init: 4, target: 4 },
+      { finite: false, cap: 99, init: 0, target: 3 },
+      { finite: false, cap: 99, init: 0, target: 5 },
+    ],
+    demand: { mode: 'stream', dist: newDist('exp', { mean: 1.0 }) },
+  };
+  const sim = new Sim(cfg, 6161);
+  const kanbanTotal = 4 + 3 + 5;
+  assert.ok(sim.WIP() + sim.fg <= kanbanTotal, 'seed exceeded kanban total');
+  for (let i = 0; i < 60_000 && sim.fel.length; i++) {
+    sim.step();
+    const tot = sim.WIP() + sim.fg;
+    assert.ok(tot <= kanbanTotal,
+      `inventory ${tot} exceeded kanban total ${kanbanTotal} at t=${sim.now.toFixed(2)}`);
+  }
+  assert.ok(sim.fulfilled > 1000, 'pull line barely produced — check authorization logic');
+});
+
+/* ================================================================
+   11. Pull mode conservation: demand and entity counts balance
+   ================================================================ */
+test('pull mode conservation: demand and entity counts balance', () => {
+  const cfg = {
+    type: 'production',
+    control: 'pull',
+    source: newDist('exp', { mean: 0.5 }),
+    stations: [
+      station('A', 1, false, 99, newDist('exp', { mean: 0.6 }), 0.05, false),
+      station('B', 1, false, 99, newDist('exp', { mean: 0.5 }), 0, true,
+        newDist('exp', { mean: 30 }), newDist('exp', { mean: 3 })),
+    ],
+    buffers: [
+      { finite: false, cap: 99, init: 3, target: 3 },
+      { finite: false, cap: 99, init: 0, target: 4 },
+      { finite: false, cap: 99, init: 0, target: 5 },
+    ],
+    demand: { mode: 'stream', dist: newDist('exp', { mean: 0.9 }) },
+  };
+  const sim = new Sim(cfg, 7272);
+  runTo(sim, 80_000);
+
+  assert.ok(sim.demanded > 1000, 'not enough demand events');
+  assert.equal(sim.demanded, sim.fulfilled + sim.stockouts,
+    `demanded=${sim.demanded} != fulfilled(${sim.fulfilled})+stockouts(${sim.stockouts})`);
+  // FG on hand are completed parts; everything entered is accounted for
+  assert.equal(sim.entered, sim.completed + sim.scrapped + sim.rejected + sim.WIP(),
+    'entity conservation broken in pull mode');
+});
+
+/* ================================================================
+   12. Little's Law holds in pull mode: avg WIP = TH × avg CT
+       (theory-notes §1 — conservation law, holds for any discipline;
+       no scrap so every released part completes)
+   ================================================================ */
+test("Little's Law holds in pull mode (WIP = TH × CT)", () => {
+  const cfg = {
+    type: 'production',
+    control: 'pull',
+    source: newDist('exp', { mean: 0.5 }),
+    stations: [
+      station('A', 1, false, 99, newDist('exp', { mean: 0.6 })),
+      station('B', 1, false, 99, newDist('exp', { mean: 0.7 })),
+    ],
+    buffers: [
+      { finite: false, cap: 99, init: 5, target: 5 },
+      { finite: false, cap: 99, init: 0, target: 4 },
+      { finite: false, cap: 99, init: 0, target: 4 },
+    ],
+    demand: { mode: 'stream', dist: newDist('exp', { mean: 1.1 }) },
+  };
+  const sim = new Sim(cfg, 9090);
+  runTo(sim, 200_000);
+
+  assert.ok(sim.completed > 5000, 'not enough completions');
+  const T = sim.now;
+  const avgWIP = sim.areaWIP / T;
+  const th = sim.completed / T;
+  const avgCT = sim.sumCycle / sim.completed;
+  const rel = Math.abs(avgWIP - th * avgCT) / avgWIP;
+  assert.ok(rel < 0.05,
+    `Little's Law: avgWIP=${avgWIP.toFixed(3)} vs TH×CT=${(th * avgCT).toFixed(3)} (${(rel * 100).toFixed(1)}% off)`);
+});
+
+/* ================================================================
+   13. Base-stock signature: with no demand, a pull line fills every
+       buffer to its target and then stops (all machines idle,
+       waiting for authorization). Deterministic via const dists.
+       Targets: raw 2, WIP 2, FG 3.
+   ================================================================ */
+test('pull line fills to base stock and stops when there is no demand', () => {
+  const cfg = {
+    type: 'production',
+    control: 'pull',
+    source: newDist('const', { value: 0.5 }),
+    stations: [
+      station('A', 1, false, 99, newDist('const', { value: 1 })),
+      station('B', 1, false, 99, newDist('const', { value: 1 })),
+    ],
+    buffers: [
+      { finite: false, cap: 99, init: 0, target: 2 },
+      { finite: false, cap: 99, init: 0, target: 2 },
+      { finite: false, cap: 99, init: 0, target: 3 },
+    ],
+    demand: { mode: 'stream', dist: newDist('const', { value: 1e7 }) },   // demand never arrives
+  };
+  const sim = new Sim(cfg, 1);
+  runTo(sim, 4000);
+
+  assert.equal(sim.fg, 3, 'FG should fill exactly to its target');
+  assert.equal(sim.WIP(), 4, 'line WIP should equal raw target (2) + WIP buffer target (2)');
+  for (const st of sim.stations) {
+    for (const m of st.machines) assert.ok(!m.busy && !m.part, 'machine should be idle awaiting authorization');
+  }
+});

@@ -77,6 +77,7 @@
   .machine.busy{border-color:var(--sim);box-shadow:0 0 12px rgba(54,224,200,.22);background:rgba(54,224,200,.06)}
   .machine.down{border-color:var(--down);box-shadow:0 0 12px rgba(255,107,107,.3);background:rgba(255,107,107,.07)}
   .machine.blocked{border-color:var(--blocked);background:rgba(255,135,83,.07)}
+  .machine.wait{border-color:#7aa2ff;background:rgba(122,162,255,.07)}
   .machine .mi{position:absolute;top:-13px;left:0;font-size:8px;color:var(--faint);font-family:'JetBrains Mono',monospace}
   .buffer-box{position:absolute;border:1px solid var(--line);border-radius:6px;height:30px;background:rgba(255,255,255,.015)}
   .stfoot{position:absolute;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--faint);line-height:1.5}
@@ -92,6 +93,7 @@
   .legend .down{border-color:var(--down);background:rgba(255,107,107,.2)}
   .legend .blk{border-color:var(--blocked);background:rgba(255,135,83,.2)}
   .legend .idl{border-color:var(--idle)}
+  .legend .wt{border-color:#7aa2ff;background:rgba(122,162,255,.2)}
 
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   @media(max-width:860px){.grid{grid-template-columns:1fr}}
@@ -147,6 +149,10 @@
         <span class="segwrap">
           <button class="seg" id="tServer" onclick="setType('server')">Server system</button>
           <button class="seg on" id="tProd" onclick="setType('production')">Production system</button>
+        </span>
+        <span class="segwrap" id="ctrlSeg">
+          <button class="seg on" id="cPush">Push</button>
+          <button class="seg" id="cPull">Pull</button>
         </span>
       </span>
     </div>
@@ -209,8 +215,9 @@
     <div class="panel-b">
       <div class="stage-scroll"><div class="stage" id="stage"></div></div>
       <div class="legend">
-        <span><i class="idl"></i>idle</span><span><i class="busy"></i>busy</span>
+        <span><i class="idl"></i>idle / starved (no input)</span><span><i class="busy"></i>busy</span>
         <span><i class="down"></i>down (broken)</span><span><i class="blk"></i>blocked (can't release)</span>
+        <span><i class="wt"></i>waiting for kanban (pull)</span>
         <span style="color:var(--sim)">● part</span><span style="color:#8fb3c4">● waiting</span><span style="color:var(--down)">● scrapped</span>
       </div>
     </div>
@@ -331,16 +338,18 @@ function parseConfig(text){
     s.ttf?normDist(s.ttf,`station ${k+1} time-to-failure`):null,
     s.ttr?normDist(s.ttr,`station ${k+1} time-to-repair`):null,
   ));
-  const normBuf=b=>({finite:!!b.finite,cap:Math.max(1,parseInt(b.cap)||1),init:Math.max(0,parseInt(b.init)||0)});
-  // old save files have no buffers/demand — derive buffers from the legacy
-  // per-station finite/cap fields and default to instant demand
+  const normBuf=b=>{const cap=Math.max(1,parseInt(b.cap)||1);
+    return {finite:!!b.finite,cap,init:Math.max(0,parseInt(b.init)||0),
+      target:Math.max(1,parseInt(b.target)||(b.finite?cap:8))};};
+  // old save files have no buffers/demand/control — derive buffers from the
+  // legacy per-station finite/cap fields and default to instant demand + push
   const buffers=Array.isArray(cfg.buffers)&&cfg.buffers.length===stations.length+1
     ?cfg.buffers.map(normBuf)
-    :[...stations.map(s=>({finite:s.finite,cap:s.cap===Infinity?12:s.cap,init:0})),{finite:false,cap:12,init:0}];
+    :[...stations.map(s=>({finite:s.finite,cap:s.cap===Infinity?12:s.cap,init:0,target:s.finite?s.cap:8})),{finite:false,cap:12,init:0,target:6}];
   const demand=cfg.demand&&cfg.demand.mode==='stream'
     ?{mode:'stream',dist:normDist(cfg.demand.dist,'demand')}
     :{mode:'instant',dist:cfg.demand&&cfg.demand.dist?normDist(cfg.demand.dist,'demand'):newDist('exp',{mean:2.5})};
-  return {type:cfg.type,source:normDist(cfg.source,'source'),stations,buffers,demand};
+  return {type:cfg.type,control:cfg.control==='pull'?'pull':'push',source:normDist(cfg.source,'source'),stations,buffers,demand};
 }
 
 function distEditor(d,onChange,opts={}){
@@ -396,22 +405,30 @@ function renderBuilder(){
   $('sourceDist').innerHTML='';
   $('sourceDist').appendChild(distEditor(config.source,build));
   const box=$('stations'); box.innerHTML='';
-  const isProd=config.type==='production';
+  const isProd=config.type==='production', isPull=config.control==='pull';
   config.stations.forEach((s,k)=>{box.appendChild(bufferCard(k));box.appendChild(stationCard(s,k));});
   if(isProd)box.appendChild(bufferCard(config.stations.length));   // finished goods
-  // demand process (production systems only; server systems are pure push)
+  // control mode (production systems only; server systems are pure push)
+  $('ctrlSeg').classList.toggle('hidden',!isProd);
+  if(!isProd)config.control='push';
+  $('cPush').classList.toggle('on',config.control==='push');
+  $('cPull').classList.toggle('on',config.control==='pull');
+  // demand process (production systems only)
   $('pDemand').classList.toggle('hidden',!isProd);
   if(!isProd)config.demand.mode='instant';
   $('dInstant').classList.toggle('on',config.demand.mode==='instant');
   $('dStream').classList.toggle('on',config.demand.mode==='stream');
-  $('dNote').textContent=config.demand.mode==='instant'
+  $('dNote').textContent=(config.demand.mode==='instant'
     ?'Every finished unit is consumed the moment it completes (classic push-to-sink — the validated baseline behavior).'
-    :'Customers arrive per the interarrival distribution below. Each consumes one unit of finished goods; if the FG buffer is empty the demand is a stockout (lost sale). Fill rate = fulfilled / demanded.';
+    :'Customers arrive per the interarrival distribution below. Each consumes one unit of finished goods; if the FG buffer is empty the demand is a stockout (lost sale). Fill rate = fulfilled / demanded.')
+    +(isPull?' PULL is active: each demand frees a kanban that authorizes the last station, cascading upstream to raw material.':'');
   const dd=$('demandDist'); dd.innerHTML='';
   if(config.demand.mode==='stream')dd.appendChild(distEditor(config.demand.dist,build));
 }
+$('cPush').onclick=()=>{config.control='push';renderBuilder();build();};
+$('cPull').onclick=()=>{config.control='pull';renderBuilder();build();};
 function bufferCard(k){
-  const n=config.stations.length, isFG=k===n, b=config.buffers[k];
+  const n=config.stations.length, isFG=k===n, b=config.buffers[k], isPull=config.control==='pull';
   const card=document.createElement('div');card.className='buffer-card';
   const lbl=document.createElement('span');lbl.className='blabel';
   lbl.textContent=k===0?'▤ RAW BUFFER → STEP 1':isFG?'▤ FINISHED GOODS':`▤ WIP BUFFER ${k} → ${k+1}`;
@@ -422,11 +439,20 @@ function bufferCard(k){
   cap.oninput=()=>{b.cap=Math.max(1,parseInt(cap.value)||1);build();};
   const finLab=document.createElement('label');finLab.className='check';finLab.appendChild(fin);finLab.appendChild(document.createTextNode('finite'));
   card.appendChild(finLab);card.appendChild(lab('capacity',cap));
-  const init=document.createElement('input');init.type='number';init.min=0;init.value=b.init;
-  init.oninput=()=>{b.init=Math.max(0,parseInt(init.value)||0);build();};
-  card.appendChild(lab('initial inventory',init));
+  if(isPull){
+    const tgt=document.createElement('input');tgt.type='number';tgt.min=1;tgt.value=b.target;
+    tgt.oninput=()=>{b.target=Math.max(1,parseInt(tgt.value)||1);build();};
+    card.appendChild(lab('target (kanban)',tgt));
+  }
+  if(!isPull||k===0){   // pull lines seed only raw material; push keeps init everywhere (incl. FG)
+    const init=document.createElement('input');init.type='number';init.min=0;init.value=b.init;
+    init.oninput=()=>{b.init=Math.max(0,parseInt(init.value)||0);build();};
+    card.appendChild(lab(isPull?'initial raw stock':'initial inventory',init));
+  }
   const note=document.createElement('span');note.className='bnote';
-  note.textContent=isFG?'drawn down by customer demand':'capacity counts queue + parts in service';
+  note.textContent=isPull
+    ?(isFG?'demand frees kanbans from here':k===0?'supplier replenishes up to target':'upstream produces only below target')
+    :(isFG?'drawn down by customer demand':'capacity counts queue + parts in service');
   card.appendChild(note);
   return card;
 }
@@ -472,7 +498,7 @@ function stationCard(s,k){
 }
 $('addSt').onclick=()=>{const isProd=config.type==='production';
   config.stations.push(station('Step '+(config.stations.length+1),1,false,5,newDist('exp',{mean:1.0}),isProd?0:0,false));
-  config.buffers.splice(config.stations.length-1,0,{finite:false,cap:5,init:0});  // input buffer of the new station; FG stays last
+  config.buffers.splice(config.stations.length-1,0,{finite:false,cap:5,init:0,target:5});  // input buffer of the new station; FG stays last
   renderBuilder();build();};
 
 /* ===================================================================
@@ -539,7 +565,9 @@ function renderStage(){
     const st=sim.stations[k];
     st.machines.forEach((m,mi)=>{
       const box=$(`m_${k}_${mi}`); if(!box)return;
-      box.className='machine'+(m.down?' down':m.busy?' busy':m.blocked?' blocked':'');
+      // idle machines: starved (no input) vs waiting for kanban authorization (pull)
+      const wait=config.control==='pull'&&!m.part&&!m.down&&!sim.authorized(k);
+      box.className='machine'+(m.down?' down':m.busy?' busy':m.blocked?' blocked':wait?' wait':'');
       if(m.part){const el=tokenFor(m.part);el.classList.remove('q');setPos(el,geo.sx[k]+geo.segW-72+29,geo.my[k][mi]);present.add(m.part.id);}
     });
     const maxShow=Math.min(st.queue.length,8);
@@ -551,12 +579,13 @@ function renderStage(){
     $('f_'+k).innerHTML=`util ${util.toFixed(0)}% · Q̄ ${(st.aQ/T).toFixed(1)}`+
       (config.type==='production'?` · scrap ${st.scrapped}`+(s.brk?` · down ${down.toFixed(0)}%`:''):'');
     const b=config.buffers[k];
-    $('bl_'+k).textContent=(k===0?'raw':'wip')+' '+st.queue.length+(b.finite?' · K='+b.cap:'');
+    $('bl_'+k).textContent=(k===0?'raw':'wip')+' '+st.queue.length
+      +(config.control==='pull'?'/T'+b.target:'')+(b.finite?' · K='+b.cap:'');
   });
   if(config.type==='production'){
     const fgEl=$('fglvl');if(fgEl)fgEl.textContent=sim.fg;
     const fb=config.buffers[config.stations.length];
-    const fl=$('fglbl');if(fl)fl.textContent=fb.finite?'K='+fb.cap:'∞';
+    const fl=$('fglbl');if(fl)fl.textContent=(config.control==='pull'?'T='+fb.target+' ':'')+(fb.finite?'K='+fb.cap:'∞');
     const cs=$('custStats');if(cs)cs.textContent=sim.demand.mode==='stream'
       ?`✓${sim.fulfilled} ✗${sim.stockouts}`:`out ${sim.completed}`;
   }
@@ -657,17 +686,19 @@ $('xlsx').onclick=async()=>{
   [24,10,12,46,11,12,34,30].forEach((w,i)=>A.getColumn(i+1).width=w);
   bold(A.addRow(['Simulation assumptions']),14);
   A.addRow([]);
+  const isPull=config.control==='pull';
   A.addRow(['System type',isProd?'Production system':'Server system']).getCell(1).font={bold:true};
-  A.addRow(['Arrivals (interarrival)',distStr(config.source)]).getCell(1).font={bold:true};
+  A.addRow(['Control mode',isPull?'Pull (kanban base-stock)':'Push']).getCell(1).font={bold:true};
+  A.addRow([isPull?'Supplier (replenishment)':'Arrivals (interarrival)',distStr(config.source)]).getCell(1).font={bold:true};
   const fgBuf=config.buffers[config.stations.length];
   A.addRow(['Customer demand',config.demand.mode==='stream'?distStr(config.demand.dist):'instant (push to sink)']).getCell(1).font={bold:true};
-  A.addRow(['Finished goods buffer',(fgBuf.finite?'K = '+fgBuf.cap:'unlimited')+(fgBuf.init?`, initial ${fgBuf.init}`:'')]).getCell(1).font={bold:true};
+  A.addRow(['Finished goods buffer',(fgBuf.finite?'K = '+fgBuf.cap:'unlimited')+(isPull?`, target ${fgBuf.target}`:'')+(fgBuf.init?`, initial ${fgBuf.init}`:'')]).getCell(1).font={bold:true};
   A.addRow([]);
   bold(A.addRow(['Stations']),12);
   bold(A.addRow(['Station',isProd?'Machines':'Servers','Input buffer','Service time','Scrap prob','Breakdowns','Time to failure','Time to repair']));
   config.stations.forEach((s,k)=>{
     const b=config.buffers[k];
-    A.addRow([`${k+1}. ${s.name}`,s.machines,(b.finite?('K = '+b.cap):'unlimited')+(b.init?`, init ${b.init}`:''),distStr(s.service),
+    A.addRow([`${k+1}. ${s.name}`,s.machines,(b.finite?('K = '+b.cap):'unlimited')+(isPull?`, target ${b.target}`:'')+(b.init?`, init ${b.init}`:''),distStr(s.service),
       isProd?s.scrap:'—',isProd?(s.brk?'yes':'no'):'—',
       isProd&&s.brk?distStr(s.ttf):'—',isProd&&s.brk?distStr(s.ttr):'—']);
   });

@@ -19,11 +19,19 @@ export class Sim {
       cap: b.finite ? b.cap : Infinity,
       init: Math.max(0, Math.floor(b.init) || 0),
     }));
+    // Control mode: 'push' releases work whenever input + machine are free;
+    // 'pull' additionally requires a downstream production authorization
+    // (kanban base-stock: produce only while downstream on-hand + own
+    // in-process work is below that buffer's target level).
+    this.control = cfg.control === 'pull' ? 'pull' : 'push';
+    this.targets = bufCfg.map((b) =>
+      Math.max(1, Math.floor(b.target) || (b.finite ? b.cap : 8)));
     // Customer demand at the finished-goods end. 'instant' consumes every
     // finished unit immediately — the classic push-to-sink behavior.
     this.demand = (cfg.demand && cfg.demand.mode === 'stream') ? cfg.demand : { mode: 'instant' };
     this.fgCap = this.buffers[n].cap;
-    this.fg = Math.min(this.buffers[n].init, this.fgCap);
+    this.fg = Math.min(this.buffers[n].init, this.fgCap,
+      this.control === 'pull' ? this.targets[n] : Infinity);
     this.demanded = 0; this.fulfilled = 0; this.stockouts = 0; this.aFG = 0;
     this.stations = cfg.stations.map((s, k) => ({
       cfg: s, cap: this.buffers[k].cap,
@@ -44,14 +52,21 @@ export class Sim {
       this.schedule(sample(this.demand.dist, this.rng), { t: 'DEM' });
     }
     // Seed initial inventory (units present at time 0) into station buffers,
-    // clamped at capacity; excess units are silently dropped.
-    this.stations.forEach((st, k) => {
-      for (let i = 0; i < this.buffers[k].init; i++) {
+    // clamped at capacity; excess units are silently dropped. In pull mode,
+    // seed downstream-first (so authorization checks see seeded levels) and
+    // clamp each buffer at its kanban target.
+    const seedOrder = [...this.stations.keys()];
+    if (this.control === 'pull') seedOrder.reverse();
+    for (const k of seedOrder) {
+      const lim = this.control === 'pull'
+        ? Math.min(this.buffers[k].init, this.targets[k])
+        : this.buffers[k].init;
+      for (let i = 0; i < lim; i++) {
         const part = { id: ++this.pid, tA: 0 };
         if (!this.tryAccept(k, part)) break;
         this.entered++;
       }
-    });
+    }
   }
 
   heapInit() { this.fel = []; }
@@ -86,6 +101,31 @@ export class Sim {
   occupancy(st) { let n = st.queue.length; for (const m of st.machines) if (m.part) n++; return n; }
   WIP() { let n = 0; for (const st of this.stations) n += this.occupancy(st); return n; }
   idleMachine(st) { for (let i = 0; i < st.machines.length; i++) { const m = st.machines[i]; if (!m.part && !m.down) return i; } return -1; }
+  inProcess(k) { let c = 0; for (const m of this.stations[k].machines) if (m.part) c++; return c; }
+
+  // Pull authorization (kanban base-stock): station k may start a job only
+  // while its downstream buffer's on-hand plus its own in-process work is
+  // below that buffer's target level. Push mode is always authorized.
+  authorized(k) {
+    if (this.control !== 'pull') return true;
+    const down = (k + 1 >= this.stations.length) ? this.fg : this.stations[k + 1].queue.length;
+    return this.inProcess(k) + down < this.targets[k + 1];
+  }
+
+  // Pull cascade: a unit was just consumed from buffer k, which may authorize
+  // station k-1; if it starts (consuming from buffer k-1), keep walking
+  // upstream toward raw material.
+  cascade(k) {
+    if (this.control !== 'pull') return;
+    for (let j = k - 1; j >= 0; j--) {
+      const st = this.stations[j]; let started = false;
+      while (st.queue.length && this.authorized(j)) {
+        const mi = this.idleMachine(st); if (mi < 0) break;
+        this.startService(j, mi, st.queue.shift()); started = true;
+      }
+      if (!started) break;   // buffer j untouched → upstream authorization unchanged
+    }
+  }
 
   startService(k, mi, part) {
     const st = this.stations[k], m = st.machines[mi];
@@ -98,14 +138,17 @@ export class Sim {
     const st = this.stations[k];
     if (this.occupancy(st) >= st.cap) return false;
     const mi = this.idleMachine(st);
-    if (mi >= 0) this.startService(k, mi, part); else st.queue.push(part);
+    if (mi >= 0 && this.authorized(k)) this.startService(k, mi, part); else st.queue.push(part);
     return true;
   }
 
   freeAndPull(k, mi) {
     const st = this.stations[k], m = st.machines[mi];
     m.part = null; m.busy = false; m.blocked = false;
-    if (!m.down && st.queue.length) { const p = st.queue.shift(); this.startService(k, mi, p); }
+    if (!m.down && st.queue.length && this.authorized(k)) {
+      const p = st.queue.shift(); this.startService(k, mi, p);
+      this.cascade(k);
+    }
     this.notifyUpstream(k);
   }
 
@@ -172,6 +215,10 @@ export class Sim {
 
     if (ev.t === 'ARR') {
       this.schedule(sample(this.cfg.source, this.rng), { t: 'ARR' });
+      // In pull mode the source is a supplier replenishing raw material:
+      // deliveries are accepted only while raw on-hand is below its target
+      // (a pull line orders material only to replenish what was consumed).
+      if (this.control === 'pull' && this.stations[0].queue.length >= this.targets[0]) return true;
       const part = { id: ++this.pid, tA: this.now }; this.entered++;
       if (this.tryAccept(0, part)) this.log('arr', { id: part.id });
       else { this.rejected++; this.exit(part, 0, 'rej'); this.log('rej', { id: part.id }); }
@@ -194,13 +241,17 @@ export class Sim {
       if (this.fg > 0) {
         this.fg--; this.fulfilled++; this.log('dem', {});
         this.pullFromLast();
+        this.cascade(this.stations.length);   // FG draw-down may authorize the last station
       } else { this.stockouts++; this.log('stk', {}); }
     } else if (ev.t === 'REP') {
       m.down = false; this.scheduleFail(k, mi); this.log('rep', { k, mi });
       if (m.part) {
         if (m.blocked) { this.advance(k, mi, m.part); }
         else { m.busy = true; m.depTime = this.now + m.remaining; this.schedule(m.remaining, { t: 'DEP', k, mi, seq2: m.depSeq = (m.depSeq + 1) }); }
-      } else if (st.queue.length) { const p = st.queue.shift(); this.startService(k, mi, p); }
+      } else if (st.queue.length && this.authorized(k)) {
+        const p = st.queue.shift(); this.startService(k, mi, p);
+        this.cascade(k);
+      }
     }
     return true;
   }
@@ -222,8 +273,8 @@ export function station(name, machines, finite, cap, service, scrap = 0, brk = f
   };
 }
 
-export function buffer(finite = false, cap = 10, init = 0) {
-  return { finite, cap, init };
+export function buffer(finite = false, cap = 10, init = 0, target = null) {
+  return { finite, cap, init, target: target != null ? target : (finite ? cap : 8) };
 }
 
 export function defaultConfig(type) {
@@ -234,10 +285,12 @@ export function defaultConfig(type) {
       stations: [station('Service desk', 3, false, 8, newDist('exp', { mean: 1.0 }))],
       buffers: [buffer(false, 8, 0), buffer(false, 12, 0)],
       demand: { mode: 'instant', dist: newDist('exp', { mean: 2.5 }) },
+      control: 'push',
     };
   }
   return {
     type: 'production',
+    control: 'push',
     source: newDist('exp', { mean: 1.6 }),
     stations: [
       station('Cutting', 2, true, 6, newDist('lognormal', { mean: 1.4, sd: 0.4 }), 0.02, true,
@@ -247,7 +300,7 @@ export function defaultConfig(type) {
       station('Inspection', 2, true, 6, newDist('triangular', { min: 0.6, mode: 1.0, max: 1.8 }), 0.0, false,
         newDist('weibull', { shape: 2, scale: 50 }), newDist('exp', { mean: 3 })),
     ],
-    buffers: [buffer(true, 6, 0), buffer(true, 5, 0), buffer(true, 6, 0), buffer(false, 12, 0)],
+    buffers: [buffer(true, 6, 0), buffer(true, 5, 0), buffer(true, 6, 0), buffer(false, 12, 0, 6)],
     demand: { mode: 'instant', dist: newDist('exp', { mean: 2.5 }) },
   };
 }
