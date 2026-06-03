@@ -129,6 +129,47 @@
   .note{font-size:11px;color:var(--faint);line-height:1.5;margin-top:9px}
   .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
   code{background:var(--panel-2);padding:1px 5px;border-radius:4px;font-size:11px}
+
+  /* ---- visualisation-first layout ---- */
+  .controlbar{position:sticky;top:8px;z-index:60;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+    background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:9px 12px;margin-bottom:10px;
+    box-shadow:0 8px 26px rgba(0,0,0,.4)}
+  .controlbar .spdfld{flex-direction:row;align-items:center;gap:7px}
+  .controlbar input[type=range]{width:130px}
+  .cdiv{width:1px;height:22px;background:var(--line);margin:0 2px}
+  .kpistrip{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:10px}
+  @media(max-width:720px){.kpistrip{grid-template-columns:repeat(2,1fr)}}
+  .hero{margin-bottom:10px}
+  #stage{transform-origin:0 0}
+
+  details.analysis{margin-bottom:14px}
+  details.analysis summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:11px 13px;background:var(--panel-2);user-select:none}
+  details.analysis summary::-webkit-details-marker{display:none}
+  details.analysis summary h2{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);margin:0;font-weight:500}
+  details.analysis summary:after{content:'▸';margin-left:auto;color:var(--faint);transition:.15s}
+  details.analysis[open] summary:after{transform:rotate(90deg)}
+  details.analysis[open] summary{border-bottom:1px solid var(--line)}
+  details.analysis summary:hover h2{color:var(--sim)}
+  .analysis .panel{margin-bottom:14px}
+
+  /* setup drawer */
+  #drawerWrap{position:fixed;inset:0;z-index:100;pointer-events:none}
+  #backdrop{position:absolute;inset:0;background:rgba(4,7,10,.62);opacity:0;transition:opacity .22s}
+  #drawer{position:absolute;top:0;right:0;bottom:0;width:min(820px,100vw);background:var(--bg);
+    border-left:1px solid var(--line);transform:translateX(103%);transition:transform .25s ease;
+    overflow-y:auto;padding:14px 16px;box-shadow:-18px 0 50px rgba(0,0,0,.5)}
+  #drawerWrap.open{pointer-events:auto}
+  #drawerWrap.open #backdrop{opacity:1}
+  #drawerWrap.open #drawer{transform:none}
+  .drawer-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+  .drawer-h h2{font-family:'Fraunces',serif;font-size:21px;font-weight:600;margin:0}
+  .drawer-prev{border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:10px 12px;margin-bottom:12px;overflow-x:auto}
+  #miniPrev{display:flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:10px;white-space:nowrap}
+  #miniPrev i{color:var(--faint);font-style:normal}
+  .pv{border:1px solid var(--line);border-radius:7px;padding:5px 8px;color:var(--muted);flex:none}
+  .pv-st{border-color:var(--sim);color:var(--ink)} .pv-st b{color:var(--sim)}
+  .pv-buf{border-style:dashed;border-color:rgba(242,177,60,.6);color:var(--thy)}
+  .pv-src{border-color:var(--faint)}
 </style>
 </head>
 <body>
@@ -136,84 +177,39 @@
   <header>
     <p class="eyebrow">Discrete Event Simulation · Modular Builder</p>
     <h1><em>Production Line</em> Lab</h1>
-    <p class="sub">Build a production line from <b>stations</b> connected in series. Each station has a buffer, parallel machines, and a service-time distribution.
-      Full buffers <b>block</b> upstream machines; stations can <b>scrap</b> parts or <b>break down</b>, and a customer demand process draws down finished goods —
-      under <b>push</b> or <b>pull</b> (kanban) control. Configure any distribution, add extra variability, then watch parts flow through the line you designed.</p>
+    <p class="sub">Stations in series with buffers, breakdowns, scrap and a customer demand process — under <b>push</b> or <b>pull</b> (kanban) control.
+      Open <b>⚙ Setup system</b> to build your line, then watch parts flow through it.</p>
     <a class="navlink" href="advanced.html">→ Advanced Factory</a>
   </header>
 
-  <!-- BUILDER -->
-  <div class="panel">
-    <div class="panel-h"><h2>1 · Source &amp; control</h2>
-      <span style="display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <button id="saveCfg">⇣ Save configuration</button>
-        <button id="loadCfg">⇡ Load configuration</button>
-        <input type="file" id="cfgFile" accept=".json,application/json" style="display:none">
-        <span class="segwrap" id="supSeg">
-          <button class="seg on" id="sLimitless">Limitless source</button>
-          <button class="seg" id="sStream">Arrival stream</button>
-        </span>
-        <span class="segwrap" id="ctrlSeg">
-          <button class="seg on" id="cPush">Push</button>
-          <button class="seg" id="cPull">Pull</button>
-        </span>
-      </span>
-    </div>
-    <div class="panel-b">
-      <p class="note" id="sNote" style="margin:0 0 9px"></p>
-      <div id="sourceDist"></div>
-    </div>
+  <!-- CONTROL BAR -->
+  <div class="controlbar">
+    <button id="setupBtn" class="primary">⚙ Setup system</button>
+    <span class="segwrap" id="ctrlSeg">
+      <button class="seg on" id="cPush">Push</button>
+      <button class="seg" id="cPull">Pull</button>
+    </span>
+    <span class="cdiv"></span>
+    <button id="play">▶ Play</button>
+    <button id="step">⏭ Step</button>
+    <button id="ff">⏩ FF 1000</button>
+    <button id="reset">↺ Reset</button>
+    <label class="fld spdfld">speed <span style="color:var(--sim)" id="spdV">3×</span>
+      <input id="spd" type="range" min="0.25" max="80" step="0.25" value="3"></label>
+    <span class="pill" id="evcount" style="margin-left:auto">0 events</span>
   </div>
 
-  <div class="panel">
-    <div class="panel-h"><h2>2 · Stations</h2>
-      <div><button id="addSt">+ Add station</button></div>
-    </div>
-    <div class="panel-b"><div id="stations"></div></div>
+  <!-- KPI STRIP -->
+  <div class="kpistrip">
+    <div class="kpi"><div class="k">Clock</div><div class="v" id="m_clock">0.0</div></div>
+    <div class="kpi"><div class="k">Throughput</div><div class="v" id="m_thru">—</div></div>
+    <div class="kpi"><div class="k">WIP (now)</div><div class="v" id="m_wip">0</div></div>
+    <div class="kpi"><div class="k">Avg cycle time</div><div class="v" id="m_cyc">—</div></div>
+    <div class="kpi"><div class="k">Fill rate</div><div class="v" id="m_fill">—</div></div>
   </div>
 
-  <!-- CUSTOMER DEMAND -->
-  <div class="panel" id="pDemand">
-    <div class="panel-h"><h2>3 · Customer demand</h2>
-      <span class="segwrap">
-        <button class="seg on" id="dInstant">Instant (push to sink)</button>
-        <button class="seg" id="dStream">Demand stream</button>
-      </span>
-    </div>
-    <div class="panel-b">
-      <p class="note" id="dNote" style="margin:0 0 9px"></p>
-      <div id="demandDist"></div>
-    </div>
-  </div>
-
-  <!-- PLAYBACK + VIEWS -->
-  <div class="panel">
-    <div class="panel-h"><h2>4 · Run</h2><span id="evcount" class="pill">0 events</span></div>
-    <div class="panel-b">
-      <label class="fld" style="margin-bottom:8px">Playback speed <span style="color:var(--sim)" id="spdV">3×</span>
-        <input id="spd" type="range" min="0.25" max="80" step="0.25" value="3" style="width:240px"></label>
-      <div class="btnrow">
-        <button id="play" class="primary">▶ Play</button>
-        <button id="step">⏭ Step</button>
-        <button id="ff">⏩ FF 1000 events</button>
-        <button id="reset">↺ Reset</button>
-        <button id="xlsx">⇩ Export to Excel</button>
-      </div>
-      <div class="views" style="margin-top:12px" id="views">
-        <button class="vchip on" data-t="pStage">Flow view</button>
-        <button class="vchip on" data-t="pKpi">Metrics</button>
-        <button class="vchip on" data-t="pStations">Station stats</button>
-        <button class="vchip on" data-t="pWip">WIP chart</button>
-        <button class="vchip on" data-t="pFg">FG inventory</button>
-        <button class="vchip on" data-t="pCyc">Cycle-time histogram</button>
-        <button class="vchip" data-t="pFel">Future Event List</button>
-        <button class="vchip" data-t="pLog">Event log</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- FLOW -->
-  <div class="panel" id="pStage">
+  <!-- HERO: FLOW -->
+  <div class="panel hero" id="pStage">
     <div class="panel-h"><h2>Flow view — the system you built</h2><span class="pill" id="nowpill">clock 0.0</span></div>
     <div class="panel-b">
       <div class="stage-scroll"><div class="stage" id="stage"></div></div>
@@ -226,60 +222,123 @@
     </div>
   </div>
 
-  <div class="grid">
-    <div>
-      <div class="panel" id="pKpi">
-        <div class="panel-h"><h2>System metrics</h2></div>
-        <div class="panel-b"><div class="kpis">
-          <div class="kpi"><div class="k">Clock</div><div class="v" id="m_clock">0.0</div></div>
-          <div class="kpi"><div class="k">Throughput</div><div class="v" id="m_thru">—</div></div>
-          <div class="kpi"><div class="k">Completed</div><div class="v" id="m_done">0</div></div>
-          <div class="kpi"><div class="k">WIP (now)</div><div class="v" id="m_wip">0</div></div>
-          <div class="kpi"><div class="k">Avg WIP</div><div class="v" id="m_awip">—</div></div>
-          <div class="kpi"><div class="k">Avg cycle time</div><div class="v" id="m_cyc">—</div></div>
-          <div class="kpi"><div class="k">Scrapped</div><div class="v" id="m_scrap">0</div></div>
-          <div class="kpi"><div class="k">Yield</div><div class="v" id="m_yield">—</div></div>
-          <div class="kpi"><div class="k">Rejected@entry</div><div class="v" id="m_rej">0</div></div>
-          <div class="kpi"><div class="k">Entered</div><div class="v" id="m_in">0</div></div>
-          <div class="kpi"><div class="k">Fill rate</div><div class="v" id="m_fill">—</div></div>
-          <div class="kpi"><div class="k">Stockouts</div><div class="v" id="m_stk">0</div></div>
-          <div class="kpi"><div class="k">FG on hand</div><div class="v" id="m_fg">0</div></div>
-          <div class="kpi"><div class="k">Avg FG inv</div><div class="v" id="m_afg">—</div></div>
-        </div></div>
+  <!-- ANALYSIS (collapsible) -->
+  <details class="panel analysis" id="analysis">
+    <summary><h2>📊 Analysis &amp; charts</h2><span class="pill">metrics · WIP · cycle time · stations · events</span></summary>
+    <div class="panel-b">
+      <div class="views" id="views">
+        <button class="vchip on" data-t="pKpi">Metrics</button>
+        <button class="vchip on" data-t="pStations">Station stats</button>
+        <button class="vchip on" data-t="pWip">WIP chart</button>
+        <button class="vchip on" data-t="pFg">FG inventory</button>
+        <button class="vchip on" data-t="pCyc">Cycle-time histogram</button>
+        <button class="vchip" data-t="pFel">Future Event List</button>
+        <button class="vchip" data-t="pLog">Event log</button>
+        <button id="xlsx" style="margin-left:auto">⇩ Export to Excel</button>
       </div>
-      <div class="panel" id="pWip">
-        <div class="panel-h"><h2>Work-in-process over time</h2></div>
-        <div class="panel-b"><canvas id="wip"></canvas></div>
-      </div>
-      <div class="panel" id="pFg">
-        <div class="panel-h"><h2>Finished-goods inventory over time</h2></div>
-        <div class="panel-b"><canvas id="fgc"></canvas></div>
-      </div>
-    </div>
-    <div>
-      <div class="panel" id="pStations">
-        <div class="panel-h"><h2>Per-station statistics</h2></div>
-        <div class="panel-b"><table><thead><tr>
-          <th>Station</th><th>Util</th><th></th><th>Block</th><th>Down</th><th>Avg&nbsp;Q</th><th>Scrap</th>
-        </tr></thead><tbody id="stTable"></tbody></table>
-        <p class="note">Utilization = fraction of machine-time actually processing. Watch the <b>bottleneck</b> (highest util) cap the whole line's throughput, and watch <b>blocking</b> ripple upstream from it.</p>
+      <div class="grid" style="margin-top:12px">
+        <div>
+          <div class="panel" id="pKpi">
+            <div class="panel-h"><h2>System metrics</h2></div>
+            <div class="panel-b"><div class="kpis">
+              <div class="kpi"><div class="k">Completed</div><div class="v" id="m_done">0</div></div>
+              <div class="kpi"><div class="k">Avg WIP</div><div class="v" id="m_awip">—</div></div>
+              <div class="kpi"><div class="k">Scrapped</div><div class="v" id="m_scrap">0</div></div>
+              <div class="kpi"><div class="k">Yield</div><div class="v" id="m_yield">—</div></div>
+              <div class="kpi"><div class="k">Rejected@entry</div><div class="v" id="m_rej">0</div></div>
+              <div class="kpi"><div class="k">Entered</div><div class="v" id="m_in">0</div></div>
+              <div class="kpi"><div class="k">Stockouts</div><div class="v" id="m_stk">0</div></div>
+              <div class="kpi"><div class="k">FG on hand</div><div class="v" id="m_fg">0</div></div>
+              <div class="kpi"><div class="k">Avg FG inv</div><div class="v" id="m_afg">—</div></div>
+            </div></div>
+          </div>
+          <div class="panel" id="pWip">
+            <div class="panel-h"><h2>Work-in-process over time</h2></div>
+            <div class="panel-b"><canvas id="wip"></canvas></div>
+          </div>
+          <div class="panel" id="pFg">
+            <div class="panel-h"><h2>Finished-goods inventory over time</h2></div>
+            <div class="panel-b"><canvas id="fgc"></canvas></div>
+          </div>
+        </div>
+        <div>
+          <div class="panel" id="pStations">
+            <div class="panel-h"><h2>Per-station statistics</h2></div>
+            <div class="panel-b"><table><thead><tr>
+              <th>Station</th><th>Util</th><th></th><th>Block</th><th>Down</th><th>Avg&nbsp;Q</th><th>Scrap</th>
+            </tr></thead><tbody id="stTable"></tbody></table>
+            <p class="note">Utilization = fraction of machine-time actually processing. Watch the <b>bottleneck</b> (highest util) cap the whole line's throughput, and watch <b>blocking</b> ripple upstream from it.</p>
+            </div>
+          </div>
+          <div class="panel" id="pCyc">
+            <div class="panel-h"><h2>Cycle-time distribution</h2><span class="pill" id="cycN">0</span></div>
+            <div class="panel-b"><canvas id="cyc"></canvas></div>
+          </div>
         </div>
       </div>
-      <div class="panel" id="pCyc">
-        <div class="panel-h"><h2>Cycle-time distribution</h2><span class="pill" id="cycN">0</span></div>
-        <div class="panel-b"><canvas id="cyc"></canvas></div>
+      <div class="grid">
+        <div class="panel hidden" id="pFel"><div class="panel-h"><h2>Future Event List</h2></div>
+          <div class="panel-b"><div class="fel-list" id="fel"></div></div></div>
+        <div class="panel hidden" id="pLog"><div class="panel-h"><h2>Event log</h2></div>
+          <div class="panel-b"><div class="log-list" id="log"></div></div></div>
       </div>
     </div>
-  </div>
+  </details>
 
-  <div class="grid">
-    <div class="panel hidden" id="pFel"><div class="panel-h"><h2>Future Event List</h2></div>
-      <div class="panel-b"><div class="fel-list" id="fel"></div></div></div>
-    <div class="panel hidden" id="pLog"><div class="panel-h"><h2>Event log</h2></div>
-      <div class="panel-b"><div class="log-list" id="log"></div></div></div>
-  </div>
+  <p class="note" style="margin-top:10px">The engine is the <code>Sim</code> class (a general line of stations with blocking, scrap, and breakdowns); distributions live in <code>sample()</code>. No closed-form theory panel here — once you add blocking, non-exponential service, breakdowns or scrap, exact formulas stop applying, so the simulation <i>is</i> the answer. That's the whole reason DES exists.</p>
+</div>
 
-  <p class="note" style="margin-top:10px">Single self-contained file. The engine is the <code>Sim</code> class (a general line of stations with blocking, scrap, and breakdowns); distributions live in <code>sample()</code>. No closed-form theory panel here — once you add blocking, non-exponential service, breakdowns or scrap, exact formulas stop applying, so the simulation <i>is</i> the answer. That's the whole reason DES exists.</p>
+<!-- SETUP DRAWER -->
+<div id="drawerWrap">
+  <div id="backdrop"></div>
+  <aside id="drawer">
+    <div class="drawer-h">
+      <h2>⚙ Setup system</h2>
+      <span style="display:inline-flex;gap:8px;flex-wrap:wrap">
+        <button id="saveCfg">⇣ Save</button>
+        <button id="loadCfg">⇡ Load</button>
+        <input type="file" id="cfgFile" accept=".json,application/json" style="display:none">
+        <button id="applyClose" class="primary">✓ Apply / Close</button>
+      </span>
+    </div>
+    <div class="drawer-prev">
+      <div class="sub-h" style="margin-top:0">Live preview</div>
+      <div id="miniPrev"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-h"><h2>1 · Source &amp; supply</h2>
+        <span class="segwrap" id="supSeg">
+          <button class="seg on" id="sLimitless">Limitless source</button>
+          <button class="seg" id="sStream">Arrival stream</button>
+        </span>
+      </div>
+      <div class="panel-b">
+        <p class="note" id="sNote" style="margin:0 0 9px"></p>
+        <div id="sourceDist"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-h"><h2>2 · Stations &amp; buffers</h2>
+        <div><button id="addSt">+ Add station</button></div>
+      </div>
+      <div class="panel-b"><div id="stations"></div></div>
+    </div>
+
+    <div class="panel" id="pDemand">
+      <div class="panel-h"><h2>3 · Customer demand</h2>
+        <span class="segwrap">
+          <button class="seg on" id="dInstant">Instant (push to sink)</button>
+          <button class="seg" id="dStream">Demand stream</button>
+        </span>
+      </div>
+      <div class="panel-b">
+        <p class="note" id="dNote" style="margin:0 0 9px"></p>
+        <div id="demandDist"></div>
+      </div>
+    </div>
+  </aside>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
@@ -427,6 +486,23 @@ function renderBuilder(){
     +(isPull?' PULL is active: each demand frees a kanban that authorizes the last station, cascading upstream to raw material.':'');
   const dd=$('demandDist'); dd.innerHTML='';
   if(config.demand.mode==='stream')dd.appendChild(distEditor(config.demand.dist,build));
+  renderPreview();
+}
+// mini live preview of the configured system (drawer header)
+function renderPreview(){
+  const el=$('miniPrev'); if(!el)return;
+  const isPull=config.control==='pull';
+  const chip=(txt,cls)=>`<span class="pv ${cls}">${txt}</span>`;
+  let h=chip(config.supply==='limitless'?'SOURCE ∞':'SOURCE','pv-src')+'<i>→</i>';
+  config.stations.forEach((s,k)=>{
+    const b=config.buffers[k];
+    h+=chip('▤ '+(b.finite?'K'+b.cap:'∞')+(isPull?' · T'+b.target:'')+(b.init&&(!isPull||k===0)?' · i'+b.init:''),'pv-buf')+'<i>→</i>';
+    h+=chip(`${s.name} <b>×${s.machines}</b>${s.scrap>0?' <span style="color:var(--down)">s'+s.scrap+'</span>':''}${s.brk?' ⚡':''}`,'pv-st')+'<i>→</i>';
+  });
+  const fb=config.buffers[config.stations.length];
+  h+=chip('FG '+(fb.finite?'K'+fb.cap:'∞')+(isPull?' · T'+fb.target:'')+(fb.init&&!isPull?' · i'+fb.init:''),'pv-buf');
+  h+='<i>→</i>'+chip(config.demand.mode==='stream'?'CUSTOMER':'SINK','pv-src');
+  el.innerHTML=h;
 }
 $('cPush').onclick=()=>{config.control='push';renderBuilder();build();};
 $('cPull').onclick=()=>{config.control='pull';renderBuilder();build();};
@@ -556,6 +632,16 @@ function buildStage(){
   const cs=addLbl('', x0+2, H/2+32,'var(--faint)');cs.id='custStats';
   geo.sinkX=x0+sinkW/2; geo.scrapY=H-58;
   geo.qf=[]; config.stations.forEach((s,k)=>{const sx=geo.sx[k];const machX=sx+segW-72;geo.qf.push(machX-18);});
+  fitStage(totalW,H);
+}
+// hero scaling: small systems are magnified to fill the available width;
+// large systems keep their natural size and scroll horizontally
+function fitStage(totalW,H){
+  const sc=document.querySelector('.stage-scroll'); if(!sc)return;
+  const avail=sc.clientWidth-4;
+  const f=avail>0?Math.min(Math.max(avail/totalW,1),1.45):1;
+  stageEl.style.transform=f>1?`scale(${f})`:'';
+  sc.style.height=(H*f+12)+'px';
 }
 function addLbl(t,x,y,col){const l=document.createElement('div');l.className='lbl';l.textContent=t;l.style.left=x+'px';l.style.top=y+'px';if(col)l.style.color=col;stageEl.appendChild(l);return l;}
 function tokenFor(part){let el=tokenEls.get(part.id);if(!el){el=document.createElement('div');el.className='token';setPos(el,geo.entryX,geo.entryY);stageEl.appendChild(el);tokenEls.set(part.id,el);}return el;}
@@ -671,6 +757,23 @@ $('step').onclick=()=>{playing=false;$('play').textContent='▶ Play';if(sim.fel
 $('ff').onclick=()=>{playing=false;$('play').textContent='▶ Play';for(let i=0;i<1000&&sim.fel.length;i++){sim.step();if(i%5===0)pushSample();}pushSample();simCursor=sim.now;renderAll();};
 $('reset').onclick=()=>{playing=false;$('play').textContent='▶ Play';build();};
 $('spd').oninput=e=>{speed=parseFloat(e.target.value);$('spdV').textContent=speed+'×';};
+
+/* ---- setup drawer ---- */
+const drawerWrap=$('drawerWrap');
+function openDrawer(){
+  playing=false;$('play').textContent='▶ Play';   // opening the drawer pauses playback
+  drawerWrap.classList.add('open');
+}
+function closeDrawer(){drawerWrap.classList.remove('open');}
+$('setupBtn').onclick=openDrawer;
+$('backdrop').onclick=closeDrawer;
+$('applyClose').onclick=closeDrawer;   // edits already rebuilt the sim live; play resumes on the new system
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();});
+
+/* ---- analysis section: redraw charts when expanded ---- */
+$('analysis').addEventListener('toggle',()=>{
+  if($('analysis').open)requestAnimationFrame(()=>{drawWip();drawFg();drawCyc();});
+});
 
 /* ---- export to Excel ---- */
 const round=(v,d=2)=>{const m=10**d;return Math.round(v*m)/m;};
