@@ -14,6 +14,7 @@
     --sim:#36e0c8;--thy:#f2b13c;--down:#ff6b6b;--blocked:#ff8753;--idle:#33424f;
   }
   *{box-sizing:border-box}
+  .hidden{display:none}
   html,body{margin:0;background:var(--bg);color:var(--ink);font-family:'Archivo',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
   body{background-image:radial-gradient(circle at 15% -10%,rgba(54,224,200,.06),transparent 40%),radial-gradient(circle at 90% 0%,rgba(242,177,60,.05),transparent 40%),linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px);background-size:auto,auto,26px 26px,26px 26px;padding:20px;min-height:100vh}
   .wrap{max-width:1240px;margin:0 auto}
@@ -161,6 +162,10 @@
     <div class="panel-b">
       <div class="row">
         <span class="segwrap">
+          <button class="seg on" id="aPush">Push</button>
+          <button class="seg" id="aPull">Pull (CONWIP)</button>
+        </span>
+        <span class="segwrap">
           <button class="seg on" id="aLimitless">Limitless source</button>
           <button class="seg" id="aSupStream">Arrival stream</button>
         </span>
@@ -189,16 +194,21 @@
     <div class="panel-b"><div class="grid2">
       <div>
         <div class="sub-h">Workcenter utilisation</div>
-        <table><thead><tr><th>Workcenter</th><th>Util</th><th></th><th>Avg Q</th><th>Down</th><th>Jobs</th></tr></thead>
+        <table><thead><tr><th>Workcenter</th><th>Util</th><th></th><th>Avg Q</th><th>Block</th><th>Down</th><th>Jobs</th></tr></thead>
         <tbody id="resTable"></tbody></table>
-        <p class="note">Utilisation = busy slot-time / available slot-time. The <b>bottleneck</b> (highest utilisation) caps the whole factory's throughput.</p>
+        <p class="note">Utilisation = busy slot-time / available slot-time. The <b>bottleneck</b> (highest utilisation) caps the whole factory's throughput. Block = fraction of slot-time spent holding a finished job because the downstream queue is full.</p>
       </div>
       <div>
         <div class="sub-h">Per-part statistics</div>
-        <table><thead><tr><th>Part</th><th>TH/min</th><th>Avg CT</th><th>WIP</th><th>On hand</th><th>Fill rate</th></tr></thead>
+        <table><thead><tr><th>Part</th><th>TH/min</th><th>Avg CT</th><th>WIP</th><th>On hand</th><th>Scrap</th><th>Yield</th><th>Fill</th><th>Backlog</th></tr></thead>
         <tbody id="partTable"></tbody></table>
-        <p class="note">Throughput = completions / time; cycle time = completion − job creation (Little's Law: WIP = TH × CT). Fill rate applies to demand products only.</p>
+        <p class="note">Throughput = completions / time; cycle time = completion − job creation (Little's Law: WIP = TH × CT). Yield = completions / (completions + scraps). In pull mode WIP shows in-flight vs CONWIP limit, and unmet demand waits as backlog.</p>
       </div>
+    </div>
+    <div id="scrapSection" class="hidden" style="margin-top:12px">
+      <div class="sub-h">Scrap by operation</div>
+      <table><thead><tr><th>Part · operation</th><th>Workcenter</th><th>Scrap prob</th><th>Entered</th><th>Scrapped</th><th>Op yield</th></tr></thead>
+      <tbody id="scrapTable"></tbody></table>
     </div></div>
   </div>
 
@@ -345,6 +355,13 @@ function renderResources(){
     const cap=document.createElement('input');cap.type='number';cap.min=1;cap.max=8;cap.value=r.capacity;
     cap.oninput=()=>{r.capacity=Math.max(1,parseInt(cap.value)||1);renderFloor();};
     row.appendChild(lab('capacity (parallel)',cap));
+    // finite queue → upstream blocking, like index.html's finite buffers
+    const qChk=document.createElement('input');qChk.type='checkbox';qChk.checked=r.queueCap!=null;
+    const qCap=document.createElement('input');qCap.type='number';qCap.min=1;qCap.value=r.queueCap!=null?r.queueCap:6;qCap.disabled=r.queueCap==null;
+    qChk.onchange=()=>{r.queueCap=qChk.checked?Math.max(1,parseInt(qCap.value)||6):null;qCap.disabled=!qChk.checked;renderFloor();};
+    qCap.oninput=()=>{if(qChk.checked){r.queueCap=Math.max(1,parseInt(qCap.value)||1);renderFloor();}};
+    const qLab=document.createElement('label');qLab.className='check';qLab.appendChild(qChk);qLab.appendChild(document.createTextNode('finite queue'));
+    row.appendChild(qLab);row.appendChild(lab('queue capacity',qCap));
     const brk=document.createElement('input');brk.type='checkbox';brk.checked=r.brk;
     const brkLab=document.createElement('label');brkLab.className='check';brkLab.appendChild(brk);brkLab.appendChild(document.createTextNode('breakdowns'));
     row.appendChild(brkLab);
@@ -405,13 +422,19 @@ function renderParts(){
     const dEntry=config.demand.find(d=>d.partId===p.id);
     dQty.value=dEntry?dEntry.qty:1;dQty.disabled=!dChk.checked;
     dChk.onchange=()=>{
-      if(dChk.checked)config.demand.push({partId:p.id,qty:Math.max(1,parseInt(dQty.value)||1)});
+      if(dChk.checked)config.demand.push({partId:p.id,qty:Math.max(1,parseInt(dQty.value)||1),conwip:5});
       else config.demand=config.demand.filter(d=>d.partId!==p.id);
-      dQty.disabled=!dChk.checked;renderFloor();
+      dQty.disabled=!dChk.checked;renderParts();renderFloor();
     };
     dQty.oninput=()=>{const e=config.demand.find(d=>d.partId===p.id);if(e)e.qty=Math.max(1,parseInt(dQty.value)||1);renderFloor();};
     const dLab=document.createElement('label');dLab.className='check';dLab.appendChild(dChk);dLab.appendChild(document.createTextNode('customer demand'));
     row.appendChild(dLab);row.appendChild(lab('demand qty',dQty));
+    if(config.controlMode==='pull'){
+      const cw=document.createElement('input');cw.type='number';cw.min=1;
+      cw.value=dEntry&&dEntry.conwip?dEntry.conwip:5;cw.disabled=!dChk.checked;
+      cw.oninput=()=>{const e=config.demand.find(d=>d.partId===p.id);if(e){e.conwip=Math.max(1,parseInt(cw.value)||1);renderFloor();}};
+      row.appendChild(lab('CONWIP limit',cw));
+    }
     card.appendChild(row);
 
     const sh=document.createElement('div');sh.className='sub-h';
@@ -485,6 +508,9 @@ function renderRoutings(){
       sel.onchange=()=>{s.resourceId=sel.value;renderFloor();};
       row.appendChild(lab('workcenter',sel));
       row.appendChild(distEditor(s.service,()=>{}));
+      const scr=document.createElement('input');scr.type='number';scr.min=0;scr.max=1;scr.step=0.01;scr.value=s.scrapProbability||0;
+      scr.oninput=()=>{s.scrapProbability=Math.min(1,Math.max(0,parseFloat(scr.value)||0));renderFloor();};
+      row.appendChild(lab('scrap prob (0–1)',scr));
       const up=document.createElement('button');up.className='mini';up.textContent='↑';
       up.onclick=()=>{if(si>0){[p.routing[si-1],p.routing[si]]=[p.routing[si],p.routing[si-1]];renderRoutings();renderFloor();}};
       const dn=document.createElement('button');dn.className='mini';dn.textContent='↓';
@@ -556,12 +582,16 @@ function drawFloor(){
     const slots=asim?asim.resources[k].slots:null;
     for(let m=0;m<Math.min(r.capacity,6);m++){
       const s=slots?slots[m]:null;
-      const fill=s?(s.down?'rgba(255,107,107,.3)':s.busy?'rgba(54,224,200,.45)':'rgba(255,255,255,.04)'):'rgba(54,224,200,.15)';
-      const stroke=s?(s.down?'#ff6b6b':s.busy?'#36e0c8':'#33424f'):'#36e0c8';
+      const fill=s?(s.down?'rgba(255,107,107,.3)':s.busy?'rgba(54,224,200,.45)':s.blocked&&s.job?'rgba(255,135,83,.4)':'rgba(255,255,255,.04)'):'rgba(54,224,200,.15)';
+      const stroke=s?(s.down?'#ff6b6b':s.busy?'#36e0c8':s.blocked&&s.job?'#ff8753':'#33424f'):'#36e0c8';
       g+=`<rect x="${x-colBoxW/2+7+m*10}" y="${yTop+bh-13}" width="8" height="8" rx="2" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`;
     }
     if(slots&&slots.some(s=>s.down))   // breakdown: red border like index.html's down machines
       g+=`<rect x="${x-colBoxW/2}" y="${yTop}" width="${colBoxW}" height="${bh}" rx="9" fill="none" stroke="#ff6b6b" stroke-width="1.6" opacity=".9"/>`;
+    else if(slots&&slots.some(s=>s.blocked&&s.job&&!s.down))   // blocked: amber, like index.html
+      g+=`<rect x="${x-colBoxW/2}" y="${yTop}" width="${colBoxW}" height="${bh}" rx="9" fill="none" stroke="#ff8753" stroke-width="2.4" opacity=".9"/>`;
+    if(r.queueCap!=null)
+      g+=`<text x="${x-colBoxW/2-6}" y="${yTop+bh+11}" text-anchor="end" font-size="8" fill="#5b6e7c">Q≤${r.queueCap}</text>`;
     r._geo={x,yTop,bh};   // for token overlays
   });
 
@@ -637,8 +667,16 @@ function drawFloor(){
       R.slots.forEach((s,si)=>{
         if(!s.job)return;
         const p=partById(s.job.pid); if(!p||laneOf[p.id]==null)return;
-        g+=`<circle cx="${geo.x-8+si*9}" cy="${laneY(laneOf[p.id])}" r="6" fill="${p.color}" stroke="${s.down?'#ff6b6b':'#0c1015'}" stroke-width="1.5"${s.down?' opacity=".55"':''}/>`;
+        const ring=s.down?'#ff6b6b':s.blocked?'#ff8753':'#0c1015';
+        g+=`<circle cx="${geo.x-8+si*9}" cy="${laneY(laneOf[p.id])}" r="6" fill="${p.color}" stroke="${ring}" stroke-width="1.5"${s.down?' opacity=".55"':''}/>`;
       });
+    });
+    // scrapped tokens dropping out of the flow (recent scraps fade as they fall)
+    asim.scrapRecent.forEach(rec=>{
+      const age=asim.now-rec.time; if(age>2.5)return;
+      const r=res[rec.ri]; if(!r||!r._geo)return;
+      const p=partById(rec.pid); if(!p)return;
+      g+=`<circle cx="${r._geo.x}" cy="${r._geo.yTop+r._geo.bh+8+age*14}" r="5" fill="#ff6b6b" stroke="${p.color}" stroke-width="1.5" opacity="${Math.max(0.1,1-age/2.5).toFixed(2)}"/>`;
     });
     // finished goods / output at the exits
     parts.forEach(p=>{
@@ -660,7 +698,9 @@ function renderLegend(){
     `<span style="color:var(--faint)"> · ${p.type}${inDemand(p.id)?' · demand':''}</span></span>`).join('')
     +`<span style="margin-left:auto"><i style="background:rgba(54,224,200,.3);border-color:var(--sim)"></i>busy</span>`
     +`<span><i style="border-color:var(--idle)"></i>idle</span>`
-    +`<span><i style="background:rgba(255,107,107,.3);border-color:var(--down)"></i>down</span>`;
+    +`<span><i style="background:rgba(255,135,83,.3);border-color:var(--blocked)"></i>blocked</span>`
+    +`<span><i style="background:rgba(255,107,107,.3);border-color:var(--down)"></i>down</span>`
+    +`<span><i style="background:var(--down);border-color:var(--down);border-radius:50%"></i>scrapped</span>`;
 }
 $('refresh').onclick=renderFloor;
 
@@ -668,18 +708,27 @@ $('refresh').onclick=renderFloor;
    Panel 5 — run controls (supply mode · demand mode · playback)
    =================================================================== */
 function renderRun(){
+  const isPull=config.controlMode==='pull';
+  if(isPull)config.demandMode='stream';   // CONWIP releases against demand signals
   const sup=config.supplyMode, dem=config.demandMode;
+  $('aPush').classList.toggle('on',!isPull);
+  $('aPull').classList.toggle('on',isPull);
   $('aLimitless').classList.toggle('on',sup==='limitless');
   $('aSupStream').classList.toggle('on',sup==='stream');
   $('aDemInstant').classList.toggle('on',dem==='instant');
   $('aDemStream').classList.toggle('on',dem==='stream');
+  $('aDemInstant').disabled=isPull;
+  $('aDemInstant').style.opacity=isPull?'.4':'';
   $('runNote').textContent=
+    (isPull
+      ?'PULL (CONWIP): each product is released only against a demand signal, and never beyond its CONWIP limit of jobs in flight. Demand beyond the limit waits as backlog (no lost sales); a finishing unit satisfies the oldest backlog and authorises the next release. '
+      :'PUSH: assemblies start whenever all BOM components are available. ')+
     (sup==='limitless'
       ?'Limitless source: purchased components are always available and raw-material parts are released the moment their first workcenter has a free slot. '
       :'Arrival stream: raw-material parts arrive per their interarrival distributions below; purchased parts go straight to component inventory. ')+
     (dem==='instant'
       ?'Instant demand consumes every finished product immediately.'
-      :'Demand stream: each product gets an independent demand process; an empty finished-goods shelf is a stockout (lost sale).');
+      :isPull?'':'Demand stream: each product gets an independent demand process; an empty finished-goods shelf is a stockout (lost sale).');
   const ab=$('arrivalsBox'); ab.innerHTML='';
   if(sup==='stream'){
     const sh=document.createElement('div');sh.className='sub-h';sh.textContent='Raw-material interarrival times';ab.appendChild(sh);
@@ -697,9 +746,11 @@ function renderRun(){
     db.appendChild(distEditor(config.demandDist,renderFloor));
   }
 }
+$('aPush').onclick=()=>{config.controlMode='push';renderParts();renderFloor();};
+$('aPull').onclick=()=>{config.controlMode='pull';config.demandMode='stream';renderParts();renderFloor();};
 $('aLimitless').onclick=()=>{config.supplyMode='limitless';renderFloor();};
 $('aSupStream').onclick=()=>{config.supplyMode='stream';renderFloor();};
-$('aDemInstant').onclick=()=>{config.demandMode='instant';renderFloor();};
+$('aDemInstant').onclick=()=>{if(config.controlMode!=='pull'){config.demandMode='instant';renderFloor();}};
 $('aDemStream').onclick=()=>{config.demandMode='stream';renderFloor();};
 
 /* ---- playback (same pattern as index.html) ---- */
@@ -739,25 +790,48 @@ function renderMetrics(){
   });
   $('bneck').textContent=bi>=0&&bu>0.001?`bottleneck: ${asim.resources[bi].cfg.name} (${(bu*100).toFixed(0)}%)`:'—';
   $('resTable').innerHTML=asim.resources.map((R,i)=>{
-    const u=utils[i],down=R.aDown/(R.slots.length*T);
+    const u=utils[i],down=R.aDown/(R.slots.length*T),blk=R.aBlk/(R.slots.length*T);
     const color=u>0.85?'var(--down)':u>0.65?'var(--thy)':'var(--sim)';
     return `<tr><td>${R.cfg.name}${i===bi&&bu>0.001?'<span class="btag">BOTTLENECK</span>':''}</td>
       <td>${(u*100).toFixed(0)}%</td>
       <td class="bar"><span class="util-bar" style="width:${Math.min(60,u*60)}px;background:${color}"></span></td>
       <td>${(R.aQ/T).toFixed(1)}</td>
+      <td>${(blk*100).toFixed(0)}%</td>
       <td>${(down*100).toFixed(0)}%</td>
       <td>${R.processed}</td></tr>`;
   }).join('');
+  const isPull=asim.controlMode==='pull';
   $('partTable').innerHTML=config.parts.map(p=>{
     const st=asim.pstats[p.id],ds=asim.demandStats[p.id],inv=asim.inventory[p.id];
     const th=st.completed/T, ct=st.completed?st.sumCycle/st.completed:0;
+    const fin=st.completed+st.scrapped;
+    const d=isPull&&ds?config.demand.find(x=>x.partId===p.id):null;
     return `<tr><td><span class="swatch" style="background:${p.color}"></span>${p.name}</td>
       <td>${p.type==='purchased'?'—':th.toFixed(2)}</td>
       <td>${st.completed?ct.toFixed(2):'—'}</td>
-      <td>${st.wip}</td>
+      <td>${d?`${st.wip}/${d.conwip}`:st.wip}</td>
       <td>${inv===Infinity?'∞':inv}</td>
-      <td>${ds?(ds.demanded?((ds.fulfilled/ds.demanded)*100).toFixed(1)+'%':'—'):'—'}</td></tr>`;
+      <td>${st.scrapped||(p.type==='purchased'?'—':0)}</td>
+      <td>${fin?((st.completed/fin)*100).toFixed(1)+'%':'—'}</td>
+      <td>${ds?(ds.demanded?((ds.fulfilled/ds.demanded)*100).toFixed(1)+'%':'—'):'—'}</td>
+      <td>${isPull&&ds?ds.backlog:'—'}</td></tr>`;
   }).join('');
+  // per-operation scrap breakdown (only operations with scrap configured or observed)
+  const rows=[];
+  config.parts.forEach(p=>{(p.routing||[]).forEach((s,si)=>{
+    const ss=asim.stepStats[p.id]&&asim.stepStats[p.id][si];
+    if(!ss)return;
+    if((s.scrapProbability||0)<=0&&!ss.scrapped)return;
+    const r=resById(s.resourceId);
+    rows.push(`<tr><td><span class="swatch" style="background:${p.color}"></span>${p.name} · OP ${si+1}0</td>
+      <td>${r?r.name:'?'}</td>
+      <td>${((s.scrapProbability||0)*100).toFixed(0)}%</td>
+      <td>${ss.entered}</td>
+      <td style="color:var(--down)">${ss.scrapped}</td>
+      <td>${ss.done+ss.scrapped?((ss.done/(ss.done+ss.scrapped))*100).toFixed(1)+'%':'—'}</td></tr>`);
+  });});
+  $('scrapSection').classList.toggle('hidden',!rows.length);
+  $('scrapTable').innerHTML=rows.join('');
 }
 
 /* ===================================================================
@@ -798,6 +872,7 @@ function parseFactory(text){
     seen.add(id);
     return {id,name:String(r.name||('Workcenter '+(i+1))),
       capacity:Math.max(1,parseInt(r.capacity)||1),
+      queueCap:(r.queueCap!=null&&parseInt(r.queueCap)>0)?parseInt(r.queueCap):null,
       service:normDist(r.service,`resource ${id} service`),brk:!!r.brk,
       ttf:r.ttf?normDist(r.ttf,`resource ${id} TTF`):newDist('weibull',{shape:1.5,scale:40}),
       ttr:r.ttr?normDist(r.ttr,`resource ${id} TTR`):newDist('exp',{mean:4})};
@@ -814,6 +889,7 @@ function parseFactory(text){
       bom:type==='produced'&&Array.isArray(p.bom)?p.bom.map(b=>({partId:String(b.partId),qty:Math.max(1,parseInt(b.qty)||1)})):[],
       routing:type==='produced'&&Array.isArray(p.routing)?p.routing.map((s,si)=>({
         resourceId:String(s.resourceId),
+        scrapProbability:Math.min(1,Math.max(0,parseFloat(s.scrapProbability)||0)),
         service:normDist(s.service,`part ${id} operation ${si+1}`)})):[]};
   });
   // drop dangling references rather than failing
@@ -822,11 +898,12 @@ function parseFactory(text){
     p.routing=p.routing.filter(s=>resources.some(r=>r.id===s.resourceId));
   });
   const demand=Array.isArray(cfg.demand)
-    ?cfg.demand.filter(d=>parts.some(q=>q.id===d.partId)).map(d=>({partId:String(d.partId),qty:Math.max(1,parseInt(d.qty)||1)}))
+    ?cfg.demand.filter(d=>parts.some(q=>q.id===d.partId)).map(d=>({partId:String(d.partId),qty:Math.max(1,parseInt(d.qty)||1),conwip:Math.max(1,parseInt(d.conwip)||5)}))
     :[];
   return normalizeFactory({resources,parts,demand,
     supplyMode:cfg.supplyMode==='stream'?'stream':'limitless',
     demandMode:cfg.demandMode==='stream'?'stream':'instant',
+    controlMode:cfg.controlMode==='pull'?'pull':'push',
     demandDist:cfg.demandDist?normDist(cfg.demandDist,'demand'):newDist('exp',{mean:3})});
 }
 

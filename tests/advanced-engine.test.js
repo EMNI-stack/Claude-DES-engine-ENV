@@ -167,3 +167,119 @@ test('limitless supply keeps first operations saturated', () => {
   assert.equal(sim.inventory.controller, Infinity, 'purchased part should be limitless');
   assert.equal(sim.jobsCreated, sim.jobsCompleted + sim.WIP(), 'conservation under limitless supply');
 });
+
+/* ================================================================
+   7. Scrap conservation per routing step:
+      entered = completed-through + scrapped + still-at-step.
+      (A blocked slot's job has finished the step, so it counts as
+      done; jobs queued or in service count as still-at-step.)
+   ================================================================ */
+test('scrap conservation: entered = done + scrapped + at step', () => {
+  const cfg = factory();
+  cfg.parts[0].routing[0].scrapProbability = 0.08;     // frame @ cutting
+  cfg.parts[3].routing[0].scrapProbability = 0.05;     // widget @ assembly
+  cfg.parts[3].routing[1].scrapProbability = 0.12;     // widget @ quality
+  cfg.parts[4].routing[1].scrapProbability = 0.10;     // gadget @ quality
+  const sim = new AdvancedSim(cfg, 2468);
+  runTo(sim, 120_000);
+
+  assert.ok(sim.jobsScrapped > 200, 'not enough scrap events to be meaningful');
+  // count jobs physically sitting at each (part, step) right now
+  const atStep = {};
+  for (const p of sim.parts) atStep[p.id] = (p.routing || []).map(() => 0);
+  for (const R of sim.resources) {
+    for (const job of R.queue) atStep[job.pid][job.step]++;
+    for (const s of R.slots) if (s.job && !s.blocked) atStep[s.job.pid][s.job.step]++;
+  }
+  for (const p of sim.parts) {
+    (p.routing || []).forEach((step, si) => {
+      const ss = sim.stepStats[p.id][si];
+      assert.equal(ss.entered, ss.done + ss.scrapped + atStep[p.id][si],
+        `${p.id} op ${si + 1}: entered=${ss.entered} != done(${ss.done})+scrapped(${ss.scrapped})+atStep(${atStep[p.id][si]})`);
+    });
+  }
+  // global: created = completed + scrapped + in system
+  assert.equal(sim.jobsCreated, sim.jobsCompleted + sim.jobsScrapped + sim.WIP(),
+    'global conservation with scrap broken');
+  // yield sanity for widget: ~ (1-.05)(1-.12)
+  const st = sim.pstats.widget;
+  const y = st.completed / (st.completed + st.scrapped);
+  const expect = 0.95 * 0.88 / (0.95 * 0.88 + (1 - 0.95 * 0.88));   // per-job survival = yield
+  assert.ok(Math.abs(y - expect) < 0.05, `widget yield ${y.toFixed(3)} ≈ ${expect.toFixed(3)} expected`);
+});
+
+/* ================================================================
+   8. Finite queue capacity: no queue ever exceeds it, and upstream
+      slots actually spend time blocked (amber state).
+   ================================================================ */
+test('queues never exceed capacity; blocking time accrues', () => {
+  const cfg = factory({ supplyMode: 'limitless' });
+  cfg.resources[2].queueCap = 2;   // Assembly queue holds at most 2
+  cfg.resources[3].queueCap = 1;   // Quality Check holds at most 1
+  const sim = new AdvancedSim(cfg, 1357);
+  for (let i = 0; i < 80_000 && sim.fel.length; i++) {
+    sim.step();
+    assert.ok(sim.resources[2].queue.length <= 2,
+      `Assembly queue ${sim.resources[2].queue.length} > 2 at t=${sim.now.toFixed(2)}`);
+    assert.ok(sim.resources[3].queue.length <= 1,
+      `Quality queue ${sim.resources[3].queue.length} > 1 at t=${sim.now.toFixed(2)}`);
+  }
+  assert.ok(sim.resources[2].aBlk > 0, 'Assembly never blocked on the tiny Quality queue');
+  assert.equal(sim.jobsCreated, sim.jobsCompleted + sim.jobsScrapped + sim.WIP(),
+    'conservation with blocking broken');
+});
+
+/* ================================================================
+   9. CONWIP pull: per-product jobs in flight never exceed the
+      conwip limit at any point; demand backlog conservation holds.
+   ================================================================ */
+test('pull mode: in-flight jobs never exceed CONWIP limits', () => {
+  const cfg = factory({
+    supplyMode: 'limitless',
+    controlMode: 'pull',
+    demandMode: 'stream',
+    demandDist: newDist('exp', { mean: 1.0 }),   // hungry demand → limits bind
+  });
+  cfg.demand[0].conwip = 4;   // widget
+  cfg.demand[1].conwip = 3;   // gadget
+  const sim = new AdvancedSim(cfg, 8642);
+  for (let i = 0; i < 100_000 && sim.fel.length; i++) {
+    sim.step();
+    assert.ok(sim.pstats.widget.wip <= 4,
+      `widget in-flight ${sim.pstats.widget.wip} > CONWIP 4 at t=${sim.now.toFixed(2)}`);
+    assert.ok(sim.pstats.gadget.wip <= 3,
+      `gadget in-flight ${sim.pstats.gadget.wip} > CONWIP 3 at t=${sim.now.toFixed(2)}`);
+  }
+  for (const d of sim.demand) {
+    const ds = sim.demandStats[d.partId];
+    assert.ok(ds.fulfilled > 500, `${d.partId}: pull line barely produced`);
+    assert.equal(ds.demanded, ds.fulfilled + ds.backlog,
+      `${d.partId}: demanded != fulfilled + backlog (no lost sales in pull)`);
+    assert.equal(ds.stockouts, 0, 'pull mode defers demand instead of losing it');
+  }
+});
+
+/* ================================================================
+   10. Little's Law per workcenter still holds with scrap, finite
+       queues (blocking) and breakdowns all active. Uses departure
+       counts (blocked time at a workcenter belongs to its flow time).
+   ================================================================ */
+test("Little's Law holds per workcenter with scrap + blocking + breakdowns", () => {
+  const cfg = factory();
+  cfg.parts[3].routing[1].scrapProbability = 0.1;
+  cfg.resources[3].queueCap = 2;
+  cfg.resources[2].brk = true;
+  cfg.resources[2].ttf = newDist('exp', { mean: 30 });
+  cfg.resources[2].ttr = newDist('exp', { mean: 3 });
+  const sim = new AdvancedSim(cfg, 9753);
+  runTo(sim, 200_000);
+  const T = sim.now;
+  for (const R of sim.resources) {
+    if (R.departed < 500) continue;
+    const avgN = R.aN / T;
+    const thXw = (R.departed / T) * (R.sumFlow / R.departed);
+    const rel = Math.abs(avgN - thXw) / avgN;
+    assert.ok(rel < 0.05,
+      `${R.cfg.name}: avgN=${avgN.toFixed(3)} vs TH×W=${thXw.toFixed(3)} (${(rel * 100).toFixed(1)}% off)`);
+  }
+});
