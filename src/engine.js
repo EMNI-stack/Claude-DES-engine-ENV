@@ -7,8 +7,26 @@ export class Sim {
     this.pid = 0; this.events = 0; this.lastT = 0;
     this.entered = 0; this.completed = 0; this.scrapped = 0; this.rejected = 0;
     this.areaWIP = 0; this.sumCycle = 0; this.cycles = []; this.logbuf = []; this.exits = [];
-    this.stations = cfg.stations.map((s) => ({
-      cfg: s, cap: s.finite ? s.cap : Infinity,
+    // Explicit buffers: [k] = input buffer of station k (raw material for k=0,
+    // WIP otherwise), [n] = finished goods. Fall back to the per-station
+    // finite/cap fields so legacy configs behave exactly as before.
+    const n = cfg.stations.length;
+    const bufCfg = (cfg.buffers && cfg.buffers.length === n + 1)
+      ? cfg.buffers
+      : [...cfg.stations.map((s) => ({ finite: s.finite, cap: s.cap, init: 0 })),
+         { finite: false, cap: 0, init: 0 }];
+    this.buffers = bufCfg.map((b) => ({
+      cap: b.finite ? b.cap : Infinity,
+      init: Math.max(0, Math.floor(b.init) || 0),
+    }));
+    // Customer demand at the finished-goods end. 'instant' consumes every
+    // finished unit immediately — the classic push-to-sink behavior.
+    this.demand = (cfg.demand && cfg.demand.mode === 'stream') ? cfg.demand : { mode: 'instant' };
+    this.fgCap = this.buffers[n].cap;
+    this.fg = Math.min(this.buffers[n].init, this.fgCap);
+    this.demanded = 0; this.fulfilled = 0; this.stockouts = 0; this.aFG = 0;
+    this.stations = cfg.stations.map((s, k) => ({
+      cfg: s, cap: this.buffers[k].cap,
       machines: Array.from({ length: s.machines }, () => ({
         part: null, busy: false, down: false, blocked: false,
         remaining: 0, depTime: 0, depSeq: 0, failSeq: 0,
@@ -20,6 +38,18 @@ export class Sim {
     this.stations.forEach((st, k) => {
       if (this.type === 'production' && st.cfg.brk) {
         st.machines.forEach((m, mi) => this.scheduleFail(k, mi));
+      }
+    });
+    if (this.demand.mode === 'stream') {
+      this.schedule(sample(this.demand.dist, this.rng), { t: 'DEM' });
+    }
+    // Seed initial inventory (units present at time 0) into station buffers,
+    // clamped at capacity; excess units are silently dropped.
+    this.stations.forEach((st, k) => {
+      for (let i = 0; i < this.buffers[k].init; i++) {
+        const part = { id: ++this.pid, tA: 0 };
+        if (!this.tryAccept(k, part)) break;
+        this.entered++;
       }
     });
   }
@@ -92,13 +122,30 @@ export class Sim {
 
   advance(k, mi, part) {
     if (k + 1 >= this.stations.length) {
+      // Last station releases into the finished-goods buffer. With a demand
+      // stream and a full finite FG buffer, the machine blocks (same rule as
+      // a full downstream WIP buffer). Instant mode never accumulates FG.
+      if (this.demand.mode !== 'instant' && this.fg >= this.fgCap) {
+        this.stations[k].machines[mi].blocked = true; return;
+      }
       this.completed++;
       const ct = this.now - part.tA; this.sumCycle += ct;
       this.cycles.push(ct); if (this.cycles.length > 4000) this.cycles.shift();
+      if (this.demand.mode !== 'instant') this.fg++;
+      this.exit(part, k, 'done');
       this.freeAndPull(k, mi); return;
     }
     if (this.tryAccept(k + 1, part)) { this.freeAndPull(k, mi); }
     else { this.stations[k].machines[mi].blocked = true; }
+  }
+
+  // A freed finished-goods slot may release machines blocked at the last station.
+  pullFromLast() {
+    const k = this.stations.length - 1, st = this.stations[k];
+    for (let mi = 0; mi < st.machines.length && this.fg < this.fgCap; mi++) {
+      const m = st.machines[mi];
+      if (m.blocked && !m.down && m.part) this.advance(k, mi, m.part);
+    }
   }
 
   accumulate(t) {
@@ -109,6 +156,7 @@ export class Sim {
         st.aBusy += b * dt; st.aDown += d * dt; st.aBlk += bl * dt; st.aQ += st.queue.length * dt;
       }
       this.areaWIP += this.WIP() * dt;
+      this.aFG += this.fg * dt;
     }
     this.lastT = t;
   }
@@ -140,6 +188,13 @@ export class Sim {
       if (m.busy) { m.depSeq++; m.remaining = Math.max(0, m.depTime - this.now); m.busy = false; m.down = true; }
       else { m.down = true; }
       this.scheduleRepair(k, mi); this.log('fail', { k, mi });
+    } else if (ev.t === 'DEM') {
+      this.schedule(sample(this.demand.dist, this.rng), { t: 'DEM' });
+      this.demanded++;
+      if (this.fg > 0) {
+        this.fg--; this.fulfilled++; this.log('dem', {});
+        this.pullFromLast();
+      } else { this.stockouts++; this.log('stk', {}); }
     } else if (ev.t === 'REP') {
       m.down = false; this.scheduleFail(k, mi); this.log('rep', { k, mi });
       if (m.part) {
@@ -167,12 +222,18 @@ export function station(name, machines, finite, cap, service, scrap = 0, brk = f
   };
 }
 
+export function buffer(finite = false, cap = 10, init = 0) {
+  return { finite, cap, init };
+}
+
 export function defaultConfig(type) {
   if (type === 'server') {
     return {
       type: 'server',
       source: newDist('exp', { mean: 0.7 }),
       stations: [station('Service desk', 3, false, 8, newDist('exp', { mean: 1.0 }))],
+      buffers: [buffer(false, 8, 0), buffer(false, 12, 0)],
+      demand: { mode: 'instant', dist: newDist('exp', { mean: 2.5 }) },
     };
   }
   return {
@@ -186,5 +247,7 @@ export function defaultConfig(type) {
       station('Inspection', 2, true, 6, newDist('triangular', { min: 0.6, mode: 1.0, max: 1.8 }), 0.0, false,
         newDist('weibull', { shape: 2, scale: 50 }), newDist('exp', { mean: 3 })),
     ],
+    buffers: [buffer(true, 6, 0), buffer(true, 5, 0), buffer(true, 6, 0), buffer(false, 12, 0)],
+    demand: { mode: 'instant', dist: newDist('exp', { mean: 2.5 }) },
   };
 }

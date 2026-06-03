@@ -54,6 +54,11 @@
   .dist{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;background:rgba(255,255,255,.02);border:1px solid var(--line);border-radius:8px;padding:9px 11px}
   .dist .meta{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--sim);margin-left:auto;text-align:right}
 
+  /* buffer cards (stock locations between stations) */
+  .buffer-card{border:1px dashed rgba(242,177,60,.45);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:rgba(242,177,60,.04);display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap}
+  .buffer-card .blabel{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;color:var(--thy);min-width:170px;align-self:center}
+  .buffer-card .bnote{font-size:10px;color:var(--faint);align-self:center;margin-left:auto}
+
   /* station cards */
   .station{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--panel-2)}
   .station-h{display:flex;align-items:center;gap:10px;margin-bottom:10px}
@@ -103,7 +108,7 @@
   .util-bar{height:5px;border-radius:3px;background:var(--sim);display:inline-block;vertical-align:middle}
 
   canvas{width:100%;display:block;border-radius:8px;background:rgba(0,0,0,.18)}
-  #wip{height:150px}#cyc{height:150px}
+  #wip{height:150px}#cyc{height:150px}#fgc{height:130px}
   .views{display:flex;gap:8px;flex-wrap:wrap}
   .vchip{font-family:'JetBrains Mono',monospace;font-size:11px;padding:6px 10px;border-radius:99px;border:1px solid var(--line);color:var(--faint);cursor:pointer;background:transparent}
   .vchip.on{border-color:var(--sim);color:var(--sim);background:rgba(54,224,200,.08)}
@@ -115,6 +120,7 @@
   .badge{font-size:8px;padding:2px 5px;border-radius:4px}
   .b-arr{background:rgba(54,224,200,.15);color:var(--sim)} .b-dep{background:rgba(242,177,60,.15);color:var(--thy)}
   .b-fail{background:rgba(255,107,107,.15);color:var(--down)} .b-rep{background:rgba(255,135,83,.15);color:var(--blocked)}
+  .b-dem{background:rgba(143,179,196,.18);color:#8fb3c4}
   .pill{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 9px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
   .note{font-size:11px;color:var(--faint);line-height:1.5;margin-top:9px}
   .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
@@ -157,9 +163,23 @@
     <div class="panel-b"><div id="stations"></div></div>
   </div>
 
+  <!-- CUSTOMER DEMAND -->
+  <div class="panel" id="pDemand">
+    <div class="panel-h"><h2>3 · Customer demand</h2>
+      <span class="segwrap">
+        <button class="seg on" id="dInstant">Instant (push to sink)</button>
+        <button class="seg" id="dStream">Demand stream</button>
+      </span>
+    </div>
+    <div class="panel-b">
+      <p class="note" id="dNote" style="margin:0 0 9px"></p>
+      <div id="demandDist"></div>
+    </div>
+  </div>
+
   <!-- PLAYBACK + VIEWS -->
   <div class="panel">
-    <div class="panel-h"><h2>3 · Run</h2><span id="evcount" class="pill">0 events</span></div>
+    <div class="panel-h"><h2>4 · Run</h2><span id="evcount" class="pill">0 events</span></div>
     <div class="panel-b">
       <label class="fld" style="margin-bottom:8px">Playback speed <span style="color:var(--sim)" id="spdV">3×</span>
         <input id="spd" type="range" min="0.25" max="80" step="0.25" value="3" style="width:240px"></label>
@@ -175,6 +195,7 @@
         <button class="vchip on" data-t="pKpi">Metrics</button>
         <button class="vchip on" data-t="pStations">Station stats</button>
         <button class="vchip on" data-t="pWip">WIP chart</button>
+        <button class="vchip on" data-t="pFg">FG inventory</button>
         <button class="vchip on" data-t="pCyc">Cycle-time histogram</button>
         <button class="vchip" data-t="pFel">Future Event List</button>
         <button class="vchip" data-t="pLog">Event log</button>
@@ -210,11 +231,19 @@
           <div class="kpi"><div class="k">Yield</div><div class="v" id="m_yield">—</div></div>
           <div class="kpi"><div class="k">Rejected@entry</div><div class="v" id="m_rej">0</div></div>
           <div class="kpi"><div class="k">Entered</div><div class="v" id="m_in">0</div></div>
+          <div class="kpi"><div class="k">Fill rate</div><div class="v" id="m_fill">—</div></div>
+          <div class="kpi"><div class="k">Stockouts</div><div class="v" id="m_stk">0</div></div>
+          <div class="kpi"><div class="k">FG on hand</div><div class="v" id="m_fg">0</div></div>
+          <div class="kpi"><div class="k">Avg FG inv</div><div class="v" id="m_afg">—</div></div>
         </div></div>
       </div>
       <div class="panel" id="pWip">
         <div class="panel-h"><h2>Work-in-process over time</h2></div>
         <div class="panel-b"><canvas id="wip"></canvas></div>
+      </div>
+      <div class="panel" id="pFg">
+        <div class="panel-h"><h2>Finished-goods inventory over time</h2></div>
+        <div class="panel-b"><canvas id="fgc"></canvas></div>
       </div>
     </div>
     <div>
@@ -291,21 +320,27 @@ function parseConfig(text){
   const cfg=JSON.parse(text);
   if(cfg.type!=='server'&&cfg.type!=='production')throw new Error('type must be "server" or "production"');
   if(!Array.isArray(cfg.stations)||!cfg.stations.length)throw new Error('stations must be a non-empty array');
-  return {
-    type:cfg.type,
-    source:normDist(cfg.source,'source'),
-    stations:cfg.stations.map((s,k)=>station(
-      String(s.name||('Step '+(k+1))),
-      Math.max(1,parseInt(s.machines)||1),
-      !!s.finite,
-      Math.max(1,parseInt(s.cap)||1),
-      normDist(s.service,`station ${k+1} service`),
-      Math.min(1,Math.max(0,parseFloat(s.scrap)||0)),
-      !!s.brk,
-      s.ttf?normDist(s.ttf,`station ${k+1} time-to-failure`):null,
-      s.ttr?normDist(s.ttr,`station ${k+1} time-to-repair`):null,
-    )),
-  };
+  const stations=cfg.stations.map((s,k)=>station(
+    String(s.name||('Step '+(k+1))),
+    Math.max(1,parseInt(s.machines)||1),
+    !!s.finite,
+    Math.max(1,parseInt(s.cap)||1),
+    normDist(s.service,`station ${k+1} service`),
+    Math.min(1,Math.max(0,parseFloat(s.scrap)||0)),
+    !!s.brk,
+    s.ttf?normDist(s.ttf,`station ${k+1} time-to-failure`):null,
+    s.ttr?normDist(s.ttr,`station ${k+1} time-to-repair`):null,
+  ));
+  const normBuf=b=>({finite:!!b.finite,cap:Math.max(1,parseInt(b.cap)||1),init:Math.max(0,parseInt(b.init)||0)});
+  // old save files have no buffers/demand — derive buffers from the legacy
+  // per-station finite/cap fields and default to instant demand
+  const buffers=Array.isArray(cfg.buffers)&&cfg.buffers.length===stations.length+1
+    ?cfg.buffers.map(normBuf)
+    :[...stations.map(s=>({finite:s.finite,cap:s.cap===Infinity?12:s.cap,init:0})),{finite:false,cap:12,init:0}];
+  const demand=cfg.demand&&cfg.demand.mode==='stream'
+    ?{mode:'stream',dist:normDist(cfg.demand.dist,'demand')}
+    :{mode:'instant',dist:cfg.demand&&cfg.demand.dist?normDist(cfg.demand.dist,'demand'):newDist('exp',{mean:2.5})};
+  return {type:cfg.type,source:normDist(cfg.source,'source'),stations,buffers,demand};
 }
 
 function distEditor(d,onChange,opts={}){
@@ -361,8 +396,42 @@ function renderBuilder(){
   $('sourceDist').innerHTML='';
   $('sourceDist').appendChild(distEditor(config.source,build));
   const box=$('stations'); box.innerHTML='';
-  config.stations.forEach((s,k)=>box.appendChild(stationCard(s,k)));
+  const isProd=config.type==='production';
+  config.stations.forEach((s,k)=>{box.appendChild(bufferCard(k));box.appendChild(stationCard(s,k));});
+  if(isProd)box.appendChild(bufferCard(config.stations.length));   // finished goods
+  // demand process (production systems only; server systems are pure push)
+  $('pDemand').classList.toggle('hidden',!isProd);
+  if(!isProd)config.demand.mode='instant';
+  $('dInstant').classList.toggle('on',config.demand.mode==='instant');
+  $('dStream').classList.toggle('on',config.demand.mode==='stream');
+  $('dNote').textContent=config.demand.mode==='instant'
+    ?'Every finished unit is consumed the moment it completes (classic push-to-sink — the validated baseline behavior).'
+    :'Customers arrive per the interarrival distribution below. Each consumes one unit of finished goods; if the FG buffer is empty the demand is a stockout (lost sale). Fill rate = fulfilled / demanded.';
+  const dd=$('demandDist'); dd.innerHTML='';
+  if(config.demand.mode==='stream')dd.appendChild(distEditor(config.demand.dist,build));
 }
+function bufferCard(k){
+  const n=config.stations.length, isFG=k===n, b=config.buffers[k];
+  const card=document.createElement('div');card.className='buffer-card';
+  const lbl=document.createElement('span');lbl.className='blabel';
+  lbl.textContent=k===0?'▤ RAW BUFFER → STEP 1':isFG?'▤ FINISHED GOODS':`▤ WIP BUFFER ${k} → ${k+1}`;
+  card.appendChild(lbl);
+  const fin=document.createElement('input');fin.type='checkbox';fin.checked=b.finite;
+  const cap=document.createElement('input');cap.type='number';cap.min=1;cap.value=b.cap;cap.disabled=!b.finite;
+  fin.onchange=()=>{b.finite=fin.checked;cap.disabled=!b.finite;build();};
+  cap.oninput=()=>{b.cap=Math.max(1,parseInt(cap.value)||1);build();};
+  const finLab=document.createElement('label');finLab.className='check';finLab.appendChild(fin);finLab.appendChild(document.createTextNode('finite'));
+  card.appendChild(finLab);card.appendChild(lab('capacity',cap));
+  const init=document.createElement('input');init.type='number';init.min=0;init.value=b.init;
+  init.oninput=()=>{b.init=Math.max(0,parseInt(init.value)||0);build();};
+  card.appendChild(lab('initial inventory',init));
+  const note=document.createElement('span');note.className='bnote';
+  note.textContent=isFG?'drawn down by customer demand':'capacity counts queue + parts in service';
+  card.appendChild(note);
+  return card;
+}
+$('dInstant').onclick=()=>{config.demand.mode='instant';renderBuilder();build();};
+$('dStream').onclick=()=>{config.demand.mode='stream';renderBuilder();build();};
 function stationCard(s,k){
   const isProd=config.type==='production';
   const card=document.createElement('div');card.className='station';
@@ -371,20 +440,12 @@ function stationCard(s,k){
   const nm=document.createElement('input');nm.className='name';nm.value=s.name;nm.oninput=()=>{s.name=nm.value;};
   h.appendChild(nm);
   if(config.stations.length>1){const del=document.createElement('button');del.className='danger';del.textContent='✕ remove';
-    del.onclick=()=>{config.stations.splice(k,1);renderBuilder();build();};h.appendChild(del);}
+    del.onclick=()=>{config.stations.splice(k,1);config.buffers.splice(k,1);renderBuilder();build();};h.appendChild(del);}
   card.appendChild(h);
   const r=document.createElement('div');r.className='row';
   const mc=document.createElement('input');mc.type='number';mc.min=1;mc.max=8;mc.value=s.machines;
   mc.oninput=()=>{s.machines=Math.max(1,parseInt(mc.value)||1);build();};
   r.appendChild(lab(isProd?'machines':'servers',mc));
-  const finChk=document.createElement('input');finChk.type='checkbox';finChk.checked=s.finite;
-  const capInp=document.createElement('input');capInp.type='number';capInp.min=1;capInp.value=s.cap;capInp.disabled=!s.finite;
-  finChk.onchange=()=>{s.finite=finChk.checked;capInp.disabled=!s.finite;build();};
-  capInp.oninput=()=>{s.cap=Math.max(1,parseInt(capInp.value)||1);build();};
-  const capWrap=document.createElement('span');capWrap.style.display='inline-flex';capWrap.style.gap='8px';capWrap.style.alignItems='flex-end';
-  const finLab=document.createElement('label');finLab.className='check';finLab.appendChild(finChk);finLab.appendChild(document.createTextNode('finite buffer'));
-  capWrap.appendChild(finLab);capWrap.appendChild(lab('capacity',capInp));
-  r.appendChild(capWrap);
   card.appendChild(r);
   const sh=document.createElement('div');sh.className='sub-h';sh.textContent='Processing time';card.appendChild(sh);
   card.appendChild(distEditor(s.service,build));
@@ -411,6 +472,7 @@ function stationCard(s,k){
 }
 $('addSt').onclick=()=>{const isProd=config.type==='production';
   config.stations.push(station('Step '+(config.stations.length+1),1,false,5,newDist('exp',{mean:1.0}),isProd?0:0,false));
+  config.buffers.splice(config.stations.length-1,0,{finite:false,cap:5,init:0});  // input buffer of the new station; FG stays last
   renderBuilder();build();};
 
 /* ===================================================================
@@ -418,18 +480,19 @@ $('addSt').onclick=()=>{const isProd=config.type==='production';
    =================================================================== */
 const stageEl=$('stage'); let sim,playing=false,simCursor=0,lastFrame=0,speed=3;
 const samples=[]; let tokenEls=new Map(), geo={};
-const wipC=$('wip'),wx=wipC.getContext('2d'),cycC=$('cyc'),cyx=cycC.getContext('2d');
+const wipC=$('wip'),wx=wipC.getContext('2d'),cycC=$('cyc'),cyx=cycC.getContext('2d'),fgC=$('fgc'),fx=fgC.getContext('2d');
 
 function build(){
   sim=new Sim(config,12345); sim.exits=[];
-  simCursor=0; samples.length=0; samples.push({t:0,w:0});
+  simCursor=0; samples.length=0; samples.push({t:0,w:sim.WIP(),fg:sim.fg});
   for(const el of tokenEls.values())el.remove(); tokenEls.clear();
   buildStage(); renderAll();
 }
 function buildStage(){
   stageEl.innerHTML='';
-  const n=config.stations.length, segW=170, srcW=64, sinkW=56, H=360;
-  const totalW=srcW+n*segW+sinkW+40;
+  const isProd=config.type==='production';
+  const n=config.stations.length, segW=170, srcW=64, sinkW=64, H=360, fgW=isProd?88:0;
+  const totalW=srcW+n*segW+fgW+sinkW+40;
   stageEl.style.width=totalW+'px'; geo={H,segW,srcW,sinkW,sx:[],my:[],midY:160};
   const src=document.createElement('div');src.className='node';src.style.left='8px';src.style.top=(H/2-26)+'px';src.style.width=(srcW-12)+'px';src.style.height='52px';src.style.borderColor='var(--sim)';src.textContent='SOURCE';stageEl.appendChild(src);
   geo.entryX=srcW; geo.entryY=H/2;
@@ -440,7 +503,7 @@ function buildStage(){
     const c=s.machines; const machX=sx+segW-72;
     const bufX=sx+8, bufW=machX-bufX-10;
     const buf=document.createElement('div');buf.className='buffer-box';buf.style.left=bufX+'px';buf.style.width=Math.max(30,bufW)+'px';buf.style.top=(H/2-15)+'px';stageEl.appendChild(buf);
-    addLbl('buffer'+(s.finite?(' K='+s.cap):''), bufX, H/2+18,'var(--faint)');
+    const bl=addLbl('', bufX, H/2+18,'var(--faint)');bl.id='bl_'+k;
     geo.qfront=bufX+Math.max(30,bufW)-14; geo.qgap=16;
     const my=[]; const gap=Math.min(46,(H-90)/c); const startY=(H-gap*(c-1))/2-17;
     for(let mi=0;mi<c;mi++){const y=startY+gap*mi;my.push(y+17);
@@ -451,11 +514,22 @@ function buildStage(){
     const arr=document.createElement('div');arr.className='arrow';arr.style.left=(machX+58)+'px';arr.style.width='18px';arr.style.top=(H/2)+'px';stageEl.appendChild(arr);
     x0+=segW;
   });
-  const sink=document.createElement('div');sink.className='node';sink.style.left=(x0+6)+'px';sink.style.top=(H/2-26)+'px';sink.style.width=(sinkW-12)+'px';sink.style.height='52px';sink.style.borderColor='var(--thy)';sink.textContent='SINK';stageEl.appendChild(sink);
+  if(isProd){
+    // finished-goods stock location
+    const fgb=document.createElement('div');fgb.className='node';fgb.style.left=(x0+6)+'px';fgb.style.top=(H/2-26)+'px';fgb.style.width=(fgW-22)+'px';fgb.style.height='52px';fgb.style.borderColor='var(--thy)';
+    fgb.innerHTML='<div style="text-align:center;line-height:1.3"><div style="font-size:8px;letter-spacing:.12em">FG STOCK</div><div id="fglvl" style="font-size:15px;color:var(--thy);font-weight:700">0</div></div>';
+    stageEl.appendChild(fgb);
+    const fl=addLbl('', x0+6, H/2+32,'var(--faint)');fl.id='fglbl';
+    const arr2=document.createElement('div');arr2.className='arrow';arr2.style.left=(x0+fgW-14)+'px';arr2.style.width='16px';arr2.style.top=(H/2)+'px';stageEl.appendChild(arr2);
+    x0+=fgW;
+  }
+  const sink=document.createElement('div');sink.className='node';sink.style.left=(x0+6)+'px';sink.style.top=(H/2-26)+'px';sink.style.width=(sinkW-12)+'px';sink.style.height='52px';sink.style.borderColor='var(--thy)';
+  sink.textContent=isProd&&config.demand.mode==='stream'?'CUSTOMER':'SINK';stageEl.appendChild(sink);
+  if(isProd){const cs=addLbl('', x0+2, H/2+32,'var(--faint)');cs.id='custStats';}
   geo.sinkX=x0+sinkW/2; geo.scrapY=H-58;
   geo.qf=[]; config.stations.forEach((s,k)=>{const sx=geo.sx[k];const machX=sx+segW-72;geo.qf.push(machX-18);});
 }
-function addLbl(t,x,y,col){const l=document.createElement('div');l.className='lbl';l.textContent=t;l.style.left=x+'px';l.style.top=y+'px';if(col)l.style.color=col;stageEl.appendChild(l);}
+function addLbl(t,x,y,col){const l=document.createElement('div');l.className='lbl';l.textContent=t;l.style.left=x+'px';l.style.top=y+'px';if(col)l.style.color=col;stageEl.appendChild(l);return l;}
 function tokenFor(part){let el=tokenEls.get(part.id);if(!el){el=document.createElement('div');el.className='token';setPos(el,geo.entryX,geo.entryY);stageEl.appendChild(el);tokenEls.set(part.id,el);}return el;}
 function setPos(el,x,y){el.style.transform=`translate(${x-8}px,${y-8}px)`;}
 
@@ -476,7 +550,16 @@ function renderStage(){
     const util=st.aBusy/(M*T)*100, down=st.aDown/(M*T)*100;
     $('f_'+k).innerHTML=`util ${util.toFixed(0)}% · Q̄ ${(st.aQ/T).toFixed(1)}`+
       (config.type==='production'?` · scrap ${st.scrapped}`+(s.brk?` · down ${down.toFixed(0)}%`:''):'');
+    const b=config.buffers[k];
+    $('bl_'+k).textContent=(k===0?'raw':'wip')+' '+st.queue.length+(b.finite?' · K='+b.cap:'');
   });
+  if(config.type==='production'){
+    const fgEl=$('fglvl');if(fgEl)fgEl.textContent=sim.fg;
+    const fb=config.buffers[config.stations.length];
+    const fl=$('fglbl');if(fl)fl.textContent=fb.finite?'K='+fb.cap:'∞';
+    const cs=$('custStats');if(cs)cs.textContent=sim.demand.mode==='stream'
+      ?`✓${sim.fulfilled} ✗${sim.stockouts}`:`out ${sim.completed}`;
+  }
   for(const ex of sim.exits){const el=tokenEls.get(ex.id);if(el){
     if(ex.kind==='scrap'){el.classList.add('scrap');setPos(el,geo.sx[ex.k]+geo.segW-50,geo.scrapY);}
     else if(ex.kind==='rej'){el.style.opacity='0';}
@@ -500,6 +583,10 @@ function renderMetrics(){
   $('m_yield').textContent=fin?((sim.completed/fin)*100).toFixed(1)+'%':'—';
   $('m_rej').textContent=sim.rejected;
   $('m_in').textContent=sim.entered;
+  $('m_fill').textContent=sim.demanded?((sim.fulfilled/sim.demanded)*100).toFixed(1)+'%':'—';
+  $('m_stk').textContent=sim.stockouts;
+  $('m_fg').textContent=sim.fg;
+  $('m_afg').textContent=(sim.aFG/T).toFixed(2);
   $('stTable').innerHTML=config.stations.map((s,k)=>{const st=sim.stations[k];const M=st.machines.length;
     const util=st.aBusy/(M*T),blk=st.aBlk/(M*T),down=st.aDown/(M*T);
     return `<tr><td>${k+1}. ${s.name}</td>
@@ -511,23 +598,25 @@ function renderMetrics(){
       <td>${st.scrapped}</td></tr>`;}).join('');
 }
 function renderFEL(){const items=[...sim.fel].sort((a,b)=>a.time-b.time||a.seq-b.seq).slice(0,8);
-  $('fel').innerHTML=items.map((e,i)=>{const lbl={ARR:'arrival',DEP:'finish · '+name(e),FAIL:'breakdown · '+name(e),REP:'repair · '+name(e)}[e.t];
-    const b={ARR:'b-arr',DEP:'b-dep',FAIL:'b-fail',REP:'b-rep'}[e.t];
+  $('fel').innerHTML=items.map((e,i)=>{const lbl={ARR:'arrival',DEP:'finish · '+name(e),FAIL:'breakdown · '+name(e),REP:'repair · '+name(e),DEM:'customer demand'}[e.t];
+    const b={ARR:'b-arr',DEP:'b-dep',FAIL:'b-fail',REP:'b-rep',DEM:'b-dem'}[e.t];
     return `<div class="fel-item ${i===0?'next':''}"><span class="fel-t">${e.time.toFixed(2)}</span><span>${lbl}</span><span class="badge ${b}">${e.t}</span></div>`;}).join('');}
 function name(e){return e.k!=null?('S'+(e.k+1)+(e.mi!=null?'·M'+(e.mi+1):'')):'';}
 function renderLog(){$('log').innerHTML=sim.logbuf.slice(0,14).map(e=>{
-  const map={arr:['ARRIVAL','var(--sim)'],dep:['done',''],scrap:['SCRAPPED','var(--down)'],rej:['REJECTED','var(--down)'],fail:['BREAKDOWN','var(--down)'],rep:['REPAIRED','var(--blocked)']};
+  const map={arr:['ARRIVAL','var(--sim)'],dep:['done',''],scrap:['SCRAPPED','var(--down)'],rej:['REJECTED','var(--down)'],fail:['BREAKDOWN','var(--down)'],rep:['REPAIRED','var(--blocked)'],dem:['DEMAND ✓','var(--thy)'],stk:['STOCKOUT','var(--down)']};
   const[txt,col]=map[e.t]||['',''];
   return `<div class="log-item" style="padding:3px 6px;color:var(--muted);font-size:11px"><span style="color:var(--thy)">t=${e.time.toFixed(2)}</span> <span style="color:${col||'var(--muted)'}">${txt}</span> ${e.id?('#'+e.id):''} ${e.k!=null?('@S'+(e.k+1)):''}</div>`;}).join('');}
 
-function pushSample(){samples.push({t:sim.now,w:sim.WIP()});if(samples.length>2500)samples.splice(0,samples.length-2500);}
-function drawWip(){const dpr=devicePixelRatio||1,w=wipC.clientWidth,h=150;wipC.width=w*dpr;wipC.height=h*dpr;wx.setTransform(dpr,0,0,dpr,0,0);wx.clearRect(0,0,w,h);
-  const pad=22,T=Math.max(sim.now,1);let mx=2;for(const s of samples)if(s.w>mx)mx=s.w;mx=Math.ceil(mx+1);
+function pushSample(){samples.push({t:sim.now,w:sim.WIP(),fg:sim.fg});if(samples.length>2500)samples.splice(0,samples.length-2500);}
+function drawSeries(cv,ctx,field,color){const dpr=devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight||150;cv.width=w*dpr;cv.height=h*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
+  const pad=22,T=Math.max(sim.now,1);let mx=2;for(const s of samples)if(s[field]>mx)mx=s[field];mx=Math.ceil(mx+1);
   const X=t=>pad+(w-pad-6)*(t/T),Y=v=>h-pad-(h-pad-8)*(v/mx);
-  wx.strokeStyle='rgba(255,255,255,.06)';wx.fillStyle='#5b6e7c';wx.font="10px 'JetBrains Mono'";
-  for(let g=0;g<=mx;g+=Math.max(1,Math.round(mx/4))){wx.beginPath();wx.moveTo(pad,Y(g));wx.lineTo(w-4,Y(g));wx.stroke();wx.fillText(g,3,Y(g)+3);}
-  wx.strokeStyle='#36e0c8';wx.lineWidth=1.6;wx.beginPath();let st=false;
-  for(let i=0;i<samples.length;i++){const s=samples[i],x=X(s.t),y=Y(s.w);if(!st){wx.moveTo(x,y);st=true;}else{wx.lineTo(x,Y(samples[i-1].w));wx.lineTo(x,y);}}wx.stroke();}
+  ctx.strokeStyle='rgba(255,255,255,.06)';ctx.fillStyle='#5b6e7c';ctx.font="10px 'JetBrains Mono'";
+  for(let g=0;g<=mx;g+=Math.max(1,Math.round(mx/4))){ctx.beginPath();ctx.moveTo(pad,Y(g));ctx.lineTo(w-4,Y(g));ctx.stroke();ctx.fillText(g,3,Y(g)+3);}
+  ctx.strokeStyle=color;ctx.lineWidth=1.6;ctx.beginPath();let st=false;
+  for(let i=0;i<samples.length;i++){const s=samples[i],x=X(s.t),y=Y(s[field]);if(!st){ctx.moveTo(x,y);st=true;}else{ctx.lineTo(x,Y(samples[i-1][field]));ctx.lineTo(x,y);}}ctx.stroke();}
+function drawWip(){drawSeries(wipC,wx,'w','#36e0c8');}
+function drawFg(){drawSeries(fgC,fx,'fg','#f2b13c');}
 function drawCyc(){const dpr=devicePixelRatio||1,w=cycC.clientWidth,h=150;cycC.width=w*dpr;cycC.height=h*dpr;cyx.setTransform(dpr,0,0,dpr,0,0);cyx.clearRect(0,0,w,h);
   const d=sim.cycles,pad=24;$('cycN').textContent=d.length+' done';
   if(d.length<2){cyx.fillStyle='#5b6e7c';cyx.font="12px 'JetBrains Mono'";cyx.fillText('collecting…',pad,h/2);return;}
@@ -539,7 +628,7 @@ function drawCyc(){const dpr=devicePixelRatio||1,w=cycC.clientWidth,h=150;cycC.w
   cyx.fillStyle='#f2b13c';cyx.font="10px 'JetBrains Mono'";cyx.fillText('mean '+mean.toFixed(2),Math.min(X(mean)+4,w-66),15);
   cyx.fillStyle='#5b6e7c';cyx.fillText('0',pad-2,h-pad+13);cyx.fillText(mx.toFixed(1)+' min',w-58,h-pad+13);}
 
-function renderAll(){renderStage();renderMetrics();renderFEL();renderLog();drawWip();drawCyc();$('evcount').textContent=sim.events+' events';}
+function renderAll(){renderStage();renderMetrics();renderFEL();renderLog();drawWip();drawFg();drawCyc();$('evcount').textContent=sim.events+' events';}
 
 /* ---- playback ---- */
 function loop(ts){if(!playing)return;let dt=(ts-lastFrame)/1000;lastFrame=ts;if(!isFinite(dt)||dt<0)dt=0;simCursor+=dt*speed;
@@ -570,11 +659,15 @@ $('xlsx').onclick=async()=>{
   A.addRow([]);
   A.addRow(['System type',isProd?'Production system':'Server system']).getCell(1).font={bold:true};
   A.addRow(['Arrivals (interarrival)',distStr(config.source)]).getCell(1).font={bold:true};
+  const fgBuf=config.buffers[config.stations.length];
+  A.addRow(['Customer demand',config.demand.mode==='stream'?distStr(config.demand.dist):'instant (push to sink)']).getCell(1).font={bold:true};
+  A.addRow(['Finished goods buffer',(fgBuf.finite?'K = '+fgBuf.cap:'unlimited')+(fgBuf.init?`, initial ${fgBuf.init}`:'')]).getCell(1).font={bold:true};
   A.addRow([]);
   bold(A.addRow(['Stations']),12);
-  bold(A.addRow(['Station',isProd?'Machines':'Servers','Buffer','Service time','Scrap prob','Breakdowns','Time to failure','Time to repair']));
+  bold(A.addRow(['Station',isProd?'Machines':'Servers','Input buffer','Service time','Scrap prob','Breakdowns','Time to failure','Time to repair']));
   config.stations.forEach((s,k)=>{
-    A.addRow([`${k+1}. ${s.name}`,s.machines,s.finite?('K = '+s.cap):'unlimited',distStr(s.service),
+    const b=config.buffers[k];
+    A.addRow([`${k+1}. ${s.name}`,s.machines,(b.finite?('K = '+b.cap):'unlimited')+(b.init?`, init ${b.init}`:''),distStr(s.service),
       isProd?s.scrap:'—',isProd?(s.brk?'yes':'no'):'—',
       isProd&&s.brk?distStr(s.ttf):'—',isProd&&s.brk?distStr(s.ttr):'—']);
   });
@@ -595,8 +688,13 @@ $('xlsx').onclick=async()=>{
     ['Yield',fin?round(sim.completed/fin,4):'—'],
     ['Avg WIP',round(sim.areaWIP/T,2)],
     ['Avg cycle time (min)',sim.completed?round(sim.sumCycle/sim.completed,2):'—'],
+    ['Demanded',sim.demanded],['Fulfilled from stock',sim.fulfilled],
+    ['Stockouts (lost sales)',sim.stockouts],
+    ['Fill rate',sim.demanded?round(sim.fulfilled/sim.demanded,4):'—'],
+    ['FG on hand (now)',sim.fg],
+    ['Avg FG inventory',round(sim.aFG/T,2)],
   ];
-  metrics.forEach(([k,v])=>{const r=O.addRow([k,v]);if(k==='Yield'&&fin)r.getCell(2).numFmt='0.0%';});
+  metrics.forEach(([k,v])=>{const r=O.addRow([k,v]);if((k==='Yield'||k==='Fill rate')&&typeof v==='number')r.getCell(2).numFmt='0.0%';});
   O.addRow([]);
   bold(O.addRow(['Per-station statistics']),12);
   bold(O.addRow(['Station','Utilization','Blocked','Down','Avg queue','Scrap','Processed']));
@@ -607,11 +705,11 @@ $('xlsx').onclick=async()=>{
   });
   O.addRow([]);
   bold(O.addRow(['Raw data — use these to build native Excel charts']),12);
-  bold(O.addRow(['Clock (min)','WIP','','Cycle time (min)']));
+  bold(O.addRow(['Clock (min)','WIP','FG stock','','Cycle time (min)']));
   const n=Math.max(samples.length,sim.cycles.length);
   for(let i=0;i<n;i++){
     const s=samples[i],c=sim.cycles[i];
-    O.addRow([s?round(s.t,2):null,s?s.w:null,null,c!=null?round(c,3):null]);
+    O.addRow([s?round(s.t,2):null,s?s.w:null,s?s.fg:null,null,c!=null?round(c,3):null]);
   }
 
   /* Sheet 3 — Analysis */
@@ -648,7 +746,7 @@ $('xlsx').onclick=async()=>{
 /* views */
 function setView(id,on){$(id).classList.toggle('hidden',!on);const c=document.querySelector(`.vchip[data-t="${id}"]`);if(c)c.classList.toggle('on',on);}
 $('views').addEventListener('click',e=>{const b=e.target.closest('.vchip');if(!b)return;const on=!b.classList.contains('on');setView(b.dataset.t,on);
-  if(on)requestAnimationFrame(()=>{drawWip();drawCyc();});});
+  if(on)requestAnimationFrame(()=>{drawWip();drawFg();drawCyc();});});
 
 window.addEventListener('resize',()=>{buildStage();renderAll();});
 renderBuilder(); build();
