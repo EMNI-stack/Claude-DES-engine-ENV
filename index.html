@@ -17,7 +17,9 @@
   html,body{margin:0;background:var(--bg);color:var(--ink);font-family:'Archivo',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
   body{background-image:radial-gradient(circle at 15% -10%,rgba(54,224,200,.06),transparent 40%),radial-gradient(circle at 90% 0%,rgba(242,177,60,.05),transparent 40%),linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px);background-size:auto,auto,26px 26px,26px 26px;padding:20px;min-height:100vh}
   .wrap{max-width:1240px;margin:0 auto}
-  header{margin-bottom:14px}
+  header{margin-bottom:14px;position:relative}
+  .navlink{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--thy);text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:7px 11px;position:absolute;top:0;right:0;background:var(--panel-2)}
+  .navlink:hover{border-color:var(--thy)}
   .eyebrow{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--sim);margin:0 0 6px}
   h1{font-family:'Fraunces',serif;font-weight:600;font-size:32px;line-height:1.05;margin:0;letter-spacing:-.01em}
   h1 em{font-style:italic;color:var(--thy)}
@@ -137,6 +139,7 @@
     <p class="sub">Build a production line from <b>stations</b> connected in series. Each station has a buffer, parallel machines, and a service-time distribution.
       Full buffers <b>block</b> upstream machines; stations can <b>scrap</b> parts or <b>break down</b>, and a customer demand process draws down finished goods —
       under <b>push</b> or <b>pull</b> (kanban) control. Configure any distribution, add extra variability, then watch parts flow through the line you designed.</p>
+    <a class="navlink" href="advanced.html">→ Advanced Factory</a>
   </header>
 
   <!-- BUILDER -->

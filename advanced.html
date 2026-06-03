@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Advanced Factory — BOM &amp; Routing Builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Archivo:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0c1015;--panel:#141a22;--panel-2:#1b232d;--line:#283441;
+    --ink:#e8eef2;--muted:#8aa0b0;--faint:#5b6e7c;
+    --sim:#36e0c8;--thy:#f2b13c;--down:#ff6b6b;--blocked:#ff8753;--idle:#33424f;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:'Archivo',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  body{background-image:radial-gradient(circle at 15% -10%,rgba(54,224,200,.06),transparent 40%),radial-gradient(circle at 90% 0%,rgba(242,177,60,.05),transparent 40%),linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px);background-size:auto,auto,26px 26px,26px 26px;padding:20px;min-height:100vh}
+  .wrap{max-width:1240px;margin:0 auto}
+  header{margin-bottom:14px;position:relative}
+  .eyebrow{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--sim);margin:0 0 6px}
+  h1{font-family:'Fraunces',serif;font-weight:600;font-size:32px;line-height:1.05;margin:0;letter-spacing:-.01em}
+  h1 em{font-style:italic;color:var(--thy)}
+  .sub{color:var(--muted);max-width:74ch;margin:8px 0 0;font-size:13.5px;line-height:1.55}
+  .sub b{color:var(--ink)}
+  .navlink{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--thy);text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:7px 11px;position:absolute;top:0;right:0;background:var(--panel-2)}
+  .navlink:hover{border-color:var(--thy)}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;position:relative;overflow:hidden;margin-bottom:14px}
+  .panel-h{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 13px;border-bottom:1px solid var(--line);background:var(--panel-2)}
+  .panel-h h2{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);margin:0;font-weight:500}
+  .panel-b{padding:13px}
+
+  button{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;background:var(--panel-2);color:var(--ink);border:1px solid var(--line);padding:8px 12px;border-radius:8px;cursor:pointer;transition:.15s;font-weight:500}
+  button:hover{border-color:var(--sim);color:var(--sim)}
+  button.primary{background:var(--sim);color:#06201c;border-color:var(--sim);font-weight:700}
+  button.primary:hover{background:#52f0d8}
+  button.danger:hover{border-color:var(--down);color:var(--down)}
+  button:active{transform:translateY(1px)}
+  button.mini{padding:3px 8px;font-size:11px;border-radius:6px}
+
+  select,input[type=number],input[type=text]{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+  input[type=number]{width:62px}
+  select:hover,input:hover{border-color:var(--sim)}
+  input[type=color]{width:34px;height:30px;padding:2px;background:var(--bg);border:1px solid var(--line);border-radius:6px;cursor:pointer}
+  label.fld{display:inline-flex;flex-direction:column;gap:3px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--faint);letter-spacing:.05em}
+  .check{display:inline-flex;align-items:center;gap:7px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);cursor:pointer;user-select:none}
+  .check input{accent-color:var(--sim);width:14px;height:14px;cursor:pointer}
+  input[type=range]{-webkit-appearance:none;height:4px;border-radius:3px;background:var(--line);outline:none;width:120px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--sim);cursor:pointer;border:2px solid var(--bg)}
+
+  /* distribution editor (same as index.html) */
+  .dist{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;background:rgba(255,255,255,.02);border:1px solid var(--line);border-radius:8px;padding:9px 11px}
+  .dist .meta{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--sim);margin-left:auto;text-align:right}
+
+  /* cards */
+  .card{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--panel-2)}
+  .card-h{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .card-h .num{font-family:'JetBrains Mono',monospace;font-size:11px;color:#06201c;background:var(--sim);border-radius:6px;padding:3px 8px;font-weight:700}
+  .card-h input.name{flex:1;font-family:'Archivo';font-size:14px;background:transparent;border:none;border-bottom:1px solid var(--line);color:var(--ink);padding:4px 2px}
+  .card-h input.name:focus{outline:none;border-color:var(--sim)}
+  .row{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px}
+  .sub-h{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:8px 0 4px;width:100%}
+  .swatch{width:13px;height:13px;border-radius:4px;display:inline-block;vertical-align:-2px;margin-right:6px;border:1px solid rgba(255,255,255,.2)}
+  .tag{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;padding:2px 7px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+  .tag.purchased{color:#8fb3c4;border-color:#8fb3c4}
+  .tag.produced{color:var(--sim);border-color:var(--sim)}
+  .bom-row,.step-row{display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+  .step-row{background:rgba(255,255,255,.02);border:1px solid var(--line);border-radius:8px;padding:7px 9px}
+  .step-row .ord{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--faint);width:34px}
+  .note{font-size:11px;color:var(--faint);line-height:1.5;margin-top:9px}
+  .pill{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 9px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+
+  /* factory floor */
+  .floor-scroll{overflow-x:auto;border-radius:8px;background:radial-gradient(circle at 50% 130%,rgba(54,224,200,.04),transparent 60%)}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--muted);margin-top:10px}
+  .legend i{width:11px;height:11px;border-radius:3px;display:inline-block;vertical-align:-1px;margin-right:5px;border:1.5px solid rgba(255,255,255,.25)}
+  svg text{font-family:'JetBrains Mono',monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Discrete Event Simulation · Factory Builder</p>
+    <h1>Factory <em>BOM &amp; Routing</em> Builder</h1>
+    <p class="sub">Define <b>workcenters</b>, <b>parts</b> with their <b>bills of materials</b>, and the <b>routing</b> (ordered operations)
+      each produced part follows. The factory floor below draws every part's flow through its workcenters —
+      where flows <b>converge on a shared workcenter</b>, you are looking at a bottleneck candidate.
+      In the default factory, <b>Frame</b> feeds both products and <b>Assembly</b> serves both routings.</p>
+    <a class="navlink" href="index.html">← Production Line</a>
+  </header>
+
+  <!-- RESOURCES -->
+  <div class="panel">
+    <div class="panel-h"><h2>1 · Workcenters</h2>
+      <span style="display:inline-flex;gap:8px;flex-wrap:wrap">
+        <button id="saveCfg">⇣ Save config</button>
+        <button id="loadCfg">⇡ Load config</button>
+        <input type="file" id="cfgFile" accept=".json,application/json" style="display:none">
+        <button id="addRes">+ Add workcenter</button>
+      </span>
+    </div>
+    <div class="panel-b">
+      <p class="note" style="margin:0 0 9px">Workcenters are arranged left → right on the factory floor in this order. Each has parallel capacity, a default processing-time distribution (used when adding routing steps), and optional breakdowns.</p>
+      <div id="resources"></div>
+    </div>
+  </div>
+
+  <!-- PARTS & BOM -->
+  <div class="panel">
+    <div class="panel-h"><h2>2 · Parts &amp; BOM</h2><button id="addPart">+ Add part</button></div>
+    <div class="panel-b">
+      <p class="note" style="margin:0 0 9px"><b>Purchased</b> parts come from raw supply — no operations needed. <b>Produced</b> parts consume their BOM components to start production, then follow their routing. Mark finished products with customer demand to show them exiting the floor.</p>
+      <div id="parts"></div>
+    </div>
+  </div>
+
+  <!-- ROUTINGS -->
+  <div class="panel">
+    <div class="panel-h"><h2>3 · Routings</h2></div>
+    <div class="panel-b">
+      <p class="note" style="margin:0 0 9px">The routing is the ordered sequence of operations a produced part goes through after its BOM components are available. Each operation runs at a workcenter with its own processing-time distribution.</p>
+      <div id="routings"></div>
+    </div>
+  </div>
+
+  <!-- FACTORY FLOOR -->
+  <div class="panel">
+    <div class="panel-h"><h2>4 · Factory floor</h2>
+      <span style="display:inline-flex;gap:8px;align-items:center">
+        <span class="pill" id="floorStats"></span>
+        <button id="refresh" class="primary">⟳ Build / Refresh layout</button>
+      </span>
+    </div>
+    <div class="panel-b">
+      <div class="floor-scroll"><div id="floor"></div></div>
+      <div class="legend" id="legend"></div>
+      <p class="note">Colored lines are part routings flowing left → right through workcenter columns. <b>⊕</b> marks a BOM assembly point where component flows merge into a product's flow. Lines converging on the same column share that workcenter's capacity.</p>
+    </div>
+  </div>
+
+  <p class="note">Builder &amp; visualiser only — the multi-part simulation engine arrives in a later pass. <a href="index.html" style="color:var(--thy)">← Production Line</a> has the running single-routing simulator.</p>
+</div>
+
+<script type="module">
+import './src/engine.js';   // engine wired to this page in a later pass
+import { DISTS, newDist, sample, distMean, mulberry32 } from './src/distributions.js';
+
+const $=id=>document.getElementById(id);
+const cloneDist=d=>({type:d.type,params:Object.assign({},d.params),variability:d.variability||0});
+
+/* ===================================================================
+   Default factory — Frame and Assembly are shared between products
+   =================================================================== */
+function defaultFactory(){
+  const cut=newDist('exp',{mean:1.5}), weld=newDist('normal',{mean:2.0,sd:0.3});
+  const asm=newDist('exp',{mean:1.0}), qc=newDist('triangular',{min:0.5,mode:0.8,max:1.5});
+  return {
+    resources:[
+      {id:'cutting',name:'Cutting',capacity:1,service:cloneDist(cut),brk:false,ttf:newDist('weibull',{shape:1.5,scale:40}),ttr:newDist('exp',{mean:4})},
+      {id:'welding',name:'Welding',capacity:1,service:cloneDist(weld),brk:false,ttf:newDist('weibull',{shape:1.5,scale:40}),ttr:newDist('exp',{mean:4})},
+      {id:'assembly',name:'Assembly',capacity:1,service:cloneDist(asm),brk:false,ttf:newDist('weibull',{shape:1.5,scale:40}),ttr:newDist('exp',{mean:4})},
+      {id:'quality',name:'Quality Check',capacity:1,service:cloneDist(qc),brk:false,ttf:newDist('weibull',{shape:1.5,scale:40}),ttr:newDist('exp',{mean:4})},
+    ],
+    parts:[
+      {id:'frame',name:'Frame',color:'#36e0c8',type:'produced',bom:[],
+        routing:[{resourceId:'cutting',service:cloneDist(cut)}]},
+      {id:'body',name:'Body',color:'#f2b13c',type:'produced',bom:[],
+        routing:[{resourceId:'welding',service:cloneDist(weld)}]},
+      {id:'controller',name:'Controller',color:'#8fb3c4',type:'purchased',bom:[],routing:[]},
+      {id:'widget',name:'Widget — Product A',color:'#ff8753',type:'produced',
+        bom:[{partId:'frame',qty:1},{partId:'body',qty:1}],
+        routing:[{resourceId:'assembly',service:cloneDist(asm)},{resourceId:'quality',service:cloneDist(qc)}]},
+      {id:'gadget',name:'Gadget — Product B',color:'#c792ea',type:'produced',
+        bom:[{partId:'frame',qty:1},{partId:'controller',qty:1}],
+        routing:[{resourceId:'assembly',service:cloneDist(asm)},{resourceId:'quality',service:cloneDist(qc)}]},
+    ],
+    demand:[{partId:'widget',qty:1},{partId:'gadget',qty:1}],
+  };
+}
+let config=defaultFactory();
+
+function uid(prefix,list){let n=1;while(list.some(x=>x.id===prefix+n))n++;return prefix+n;}
+const resById=id=>config.resources.find(r=>r.id===id);
+const partById=id=>config.parts.find(p=>p.id===id);
+const inDemand=id=>config.demand.some(d=>d.partId===id);
+
+/* ===================================================================
+   distEditor — same component as index.html, built on src/distributions.js
+   =================================================================== */
+function lab(text,el){const l=document.createElement('label');l.className='fld';l.appendChild(document.createTextNode(text));l.appendChild(el);return l;}
+function distEditor(d,onChange,opts={}){
+  const wrap=document.createElement('div'); wrap.className='dist';
+  const sel=document.createElement('select');
+  for(const key in DISTS){const o=document.createElement('option');o.value=key;o.textContent=DISTS[key].label;if(key===d.type)o.selected=true;sel.appendChild(o);}
+  wrap.appendChild(lab('type',sel));
+  const fieldsBox=document.createElement('span'); fieldsBox.style.display='inline-flex'; fieldsBox.style.gap='8px'; fieldsBox.style.alignItems='flex-end'; wrap.appendChild(fieldsBox);
+  const mc=document.createElement('canvas'); mc.width=300; mc.height=92;
+  mc.style.width='150px'; mc.style.height='46px'; mc.style.background='rgba(0,0,0,.2)'; mc.style.borderRadius='6px';
+  const mctx=mc.getContext('2d'); mctx.scale(2,2);
+  wrap.appendChild(lab('shape (with noise)',mc));
+  const meta=document.createElement('span'); meta.className='meta'; wrap.appendChild(meta);
+  function drawMini(){
+    const W=150,H=46,n=3000,r=mulberry32(1234); const vals=new Array(n); let mx=0;
+    for(let i=0;i<n;i++){const v=sample(d,r);vals[i]=v;if(v>mx)mx=v;}
+    vals.sort((a,b)=>a-b);
+    const hi=Math.max(vals[Math.floor(0.98*n)]||mx,1e-6);
+    const B=30,bins=new Array(B).fill(0);
+    for(const v of vals){let b=Math.floor(v/hi*B);if(b>=B)b=B-1;if(b<0)b=0;bins[b]++;}
+    const peak=Math.max(...bins,1),bw=(W-4)/B;
+    mctx.clearRect(0,0,W,H);
+    mctx.fillStyle='#36e0c8';
+    for(let i=0;i<B;i++){const bh=(H-8)*(bins[i]/peak);mctx.fillRect(2+i*bw,H-4-bh,Math.max(1,bw-1),bh);}
+    const mean=Math.min(distMean(d),hi),mxp=2+(W-4)*(mean/hi);
+    mctx.strokeStyle='#f2b13c';mctx.lineWidth=1;mctx.beginPath();mctx.moveTo(mxp,3);mctx.lineTo(mxp,H-4);mctx.stroke();
+    mctx.fillStyle='#5b6e7c';mctx.font='8px monospace';mctx.fillText('0',2,H-0.5);mctx.fillText(hi.toFixed(1),W-22,H-0.5);
+  }
+  function refresh(){meta.innerHTML=`mean ≈ ${distMean(d).toFixed(2)}${d.variability>0?` · +${Math.round(d.variability*100)}% noise`:''}`;drawMini();}
+  function fields(){
+    fieldsBox.innerHTML='';
+    DISTS[d.type].f.forEach(([key,label,def])=>{
+      if(d.params[key]==null)d.params[key]=def;
+      const inp=document.createElement('input');inp.type='number';inp.step='0.1';inp.value=d.params[key];
+      inp.oninput=()=>{d.params[key]=parseFloat(inp.value)||0;refresh();onChange();};
+      fieldsBox.appendChild(lab(label,inp));
+    });
+    if(!opts.noVar){
+      const v=document.createElement('input');v.type='range';v.min=0;v.max=0.8;v.step=0.05;v.value=d.variability;v.style.width='90px';
+      v.oninput=()=>{d.variability=parseFloat(v.value);refresh();onChange();};
+      fieldsBox.appendChild(lab('extra variability',v));
+    }
+  }
+  sel.onchange=()=>{d.type=sel.value;d.params={};fields();refresh();onChange();};
+  fields();refresh();
+  return wrap;
+}
+
+/* ===================================================================
+   Panel 1 — workcenters
+   =================================================================== */
+function renderResources(){
+  const box=$('resources'); box.innerHTML='';
+  config.resources.forEach((r,k)=>{
+    const card=document.createElement('div');card.className='card';
+    const h=document.createElement('div');h.className='card-h';
+    h.innerHTML=`<span class="num">WC ${k+1}</span>`;
+    const nm=document.createElement('input');nm.className='name';nm.value=r.name;
+    nm.oninput=()=>{r.name=nm.value;};nm.onchange=()=>{renderRoutings();renderFloor();};
+    h.appendChild(nm);
+    const up=document.createElement('button');up.className='mini';up.textContent='↑';up.title='move left on floor';
+    up.onclick=()=>{if(k>0){[config.resources[k-1],config.resources[k]]=[config.resources[k],config.resources[k-1]];renderResources();renderFloor();}};
+    const dn=document.createElement('button');dn.className='mini';dn.textContent='↓';dn.title='move right on floor';
+    dn.onclick=()=>{if(k<config.resources.length-1){[config.resources[k+1],config.resources[k]]=[config.resources[k],config.resources[k+1]];renderResources();renderFloor();}};
+    h.appendChild(up);h.appendChild(dn);
+    const del=document.createElement('button');del.className='danger mini';del.textContent='✕ remove';
+    del.onclick=()=>{
+      config.resources.splice(k,1);
+      config.parts.forEach(p=>{p.routing=p.routing.filter(s=>s.resourceId!==r.id);});
+      renderAll();
+    };
+    h.appendChild(del);
+    card.appendChild(h);
+    const row=document.createElement('div');row.className='row';
+    const cap=document.createElement('input');cap.type='number';cap.min=1;cap.max=8;cap.value=r.capacity;
+    cap.oninput=()=>{r.capacity=Math.max(1,parseInt(cap.value)||1);renderFloor();};
+    row.appendChild(lab('capacity (parallel)',cap));
+    const brk=document.createElement('input');brk.type='checkbox';brk.checked=r.brk;
+    const brkLab=document.createElement('label');brkLab.className='check';brkLab.appendChild(brk);brkLab.appendChild(document.createTextNode('breakdowns'));
+    row.appendChild(brkLab);
+    card.appendChild(row);
+    const sh=document.createElement('div');sh.className='sub-h';sh.textContent='Default processing time (new routing steps copy this)';card.appendChild(sh);
+    card.appendChild(distEditor(r.service,()=>{}));
+    const brkBox=document.createElement('div');card.appendChild(brkBox);
+    function renderBrk(){brkBox.innerHTML='';if(r.brk){
+      const a=document.createElement('div');a.className='sub-h';a.textContent='Time to failure';brkBox.appendChild(a);
+      brkBox.appendChild(distEditor(r.ttf,()=>{},{noVar:true}));
+      const b=document.createElement('div');b.className='sub-h';b.textContent='Time to repair';brkBox.appendChild(b);
+      brkBox.appendChild(distEditor(r.ttr,()=>{},{noVar:true}));}}
+    brk.onchange=()=>{r.brk=brk.checked;renderBrk();};
+    renderBrk();
+    box.appendChild(card);
+  });
+}
+$('addRes').onclick=()=>{
+  config.resources.push({id:uid('wc',config.resources),name:'Workcenter '+(config.resources.length+1),
+    capacity:1,service:newDist('exp',{mean:1.0}),brk:false,
+    ttf:newDist('weibull',{shape:1.5,scale:40}),ttr:newDist('exp',{mean:4})});
+  renderAll();
+};
+
+/* ===================================================================
+   Panel 2 — parts & BOM
+   =================================================================== */
+function renderParts(){
+  const box=$('parts'); box.innerHTML='';
+  config.parts.forEach((p,k)=>{
+    const card=document.createElement('div');card.className='card';
+    const h=document.createElement('div');h.className='card-h';
+    const col=document.createElement('input');col.type='color';col.value=p.color;
+    col.oninput=()=>{p.color=col.value;};col.onchange=()=>{renderRoutings();renderFloor();};
+    h.appendChild(col);
+    const nm=document.createElement('input');nm.className='name';nm.value=p.name;
+    nm.oninput=()=>{p.name=nm.value;};nm.onchange=()=>{renderParts();renderRoutings();renderFloor();};
+    h.appendChild(nm);
+    const tag=document.createElement('span');tag.className='tag '+p.type;tag.textContent=p.type;h.appendChild(tag);
+    const del=document.createElement('button');del.className='danger mini';del.textContent='✕ remove';
+    del.onclick=()=>{
+      config.parts.splice(k,1);
+      config.parts.forEach(q=>{q.bom=q.bom.filter(b=>b.partId!==p.id);});
+      config.demand=config.demand.filter(d=>d.partId!==p.id);
+      renderAll();
+    };
+    h.appendChild(del);
+    card.appendChild(h);
+
+    const row=document.createElement('div');row.className='row';
+    const sel=document.createElement('select');
+    ['produced','purchased'].forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t;if(t===p.type)o.selected=true;sel.appendChild(o);});
+    sel.onchange=()=>{p.type=sel.value;if(p.type==='purchased'){p.bom=[];p.routing=[];}renderAll();};
+    row.appendChild(lab('type',sel));
+    // customer demand flag (display only in this pass)
+    const dChk=document.createElement('input');dChk.type='checkbox';dChk.checked=inDemand(p.id);
+    const dQty=document.createElement('input');dQty.type='number';dQty.min=1;
+    const dEntry=config.demand.find(d=>d.partId===p.id);
+    dQty.value=dEntry?dEntry.qty:1;dQty.disabled=!dChk.checked;
+    dChk.onchange=()=>{
+      if(dChk.checked)config.demand.push({partId:p.id,qty:Math.max(1,parseInt(dQty.value)||1)});
+      else config.demand=config.demand.filter(d=>d.partId!==p.id);
+      dQty.disabled=!dChk.checked;renderFloor();
+    };
+    dQty.oninput=()=>{const e=config.demand.find(d=>d.partId===p.id);if(e)e.qty=Math.max(1,parseInt(dQty.value)||1);renderFloor();};
+    const dLab=document.createElement('label');dLab.className='check';dLab.appendChild(dChk);dLab.appendChild(document.createTextNode('customer demand'));
+    row.appendChild(dLab);row.appendChild(lab('demand qty',dQty));
+    card.appendChild(row);
+
+    const sh=document.createElement('div');sh.className='sub-h';
+    if(p.type==='purchased'){
+      sh.textContent='Raw supply — purchased from outside, no BOM, no operations';
+      card.appendChild(sh);
+    }else{
+      sh.textContent='Bill of materials — components consumed to start production'+(p.bom.length?'':' (none: made from raw material only)');
+      card.appendChild(sh);
+      p.bom.forEach((b,bi)=>{
+        const row2=document.createElement('div');row2.className='bom-row';
+        const cSel=document.createElement('select');
+        config.parts.filter(q=>q.id!==p.id).forEach(q=>{const o=document.createElement('option');o.value=q.id;o.textContent=q.name;if(q.id===b.partId)o.selected=true;cSel.appendChild(o);});
+        cSel.onchange=()=>{b.partId=cSel.value;renderFloor();};
+        const qty=document.createElement('input');qty.type='number';qty.min=1;qty.value=b.qty;
+        qty.oninput=()=>{b.qty=Math.max(1,parseInt(qty.value)||1);renderFloor();};
+        const sw=document.createElement('span');sw.className='swatch';sw.style.background=(partById(b.partId)||{}).color||'#888';
+        const rm=document.createElement('button');rm.className='danger mini';rm.textContent='✕';
+        rm.onclick=()=>{p.bom.splice(bi,1);renderParts();renderFloor();};
+        row2.appendChild(sw);row2.appendChild(cSel);row2.appendChild(lab('qty',qty));row2.appendChild(rm);
+        card.appendChild(row2);
+      });
+      const others=config.parts.filter(q=>q.id!==p.id);
+      if(others.length){
+        const add=document.createElement('button');add.className='mini';add.textContent='+ component';
+        add.onclick=()=>{p.bom.push({partId:others[0].id,qty:1});renderParts();renderFloor();};
+        card.appendChild(add);
+      }
+    }
+    box.appendChild(card);
+  });
+}
+const PALETTE=['#36e0c8','#f2b13c','#ff8753','#c792ea','#8fb3c4','#7aa2ff','#ff6b9d','#9ce26b'];
+$('addPart').onclick=()=>{
+  config.parts.push({id:uid('p',config.parts),name:'Part '+(config.parts.length+1),
+    color:PALETTE[config.parts.length%PALETTE.length],type:'produced',bom:[],routing:[]});
+  renderAll();
+};
+
+/* ===================================================================
+   Panel 3 — routings (produced parts only)
+   =================================================================== */
+function renderRoutings(){
+  const box=$('routings'); box.innerHTML='';
+  const produced=config.parts.filter(p=>p.type==='produced');
+  if(!produced.length){box.innerHTML='<p class="note">No produced parts yet.</p>';return;}
+  produced.forEach(p=>{
+    const card=document.createElement('div');card.className='card';
+    const h=document.createElement('div');h.className='card-h';
+    h.innerHTML=`<span class="swatch" style="background:${p.color}"></span><span style="font-size:14px;flex:1">${p.name}</span>`;
+    if(config.resources.length){
+      const add=document.createElement('button');add.className='mini';add.textContent='+ operation';
+      add.onclick=()=>{
+        const r=config.resources[0];
+        p.routing.push({resourceId:r.id,service:cloneDist(r.service)});
+        renderRoutings();renderFloor();
+      };
+      h.appendChild(add);
+    }
+    card.appendChild(h);
+    if(!p.routing.length){
+      const n=document.createElement('p');n.className='note';n.style.margin='0';
+      n.textContent='No operations — '+(p.bom.length?'assembled instantly from its BOM (add an operation!)':'add the first operation of this routing.');
+      card.appendChild(n);
+    }
+    p.routing.forEach((s,si)=>{
+      const row=document.createElement('div');row.className='step-row';
+      const ord=document.createElement('span');ord.className='ord';ord.textContent='OP '+(si+1)+'0';row.appendChild(ord);
+      const sel=document.createElement('select');
+      config.resources.forEach(r=>{const o=document.createElement('option');o.value=r.id;o.textContent=r.name;if(r.id===s.resourceId)o.selected=true;sel.appendChild(o);});
+      sel.onchange=()=>{s.resourceId=sel.value;renderFloor();};
+      row.appendChild(lab('workcenter',sel));
+      row.appendChild(distEditor(s.service,()=>{}));
+      const up=document.createElement('button');up.className='mini';up.textContent='↑';
+      up.onclick=()=>{if(si>0){[p.routing[si-1],p.routing[si]]=[p.routing[si],p.routing[si-1]];renderRoutings();renderFloor();}};
+      const dn=document.createElement('button');dn.className='mini';dn.textContent='↓';
+      dn.onclick=()=>{if(si<p.routing.length-1){[p.routing[si+1],p.routing[si]]=[p.routing[si],p.routing[si+1]];renderRoutings();renderFloor();}};
+      const rm=document.createElement('button');rm.className='danger mini';rm.textContent='✕';
+      rm.onclick=()=>{p.routing.splice(si,1);renderRoutings();renderFloor();};
+      row.appendChild(up);row.appendChild(dn);row.appendChild(rm);
+      card.appendChild(row);
+    });
+    box.appendChild(card);
+  });
+}
+
+/* ===================================================================
+   Panel 4 — factory floor visualisation (SVG)
+   =================================================================== */
+function renderFloor(){
+  const res=config.resources, parts=config.parts;
+  const floor=$('floor');
+  $('floorStats').textContent=`${res.length} workcenters · ${parts.length} parts · ${config.demand.length} products`;
+  if(!res.length){floor.innerHTML='<p class="note" style="padding:30px">Add a workcenter to draw the floor.</p>';renderLegend();return;}
+
+  // Each part with a routing gets its own horizontal lane (no overlaps);
+  // a column box spans only the lanes of the parts that actually visit it,
+  // so flows visibly converge on shared workcenters and pass others by.
+  const routed=parts.filter(p=>p.routing.some(s=>res.some(r=>r.id===s.resourceId)));
+  routed.forEach((p,i)=>{p._lane=i;});
+  const PADL=150, colW=170, slotH=34, topY=64;
+  const colBoxW=70;
+  const laneY=l=>topY+24+l*slotH;
+  const W=PADL+res.length*colW+250, H=topY+Math.max(2,routed.length)*slotH+74;
+  const exitX=W-236;
+  const colX=k=>PADL+k*colW+50;
+  // visits[k] = lanes of parts whose routing passes workcenter k
+  const visits=res.map(()=>[]);
+  parts.forEach(p=>p.routing.forEach(s=>{
+    const k=res.findIndex(r=>r.id===s.resourceId);
+    if(k>=0&&p._lane!=null&&!visits[k].includes(p._lane))visits[k].push(p._lane);
+  }));
+  const port=(p,si)=>{
+    const k=res.findIndex(r=>r.id===p.routing[si].resourceId);
+    return k<0?null:{k,x:colX(k),y:laneY(p._lane)};
+  };
+
+  let g='';
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const curve=(x1,y1,x2,y2)=>{const dx=Math.max(24,(x2-x1)/2);return `C ${x1+dx} ${y1} ${x2-dx} ${y2} ${x2} ${y2}`;};
+
+  // workcenter columns (styled like index.html machine boxes)
+  res.forEach((r,k)=>{
+    const x=colX(k), lanes=visits[k];
+    const yTop=lanes.length?Math.min(...lanes.map(laneY))-18:topY;
+    const yBot=lanes.length?Math.max(...lanes.map(laneY))+18:topY+40;
+    const bh=Math.max(46,yBot-yTop+14);
+    g+=`<rect x="${x-colBoxW/2}" y="${yTop}" width="${colBoxW}" height="${bh}" rx="9"
+         fill="rgba(255,255,255,.02)" stroke="#33424f" stroke-width="1.5" stroke-dasharray="${lanes.length>1?'':'5 4'}"/>`;
+    if(lanes.length>1)   // shared workcenter — highlight as bottleneck candidate
+      g+=`<rect x="${x-colBoxW/2}" y="${yTop}" width="${colBoxW}" height="${bh}" rx="9"
+           fill="none" stroke="#ff8753" stroke-width="1.5" opacity=".8"/>`;
+    g+=`<text x="${x}" y="${yTop-16}" text-anchor="middle" font-size="11" fill="#e8eef2">${esc(r.name)}</text>`;
+    g+=`<text x="${x}" y="${yTop-4}" text-anchor="middle" font-size="8" fill="${lanes.length>1?'#ff8753':'#5b6e7c'}">cap ${r.capacity}${r.brk?' · breaks down':''}${lanes.length>1?' · SHARED':''}</text>`;
+    for(let m=0;m<Math.min(r.capacity,6);m++)
+      g+=`<rect x="${x-colBoxW/2+7+m*10}" y="${yTop+bh-13}" width="8" height="8" rx="2" fill="rgba(54,224,200,.15)" stroke="#36e0c8" stroke-width="1"/>`;
+  });
+
+  // part flow paths
+  parts.forEach(p=>{
+    if(!p.routing.length)return;
+    const ports=p.routing.map((s,si)=>port(p,si)).filter(Boolean);
+    if(!ports.length)return;
+    const first=ports[0], last=ports[ports.length-1];
+    let dPath='';
+    if(p.bom.length){
+      // assembly point: components merge just before the first operation
+      const mx=first.x-colBoxW/2-34, my=first.y;
+      dPath=`M ${mx} ${my} L ${first.x-colBoxW/2} ${first.y}`;
+      g+=`<circle cx="${mx}" cy="${my}" r="6" fill="#0c1015" stroke="${p.color}" stroke-width="1.6"/>`+
+         `<text x="${mx}" y="${my+2.8}" text-anchor="middle" font-size="8" fill="${p.color}">+</text>`;
+      p._merge={x:mx,y:my};
+    }else{
+      // raw-material entry from the left
+      dPath=`M 14 ${first.y} ${curve(14,first.y,first.x-colBoxW/2,first.y)}`;
+      g+=`<text x="14" y="${first.y-7}" font-size="9" fill="${p.color}">${esc(p.name)}</text>`;
+      p._merge=null;
+    }
+    for(let i=0;i<ports.length;i++){
+      const pt=ports[i];
+      dPath+=` L ${pt.x+colBoxW/2} ${pt.y}`;
+      if(i+1<ports.length){const nx=ports[i+1];dPath+=' '+curve(pt.x+colBoxW/2,pt.y,nx.x-colBoxW/2,nx.y);}
+    }
+    if(inDemand(p.id)){
+      dPath+=' '+curve(last.x+colBoxW/2,last.y,exitX,last.y);
+      g+=`<path d="M ${exitX} ${last.y} l -7 -4 v 8 z" fill="${p.color}" transform="rotate(180 ${exitX} ${last.y})"/>`;
+      g+=`<text x="${exitX+10}" y="${last.y+3}" font-size="9" fill="${p.color}">${esc(p.name)} →</text>`;
+    }
+    g=`<path d="${dPath}" fill="none" stroke="${p.color}" stroke-width="2.5" opacity=".9" stroke-linecap="round"/>`+g;
+    p._out={x:last.x+colBoxW/2,y:last.y};
+  });
+
+  // BOM component edges: each component's flow merges into its consumer's assembly point
+  parts.forEach(p=>{
+    if(!p.bom.length||!p._merge)return;
+    p.bom.forEach(b=>{
+      const c=partById(b.partId); if(!c)return;
+      let from;
+      if(c.routing.length&&c._out)from=c._out;
+      else{ // purchased / no-op component enters from the left
+        from={x:14,y:p._merge.y+14};
+        g+=`<text x="14" y="${from.y+12}" font-size="9" fill="${c.color}">${esc(c.name)}</text>`;
+      }
+      g=`<path d="M ${from.x} ${from.y} ${curve(from.x,from.y,p._merge.x,p._merge.y)}" fill="none" stroke="${c.color}" stroke-width="2" opacity=".75" stroke-dasharray="${c.routing.length?'':'4 3'}" stroke-linecap="round"/>`+g;
+      if(b.qty>1)g+=`<text x="${p._merge.x-12}" y="${p._merge.y-8}" font-size="8" fill="${c.color}">×${b.qty}</text>`;
+    });
+  });
+
+  floor.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
+  renderLegend();
+}
+function renderLegend(){
+  $('legend').innerHTML=config.parts.map(p=>
+    `<span><i style="background:${p.color};border-color:${p.color}"></i>${p.name}`+
+    `<span style="color:var(--faint)"> · ${p.type}${inDemand(p.id)?' · demand':''}</span></span>`).join('');
+}
+$('refresh').onclick=renderFloor;
+
+/* ===================================================================
+   Save / load (same pattern as index.html)
+   =================================================================== */
+$('saveCfg').onclick=()=>{
+  const clean=JSON.parse(JSON.stringify(config,(k,v)=>k.startsWith('_')?undefined:v));
+  const blob=new Blob([JSON.stringify(clean,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='des-factory-config.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+$('loadCfg').onclick=()=>$('cfgFile').click();
+$('cfgFile').onchange=e=>{
+  const f=e.target.files[0]; if(!f)return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    e.target.value='';
+    try{ config=parseFactory(rd.result); renderAll(); }
+    catch(err){ alert('Could not load factory config: '+err.message); }
+  };
+  rd.readAsText(f);
+};
+function normDist(d,what){
+  if(!d||typeof d!=='object'||!DISTS[d.type])throw new Error(`invalid ${what} distribution`);
+  return {type:d.type,params:Object.assign({},d.params),variability:Math.max(0,parseFloat(d.variability)||0)};
+}
+function parseFactory(text){
+  const cfg=JSON.parse(text);
+  if(!Array.isArray(cfg.resources))throw new Error('resources must be an array');
+  if(!Array.isArray(cfg.parts))throw new Error('parts must be an array');
+  const seen=new Set();
+  const resources=cfg.resources.map((r,i)=>{
+    const id=String(r.id||('wc'+(i+1)));
+    if(seen.has(id))throw new Error(`duplicate resource id "${id}"`);
+    seen.add(id);
+    return {id,name:String(r.name||('Workcenter '+(i+1))),
+      capacity:Math.max(1,parseInt(r.capacity)||1),
+      service:normDist(r.service,`resource ${id} service`),brk:!!r.brk,
+      ttf:r.ttf?normDist(r.ttf,`resource ${id} TTF`):newDist('weibull',{shape:1.5,scale:40}),
+      ttr:r.ttr?normDist(r.ttr,`resource ${id} TTR`):newDist('exp',{mean:4})};
+  });
+  const pSeen=new Set();
+  const parts=cfg.parts.map((p,i)=>{
+    const id=String(p.id||('p'+(i+1)));
+    if(pSeen.has(id))throw new Error(`duplicate part id "${id}"`);
+    pSeen.add(id);
+    const type=p.type==='purchased'?'purchased':'produced';
+    return {id,name:String(p.name||('Part '+(i+1))),
+      color:/^#[0-9a-fA-F]{6}$/.test(p.color)?p.color:PALETTE[i%PALETTE.length],type,
+      bom:type==='produced'&&Array.isArray(p.bom)?p.bom.map(b=>({partId:String(b.partId),qty:Math.max(1,parseInt(b.qty)||1)})):[],
+      routing:type==='produced'&&Array.isArray(p.routing)?p.routing.map((s,si)=>({
+        resourceId:String(s.resourceId),
+        service:normDist(s.service,`part ${id} operation ${si+1}`)})):[]};
+  });
+  // drop dangling references rather than failing
+  parts.forEach(p=>{
+    p.bom=p.bom.filter(b=>b.partId!==p.id&&parts.some(q=>q.id===b.partId));
+    p.routing=p.routing.filter(s=>resources.some(r=>r.id===s.resourceId));
+  });
+  const demand=Array.isArray(cfg.demand)
+    ?cfg.demand.filter(d=>parts.some(q=>q.id===d.partId)).map(d=>({partId:String(d.partId),qty:Math.max(1,parseInt(d.qty)||1)}))
+    :[];
+  return {resources,parts,demand};
+}
+
+function renderAll(){renderResources();renderParts();renderRoutings();renderFloor();}
+renderAll();
+</script>
+</body>
+</html>
