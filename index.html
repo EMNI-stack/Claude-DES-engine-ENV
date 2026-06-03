@@ -133,23 +133,19 @@
 <div class="wrap">
   <header>
     <p class="eyebrow">Discrete Event Simulation · Modular Builder</p>
-    <h1>System &amp; <em>Production Line</em> Lab</h1>
-    <p class="sub">Build a system from <b>stations</b> connected in a line. Each station has a buffer, parallel machines, and a service-time distribution.
-      <b>Server systems</b> lose customers when a buffer is full; <b>production systems</b> block upstream machines and can scrap parts or break down.
-      Configure any distribution, add extra variability, then watch parts flow through the system you designed.</p>
+    <h1><em>Production Line</em> Lab</h1>
+    <p class="sub">Build a production line from <b>stations</b> connected in series. Each station has a buffer, parallel machines, and a service-time distribution.
+      Full buffers <b>block</b> upstream machines; stations can <b>scrap</b> parts or <b>break down</b>, and a customer demand process draws down finished goods —
+      under <b>push</b> or <b>pull</b> (kanban) control. Configure any distribution, add extra variability, then watch parts flow through the line you designed.</p>
   </header>
 
   <!-- BUILDER -->
   <div class="panel">
-    <div class="panel-h"><h2>1 · System type &amp; source</h2>
+    <div class="panel-h"><h2>1 · Source &amp; control</h2>
       <span style="display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button id="saveCfg">⇣ Save configuration</button>
         <button id="loadCfg">⇡ Load configuration</button>
         <input type="file" id="cfgFile" accept=".json,application/json" style="display:none">
-        <span class="segwrap">
-          <button class="seg" id="tServer" onclick="setType('server')">Server system</button>
-          <button class="seg on" id="tProd" onclick="setType('production')">Production system</button>
-        </span>
         <span class="segwrap" id="ctrlSeg">
           <button class="seg on" id="cPush">Push</button>
           <button class="seg" id="cPull">Pull</button>
@@ -288,23 +284,19 @@ import { DISTS, newDist, sample, distMean, mulberry32 } from './src/distribution
    UI: builder
    =================================================================== */
 const $=id=>document.getElementById(id);
-let config=defaultConfig('production');
+let config=defaultConfig();
 
 function applyConfig(cfg){
   config=cfg;
-  $('tServer').classList.toggle('on',cfg.type==='server');
-  $('tProd').classList.toggle('on',cfg.type==='production');
   renderBuilder(); build();
 }
-function setType(t){ applyConfig(defaultConfig(t)); }
-window.setType=setType;
 
 /* ---- save / load configuration ---- */
 $('saveCfg').onclick=()=>{
   const blob=new Blob([JSON.stringify(config,null,2)],{type:'application/json'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
-  a.download=`des-config-${config.type}.json`;
+  a.download='des-config.json';
   a.click();
   URL.revokeObjectURL(a.href);
 };
@@ -324,8 +316,7 @@ function normDist(d,what){
   return {type:d.type,params:Object.assign({},d.params),variability:Math.max(0,parseFloat(d.variability)||0)};
 }
 function parseConfig(text){
-  const cfg=JSON.parse(text);
-  if(cfg.type!=='server'&&cfg.type!=='production')throw new Error('type must be "server" or "production"');
+  const cfg=JSON.parse(text);   // old files may carry a type field — ignored, everything loads as a production line
   if(!Array.isArray(cfg.stations)||!cfg.stations.length)throw new Error('stations must be a non-empty array');
   const stations=cfg.stations.map((s,k)=>station(
     String(s.name||('Step '+(k+1))),
@@ -349,7 +340,7 @@ function parseConfig(text){
   const demand=cfg.demand&&cfg.demand.mode==='stream'
     ?{mode:'stream',dist:normDist(cfg.demand.dist,'demand')}
     :{mode:'instant',dist:cfg.demand&&cfg.demand.dist?normDist(cfg.demand.dist,'demand'):newDist('exp',{mean:2.5})};
-  return {type:cfg.type,control:cfg.control==='pull'?'pull':'push',source:normDist(cfg.source,'source'),stations,buffers,demand};
+  return {control:cfg.control==='pull'?'pull':'push',source:normDist(cfg.source,'source'),stations,buffers,demand};
 }
 
 function distEditor(d,onChange,opts={}){
@@ -405,17 +396,11 @@ function renderBuilder(){
   $('sourceDist').innerHTML='';
   $('sourceDist').appendChild(distEditor(config.source,build));
   const box=$('stations'); box.innerHTML='';
-  const isProd=config.type==='production', isPull=config.control==='pull';
+  const isPull=config.control==='pull';
   config.stations.forEach((s,k)=>{box.appendChild(bufferCard(k));box.appendChild(stationCard(s,k));});
-  if(isProd)box.appendChild(bufferCard(config.stations.length));   // finished goods
-  // control mode (production systems only; server systems are pure push)
-  $('ctrlSeg').classList.toggle('hidden',!isProd);
-  if(!isProd)config.control='push';
+  box.appendChild(bufferCard(config.stations.length));   // finished goods
   $('cPush').classList.toggle('on',config.control==='push');
   $('cPull').classList.toggle('on',config.control==='pull');
-  // demand process (production systems only)
-  $('pDemand').classList.toggle('hidden',!isProd);
-  if(!isProd)config.demand.mode='instant';
   $('dInstant').classList.toggle('on',config.demand.mode==='instant');
   $('dStream').classList.toggle('on',config.demand.mode==='stream');
   $('dNote').textContent=(config.demand.mode==='instant'
@@ -459,7 +444,6 @@ function bufferCard(k){
 $('dInstant').onclick=()=>{config.demand.mode='instant';renderBuilder();build();};
 $('dStream').onclick=()=>{config.demand.mode='stream';renderBuilder();build();};
 function stationCard(s,k){
-  const isProd=config.type==='production';
   const card=document.createElement('div');card.className='station';
   const h=document.createElement('div');h.className='station-h';
   h.innerHTML=`<span class="num">STEP ${k+1}</span>`;
@@ -471,11 +455,11 @@ function stationCard(s,k){
   const r=document.createElement('div');r.className='row';
   const mc=document.createElement('input');mc.type='number';mc.min=1;mc.max=8;mc.value=s.machines;
   mc.oninput=()=>{s.machines=Math.max(1,parseInt(mc.value)||1);build();};
-  r.appendChild(lab(isProd?'machines':'servers',mc));
+  r.appendChild(lab('machines',mc));
   card.appendChild(r);
   const sh=document.createElement('div');sh.className='sub-h';sh.textContent='Processing time';card.appendChild(sh);
   card.appendChild(distEditor(s.service,build));
-  if(isProd){
+  {
     const sh2=document.createElement('div');sh2.className='sub-h';sh2.textContent='Quality — scrap probability';card.appendChild(sh2);
     const scr=document.createElement('input');scr.type='number';scr.min=0;scr.max=1;scr.step=0.01;scr.value=s.scrap;
     scr.oninput=()=>{s.scrap=Math.min(1,Math.max(0,parseFloat(scr.value)||0));build();};
@@ -496,8 +480,8 @@ function stationCard(s,k){
   }
   return card;
 }
-$('addSt').onclick=()=>{const isProd=config.type==='production';
-  config.stations.push(station('Step '+(config.stations.length+1),1,false,5,newDist('exp',{mean:1.0}),isProd?0:0,false));
+$('addSt').onclick=()=>{
+  config.stations.push(station('Step '+(config.stations.length+1),1,false,5,newDist('exp',{mean:1.0}),0,false));
   config.buffers.splice(config.stations.length-1,0,{finite:false,cap:5,init:0,target:5});  // input buffer of the new station; FG stays last
   renderBuilder();build();};
 
@@ -516,8 +500,7 @@ function build(){
 }
 function buildStage(){
   stageEl.innerHTML='';
-  const isProd=config.type==='production';
-  const n=config.stations.length, segW=170, srcW=64, sinkW=64, H=360, fgW=isProd?88:0;
+  const n=config.stations.length, segW=170, srcW=64, sinkW=64, H=360, fgW=88;
   const totalW=srcW+n*segW+fgW+sinkW+40;
   stageEl.style.width=totalW+'px'; geo={H,segW,srcW,sinkW,sx:[],my:[],midY:160};
   const src=document.createElement('div');src.className='node';src.style.left='8px';src.style.top=(H/2-26)+'px';src.style.width=(srcW-12)+'px';src.style.height='52px';src.style.borderColor='var(--sim)';src.textContent='SOURCE';stageEl.appendChild(src);
@@ -540,18 +523,16 @@ function buildStage(){
     const arr=document.createElement('div');arr.className='arrow';arr.style.left=(machX+58)+'px';arr.style.width='18px';arr.style.top=(H/2)+'px';stageEl.appendChild(arr);
     x0+=segW;
   });
-  if(isProd){
-    // finished-goods stock location
-    const fgb=document.createElement('div');fgb.className='node';fgb.style.left=(x0+6)+'px';fgb.style.top=(H/2-26)+'px';fgb.style.width=(fgW-22)+'px';fgb.style.height='52px';fgb.style.borderColor='var(--thy)';
-    fgb.innerHTML='<div style="text-align:center;line-height:1.3"><div style="font-size:8px;letter-spacing:.12em">FG STOCK</div><div id="fglvl" style="font-size:15px;color:var(--thy);font-weight:700">0</div></div>';
-    stageEl.appendChild(fgb);
-    const fl=addLbl('', x0+6, H/2+32,'var(--faint)');fl.id='fglbl';
-    const arr2=document.createElement('div');arr2.className='arrow';arr2.style.left=(x0+fgW-14)+'px';arr2.style.width='16px';arr2.style.top=(H/2)+'px';stageEl.appendChild(arr2);
-    x0+=fgW;
-  }
+  // finished-goods stock location
+  const fgb=document.createElement('div');fgb.className='node';fgb.style.left=(x0+6)+'px';fgb.style.top=(H/2-26)+'px';fgb.style.width=(fgW-22)+'px';fgb.style.height='52px';fgb.style.borderColor='var(--thy)';
+  fgb.innerHTML='<div style="text-align:center;line-height:1.3"><div style="font-size:8px;letter-spacing:.12em">FG STOCK</div><div id="fglvl" style="font-size:15px;color:var(--thy);font-weight:700">0</div></div>';
+  stageEl.appendChild(fgb);
+  const fl=addLbl('', x0+6, H/2+32,'var(--faint)');fl.id='fglbl';
+  const arr2=document.createElement('div');arr2.className='arrow';arr2.style.left=(x0+fgW-14)+'px';arr2.style.width='16px';arr2.style.top=(H/2)+'px';stageEl.appendChild(arr2);
+  x0+=fgW;
   const sink=document.createElement('div');sink.className='node';sink.style.left=(x0+6)+'px';sink.style.top=(H/2-26)+'px';sink.style.width=(sinkW-12)+'px';sink.style.height='52px';sink.style.borderColor='var(--thy)';
-  sink.textContent=isProd&&config.demand.mode==='stream'?'CUSTOMER':'SINK';stageEl.appendChild(sink);
-  if(isProd){const cs=addLbl('', x0+2, H/2+32,'var(--faint)');cs.id='custStats';}
+  sink.textContent=config.demand.mode==='stream'?'CUSTOMER':'SINK';stageEl.appendChild(sink);
+  const cs=addLbl('', x0+2, H/2+32,'var(--faint)');cs.id='custStats';
   geo.sinkX=x0+sinkW/2; geo.scrapY=H-58;
   geo.qf=[]; config.stations.forEach((s,k)=>{const sx=geo.sx[k];const machX=sx+segW-72;geo.qf.push(machX-18);});
 }
@@ -577,18 +558,16 @@ function renderStage(){
     const M=st.machines.length,T=sim.now||1e-9;
     const util=st.aBusy/(M*T)*100, down=st.aDown/(M*T)*100;
     $('f_'+k).innerHTML=`util ${util.toFixed(0)}% · Q̄ ${(st.aQ/T).toFixed(1)}`+
-      (config.type==='production'?` · scrap ${st.scrapped}`+(s.brk?` · down ${down.toFixed(0)}%`:''):'');
+      ` · scrap ${st.scrapped}`+(s.brk?` · down ${down.toFixed(0)}%`:'');
     const b=config.buffers[k];
     $('bl_'+k).textContent=(k===0?'raw':'wip')+' '+st.queue.length
       +(config.control==='pull'?'/T'+b.target:'')+(b.finite?' · K='+b.cap:'');
   });
-  if(config.type==='production'){
-    const fgEl=$('fglvl');if(fgEl)fgEl.textContent=sim.fg;
-    const fb=config.buffers[config.stations.length];
-    const fl=$('fglbl');if(fl)fl.textContent=(config.control==='pull'?'T='+fb.target+' ':'')+(fb.finite?'K='+fb.cap:'∞');
-    const cs=$('custStats');if(cs)cs.textContent=sim.demand.mode==='stream'
-      ?`✓${sim.fulfilled} ✗${sim.stockouts}`:`out ${sim.completed}`;
-  }
+  const fgEl=$('fglvl');if(fgEl)fgEl.textContent=sim.fg;
+  const fb=config.buffers[config.stations.length];
+  const fl=$('fglbl');if(fl)fl.textContent=(config.control==='pull'?'T='+fb.target+' ':'')+(fb.finite?'K='+fb.cap:'∞');
+  const cs=$('custStats');if(cs)cs.textContent=sim.demand.mode==='stream'
+    ?`✓${sim.fulfilled} ✗${sim.stockouts}`:`out ${sim.completed}`;
   for(const ex of sim.exits){const el=tokenEls.get(ex.id);if(el){
     if(ex.kind==='scrap'){el.classList.add('scrap');setPos(el,geo.sx[ex.k]+geo.segW-50,geo.scrapY);}
     else if(ex.kind==='rej'){el.style.opacity='0';}
@@ -678,7 +657,7 @@ function distStr(d){
 }
 function bold(row,size){row.font={bold:true,size:size||11};return row;}
 $('xlsx').onclick=async()=>{
-  const isProd=config.type==='production', T=sim.now||1e-9;
+  const T=sim.now||1e-9;
   const wb=new ExcelJS.Workbook(); wb.created=new Date();
 
   /* Sheet 1 — Assumptions */
@@ -687,7 +666,6 @@ $('xlsx').onclick=async()=>{
   bold(A.addRow(['Simulation assumptions']),14);
   A.addRow([]);
   const isPull=config.control==='pull';
-  A.addRow(['System type',isProd?'Production system':'Server system']).getCell(1).font={bold:true};
   A.addRow(['Control mode',isPull?'Pull (kanban base-stock)':'Push']).getCell(1).font={bold:true};
   A.addRow([isPull?'Supplier (replenishment)':'Arrivals (interarrival)',distStr(config.source)]).getCell(1).font={bold:true};
   const fgBuf=config.buffers[config.stations.length];
@@ -695,12 +673,12 @@ $('xlsx').onclick=async()=>{
   A.addRow(['Finished goods buffer',(fgBuf.finite?'K = '+fgBuf.cap:'unlimited')+(isPull?`, target ${fgBuf.target}`:'')+(fgBuf.init?`, initial ${fgBuf.init}`:'')]).getCell(1).font={bold:true};
   A.addRow([]);
   bold(A.addRow(['Stations']),12);
-  bold(A.addRow(['Station',isProd?'Machines':'Servers','Input buffer','Service time','Scrap prob','Breakdowns','Time to failure','Time to repair']));
+  bold(A.addRow(['Station','Machines','Input buffer','Service time','Scrap prob','Breakdowns','Time to failure','Time to repair']));
   config.stations.forEach((s,k)=>{
     const b=config.buffers[k];
     A.addRow([`${k+1}. ${s.name}`,s.machines,(b.finite?('K = '+b.cap):'unlimited')+(isPull?`, target ${b.target}`:'')+(b.init?`, init ${b.init}`:''),distStr(s.service),
-      isProd?s.scrap:'—',isProd?(s.brk?'yes':'no'):'—',
-      isProd&&s.brk?distStr(s.ttf):'—',isProd&&s.brk?distStr(s.ttr):'—']);
+      s.scrap,s.brk?'yes':'no',
+      s.brk?distStr(s.ttf):'—',s.brk?distStr(s.ttr):'—']);
   });
 
   /* Sheet 2 — Output */
@@ -769,7 +747,7 @@ $('xlsx').onclick=async()=>{
   const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
-  a.download=`des-results-${config.type}.xlsx`;
+  a.download='des-results.xlsx';
   a.click();
   URL.revokeObjectURL(a.href);
 };

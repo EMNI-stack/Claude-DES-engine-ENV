@@ -2,7 +2,7 @@ import { mulberry32, sample, newDist } from './distributions.js';
 
 export class Sim {
   constructor(cfg, seed) {
-    this.cfg = cfg; this.type = cfg.type; this.rng = mulberry32(seed);
+    this.cfg = cfg; this.rng = mulberry32(seed);
     this.now = 0; this.seq = 0; this.fel = []; this.heapInit();
     this.pid = 0; this.events = 0; this.lastT = 0;
     this.entered = 0; this.completed = 0; this.scrapped = 0; this.rejected = 0;
@@ -44,7 +44,7 @@ export class Sim {
     }));
     this.schedule(sample(cfg.source, this.rng), { t: 'ARR' });
     this.stations.forEach((st, k) => {
-      if (this.type === 'production' && st.cfg.brk) {
+      if (st.cfg.brk) {
         st.machines.forEach((m, mi) => this.scheduleFail(k, mi));
       }
     });
@@ -226,7 +226,7 @@ export class Sim {
       if (ev.seq2 !== m.depSeq) return true;
       m.busy = false; st.processed++;
       const part = m.part;
-      if (this.type === 'production' && st.cfg.scrap > 0 && this.rng() < st.cfg.scrap) {
+      if (st.cfg.scrap > 0 && this.rng() < st.cfg.scrap) {
         st.scrapped++; this.scrapped++; this.exit(part, k, 'scrap'); this.freeAndPull(k, mi);
         this.log('scrap', { id: part.id, k });
       } else { this.log('dep', { id: part.id, k }); this.advance(k, mi, part); }
@@ -277,19 +277,8 @@ export function buffer(finite = false, cap = 10, init = 0, target = null) {
   return { finite, cap, init, target: target != null ? target : (finite ? cap : 8) };
 }
 
-export function defaultConfig(type) {
-  if (type === 'server') {
-    return {
-      type: 'server',
-      source: newDist('exp', { mean: 0.7 }),
-      stations: [station('Service desk', 3, false, 8, newDist('exp', { mean: 1.0 }))],
-      buffers: [buffer(false, 8, 0), buffer(false, 12, 0)],
-      demand: { mode: 'instant', dist: newDist('exp', { mean: 2.5 }) },
-      control: 'push',
-    };
-  }
+export function defaultConfig() {
   return {
-    type: 'production',
     control: 'push',
     source: newDist('exp', { mean: 1.6 }),
     stations: [

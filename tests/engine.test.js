@@ -7,7 +7,6 @@ import { newDist } from '../src/distributions.js';
 /* ---- helpers ---- */
 function mmcConfig(lambda, mu, c) {
   return {
-    type: 'server',
     source: newDist('exp', { mean: 1 / lambda }),
     stations: [station('S', c, false, Infinity, newDist('exp', { mean: 1 / mu }))],
   };
@@ -82,7 +81,6 @@ test('M/M/c throughput matches arrival rate within 2%', () => {
    ================================================================ */
 test('tandem line: bottleneck has higher utilization than downstream', () => {
   const cfg = {
-    type: 'server',
     source: newDist('exp', { mean: 1.0 }),
     stations: [
       station('Fast', 1, false, Infinity, newDist('exp', { mean: 0.4 })),
@@ -108,7 +106,6 @@ test('tandem line: bottleneck has higher utilization than downstream', () => {
    ================================================================ */
 test('entity conservation holds', () => {
   const cfg = {
-    type: 'production',
     source: newDist('exp', { mean: 0.8 }),
     stations: [
       station('A', 1, true, 4, newDist('exp', { mean: 0.7 }), 0.05, false),
@@ -136,7 +133,6 @@ test('breakdown availability matches TTF/(TTF+TTR) within 3%', () => {
   const theoreticalAvail = meanTTF / (meanTTF + meanTTR); // 0.80
 
   const cfg = {
-    type: 'production',
     source: newDist('exp', { mean: 0.1 }), // flood with work so machine is never idle-starved
     stations: [
       station('M', 1, false, Infinity,
@@ -171,7 +167,6 @@ test('scrap yield matches 1-p within 2%', () => {
   const expectedYield = 1 - scrapP;
 
   const cfg = {
-    type: 'production',
     source: newDist('exp', { mean: 1.0 }),
     stations: [
       station('X', 2, false, Infinity, newDist('exp', { mean: 0.5 }), scrapP, false),
@@ -197,7 +192,6 @@ test('scrap yield matches 1-p within 2%', () => {
    ================================================================ */
 test('instant demand mode reproduces prior push behavior exactly', () => {
   const mk = (extra) => ({
-    type: 'production',
     source: newDist('exp', { mean: 0.9 }),
     stations: [
       station('A', 1, true, 4, newDist('exp', { mean: 0.7 }), 0.05, false),
@@ -228,7 +222,6 @@ test('instant demand mode reproduces prior push behavior exactly', () => {
    ================================================================ */
 test('demand conservation: demanded = fulfilled + stockouts', () => {
   const cfg = {
-    type: 'production',
     source: newDist('exp', { mean: 1.2 }),
     stations: [station('A', 2, true, 5, newDist('exp', { mean: 0.9 }), 0, false)],
     buffers: [
@@ -257,7 +250,6 @@ test('demand conservation: demanded = fulfilled + stockouts', () => {
    ================================================================ */
 test('initial FG inventory serves demand before stockouts', () => {
   const cfg = {
-    type: 'production',
     source: newDist('const', { value: 1e7 }),
     stations: [station('A', 1, false, 5, newDist('const', { value: 1 }))],
     buffers: [
@@ -282,7 +274,6 @@ test('initial FG inventory serves demand before stockouts', () => {
    ================================================================ */
 test('full FG buffer blocks last station; throughput tracks demand rate', () => {
   const cfg = {
-    type: 'production',
     source: newDist('exp', { mean: 0.5 }),   // flood the line with work
     stations: [station('A', 1, false, 99, newDist('exp', { mean: 0.4 }))],
     buffers: [
@@ -308,7 +299,6 @@ test('full FG buffer blocks last station; throughput tracks demand rate', () => 
    ================================================================ */
 test('pull mode: total inventory never exceeds sum of kanban targets', () => {
   const cfg = {
-    type: 'production',
     control: 'pull',
     source: newDist('exp', { mean: 0.6 }),   // eager supplier
     stations: [
@@ -340,7 +330,6 @@ test('pull mode: total inventory never exceeds sum of kanban targets', () => {
    ================================================================ */
 test('pull mode conservation: demand and entity counts balance', () => {
   const cfg = {
-    type: 'production',
     control: 'pull',
     source: newDist('exp', { mean: 0.5 }),
     stations: [
@@ -373,7 +362,6 @@ test('pull mode conservation: demand and entity counts balance', () => {
    ================================================================ */
 test("Little's Law holds in pull mode (WIP = TH × CT)", () => {
   const cfg = {
-    type: 'production',
     control: 'pull',
     source: newDist('exp', { mean: 0.5 }),
     stations: [
@@ -408,7 +396,6 @@ test("Little's Law holds in pull mode (WIP = TH × CT)", () => {
    ================================================================ */
 test('pull line fills to base stock and stops when there is no demand', () => {
   const cfg = {
-    type: 'production',
     control: 'pull',
     source: newDist('const', { value: 0.5 }),
     stations: [
