@@ -3,6 +3,6 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "test": "node --test tests/engine.test.js"
+    "test": "node --test tests/engine.test.js tests/advanced-engine.test.js"
   }
 }

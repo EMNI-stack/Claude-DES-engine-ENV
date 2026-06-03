@@ -76,6 +76,17 @@
   .legend{display:flex;gap:16px;flex-wrap:wrap;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--muted);margin-top:10px}
   .legend i{width:11px;height:11px;border-radius:3px;display:inline-block;vertical-align:-1px;margin-right:5px;border:1.5px solid rgba(255,255,255,.25)}
   svg text{font-family:'JetBrains Mono',monospace}
+
+  /* run + metrics */
+  .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+  table{width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:11.5px}
+  th,td{text-align:right;padding:6px 5px;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  thead th{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .util-bar{height:5px;border-radius:3px;background:var(--sim);display:inline-block;vertical-align:middle}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:860px){.grid2{grid-template-columns:1fr}}
+  .btag{font-family:'JetBrains Mono',monospace;font-size:8px;padding:2px 5px;border-radius:4px;background:rgba(255,135,83,.15);color:var(--blocked);margin-left:6px}
 </style>
 </head>
 <body>
@@ -135,15 +146,67 @@
     <div class="panel-b">
       <div class="floor-scroll"><div id="floor"></div></div>
       <div class="legend" id="legend"></div>
-      <p class="note">Colored lines are part routings flowing left → right through workcenter columns. <b>⊕</b> marks a BOM assembly point where component flows merge into a product's flow. Lines converging on the same column share that workcenter's capacity.</p>
+      <p class="note">Colored lines are part routings flowing left → right through workcenter columns. <b>⊕</b> marks a BOM assembly point where component flows merge into a product's flow; the counts beneath it are the component inventories waiting to be consumed. Lines converging on the same column share that workcenter's capacity. During a run, tokens show jobs queued (left of a column) and in service (inside it); capacity chips turn <span style="color:var(--sim)">busy</span> / <span style="color:var(--down)">down</span>.</p>
     </div>
   </div>
 
-  <p class="note">Builder &amp; visualiser only — the multi-part simulation engine arrives in a later pass. <a href="index.html" style="color:var(--thy)">← Production Line</a> has the running single-routing simulator.</p>
+  <!-- RUN -->
+  <div class="panel">
+    <div class="panel-h"><h2>5 · Run</h2>
+      <span style="display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span class="pill" id="aclock">clock 0.0</span>
+        <span class="pill" id="aev">0 events</span>
+      </span>
+    </div>
+    <div class="panel-b">
+      <div class="row">
+        <span class="segwrap">
+          <button class="seg on" id="aLimitless">Limitless source</button>
+          <button class="seg" id="aSupStream">Arrival stream</button>
+        </span>
+        <span class="segwrap">
+          <button class="seg on" id="aDemInstant">Instant demand</button>
+          <button class="seg" id="aDemStream">Demand stream</button>
+        </span>
+      </div>
+      <p class="note" id="runNote" style="margin:0 0 9px"></p>
+      <div id="arrivalsBox"></div>
+      <div id="demandBox"></div>
+      <label class="fld" style="margin:10px 0 8px">Playback speed <span style="color:var(--sim)" id="aspdV">3×</span>
+        <input id="aspd" type="range" min="0.25" max="80" step="0.25" value="3" style="width:240px"></label>
+      <div class="btnrow">
+        <button id="aplay" class="primary">▶ Play</button>
+        <button id="astep">⏭ Step</button>
+        <button id="aff">⏩ FF 1000 events</button>
+        <button id="areset">↺ Reset</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- METRICS -->
+  <div class="panel">
+    <div class="panel-h"><h2>6 · Live metrics</h2><span class="pill" id="bneck">—</span></div>
+    <div class="panel-b"><div class="grid2">
+      <div>
+        <div class="sub-h">Workcenter utilisation</div>
+        <table><thead><tr><th>Workcenter</th><th>Util</th><th></th><th>Avg Q</th><th>Down</th><th>Jobs</th></tr></thead>
+        <tbody id="resTable"></tbody></table>
+        <p class="note">Utilisation = busy slot-time / available slot-time. The <b>bottleneck</b> (highest utilisation) caps the whole factory's throughput.</p>
+      </div>
+      <div>
+        <div class="sub-h">Per-part statistics</div>
+        <table><thead><tr><th>Part</th><th>TH/min</th><th>Avg CT</th><th>WIP</th><th>On hand</th><th>Fill rate</th></tr></thead>
+        <tbody id="partTable"></tbody></table>
+        <p class="note">Throughput = completions / time; cycle time = completion − job creation (Little's Law: WIP = TH × CT). Fill rate applies to demand products only.</p>
+      </div>
+    </div></div>
+  </div>
+
+  <p class="note"><a href="index.html" style="color:var(--thy)">← Production Line</a> has the single-routing push/pull simulator.</p>
 </div>
 
 <script type="module">
-import './src/engine.js';   // engine wired to this page in a later pass
+import { AdvancedSim, normalizeFactory } from './src/advanced-engine.js';
 import { DISTS, newDist, sample, distMean, mulberry32 } from './src/distributions.js';
 
 const $=id=>document.getElementById(id);
@@ -163,11 +226,11 @@ function defaultFactory(){
       {id:'quality',name:'Quality Check',capacity:1,service:cloneDist(qc),brk:false,ttf:newDist('weibull',{shape:1.5,scale:40}),ttr:newDist('exp',{mean:4})},
     ],
     parts:[
-      {id:'frame',name:'Frame',color:'#36e0c8',type:'produced',bom:[],
+      {id:'frame',name:'Frame',color:'#36e0c8',type:'produced',bom:[],arrival:newDist('exp',{mean:2}),
         routing:[{resourceId:'cutting',service:cloneDist(cut)}]},
-      {id:'body',name:'Body',color:'#f2b13c',type:'produced',bom:[],
+      {id:'body',name:'Body',color:'#f2b13c',type:'produced',bom:[],arrival:newDist('exp',{mean:2.5}),
         routing:[{resourceId:'welding',service:cloneDist(weld)}]},
-      {id:'controller',name:'Controller',color:'#8fb3c4',type:'purchased',bom:[],routing:[]},
+      {id:'controller',name:'Controller',color:'#8fb3c4',type:'purchased',bom:[],routing:[],arrival:newDist('exp',{mean:2})},
       {id:'widget',name:'Widget — Product A',color:'#ff8753',type:'produced',
         bom:[{partId:'frame',qty:1},{partId:'body',qty:1}],
         routing:[{resourceId:'assembly',service:cloneDist(asm)},{resourceId:'quality',service:cloneDist(qc)}]},
@@ -176,9 +239,27 @@ function defaultFactory(){
         routing:[{resourceId:'assembly',service:cloneDist(asm)},{resourceId:'quality',service:cloneDist(qc)}]},
     ],
     demand:[{partId:'widget',qty:1},{partId:'gadget',qty:1}],
+    supplyMode:'limitless',
+    demandMode:'instant',
+    demandDist:newDist('exp',{mean:3}),
   };
 }
-let config=defaultFactory();
+let config=normalizeFactory(defaultFactory());
+
+/* ---- simulation lifecycle ---- */
+let asim=null, playing=false, cursor=0, lastFrame=0, speed=3;
+function rebuildSim(){
+  normalizeFactory(config);
+  asim=new AdvancedSim(config,12345);
+  playing=false; cursor=0;
+  const pb=$('aplay'); if(pb)pb.textContent='▶ Play';
+  updatePills();
+}
+function updatePills(){
+  const c=$('aclock'),e=$('aev');
+  if(c)c.textContent='clock '+(asim?asim.now.toFixed(1):'0.0');
+  if(e)e.textContent=(asim?asim.events:0)+' events';
+}
 
 function uid(prefix,list){let n=1;while(list.some(x=>x.id===prefix+n))n++;return prefix+n;}
 const resById=id=>config.resources.find(r=>r.id===id);
@@ -420,10 +501,17 @@ function renderRoutings(){
 /* ===================================================================
    Panel 4 — factory floor visualisation (SVG)
    =================================================================== */
-function renderFloor(){
+function renderFloor(){   // config changed: reset the simulation, then draw
+  rebuildSim();
+  drawFloor();
+  renderRun();
+  renderMetrics();
+}
+function drawFloor(){
   const res=config.resources, parts=config.parts;
   const floor=$('floor');
-  $('floorStats').textContent=`${res.length} workcenters · ${parts.length} parts · ${config.demand.length} products`;
+  $('floorStats').textContent=`${res.length} workcenters · ${parts.length} parts · ${config.demand.length} products`+(asim?` · clock ${asim.now.toFixed(1)}`:'');
+  updatePills();
   if(!res.length){floor.innerHTML='<p class="note" style="padding:30px">Add a workcenter to draw the floor.</p>';renderLegend();return;}
 
   // Each part with a routing gets its own horizontal lane (no overlaps);
@@ -465,8 +553,16 @@ function renderFloor(){
            fill="none" stroke="#ff8753" stroke-width="1.5" opacity=".8"/>`;
     g+=`<text x="${x}" y="${yTop-16}" text-anchor="middle" font-size="11" fill="#e8eef2">${esc(r.name)}</text>`;
     g+=`<text x="${x}" y="${yTop-4}" text-anchor="middle" font-size="8" fill="${lanes.length>1?'#ff8753':'#5b6e7c'}">cap ${r.capacity}${r.brk?' · breaks down':''}${lanes.length>1?' · SHARED':''}</text>`;
-    for(let m=0;m<Math.min(r.capacity,6);m++)
-      g+=`<rect x="${x-colBoxW/2+7+m*10}" y="${yTop+bh-13}" width="8" height="8" rx="2" fill="rgba(54,224,200,.15)" stroke="#36e0c8" stroke-width="1"/>`;
+    const slots=asim?asim.resources[k].slots:null;
+    for(let m=0;m<Math.min(r.capacity,6);m++){
+      const s=slots?slots[m]:null;
+      const fill=s?(s.down?'rgba(255,107,107,.3)':s.busy?'rgba(54,224,200,.45)':'rgba(255,255,255,.04)'):'rgba(54,224,200,.15)';
+      const stroke=s?(s.down?'#ff6b6b':s.busy?'#36e0c8':'#33424f'):'#36e0c8';
+      g+=`<rect x="${x-colBoxW/2+7+m*10}" y="${yTop+bh-13}" width="8" height="8" rx="2" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`;
+    }
+    if(slots&&slots.some(s=>s.down))   // breakdown: red border like index.html's down machines
+      g+=`<rect x="${x-colBoxW/2}" y="${yTop}" width="${colBoxW}" height="${bh}" rx="9" fill="none" stroke="#ff6b6b" stroke-width="1.6" opacity=".9"/>`;
+    r._geo={x,yTop,bh};   // for token overlays
   });
 
   // part flow paths
@@ -517,7 +613,43 @@ function renderFloor(){
       g=`<path d="M ${from.x} ${from.y} ${curve(from.x,from.y,p._merge.x,p._merge.y)}" fill="none" stroke="${c.color}" stroke-width="2" opacity=".75" stroke-dasharray="${c.routing.length?'':'4 3'}" stroke-linecap="round"/>`+g;
       if(b.qty>1)g+=`<text x="${p._merge.x-12}" y="${p._merge.y-8}" font-size="8" fill="${c.color}">×${b.qty}</text>`;
     });
+    // assembly buffer readout: component inventory waiting at this assembly point
+    if(asim)p.bom.forEach((b,bi)=>{
+      const c=partById(b.partId); if(!c)return;
+      const inv=asim.inventory[b.partId];
+      g+=`<text x="${p._merge.x-4}" y="${p._merge.y+15+bi*11}" text-anchor="end" font-size="8" fill="${c.color}">${esc(c.name)} ×${inv===Infinity?'∞':inv}</text>`;
+    });
   });
+
+  /* ---- live job tokens ---- */
+  if(asim){
+    const laneOf={}; routed.forEach(p=>{laneOf[p.id]=p._lane;});
+    res.forEach((r,k)=>{
+      const R=asim.resources[k], geo=r._geo;
+      // queue: stack of tokens to the left of the column (FIFO head nearest)
+      R.queue.slice(0,8).forEach((job,i)=>{
+        const p=partById(job.pid); if(!p||laneOf[p.id]==null)return;
+        g+=`<circle cx="${geo.x-colBoxW/2-12-i*12}" cy="${laneY(laneOf[p.id])}" r="5" fill="${p.color}" stroke="#0c1015" stroke-width="1.2"/>`;
+      });
+      if(R.queue.length>8)
+        g+=`<text x="${geo.x-colBoxW/2-12-8*12}" y="${geo.yTop+geo.bh/2}" text-anchor="end" font-size="9" fill="#8aa0b0">+${R.queue.length-8}</text>`;
+      // in service: token inside the column on the part's lane
+      R.slots.forEach((s,si)=>{
+        if(!s.job)return;
+        const p=partById(s.job.pid); if(!p||laneOf[p.id]==null)return;
+        g+=`<circle cx="${geo.x-8+si*9}" cy="${laneY(laneOf[p.id])}" r="6" fill="${p.color}" stroke="${s.down?'#ff6b6b':'#0c1015'}" stroke-width="1.5"${s.down?' opacity=".55"':''}/>`;
+      });
+    });
+    // finished goods / output at the exits
+    parts.forEach(p=>{
+      if(!inDemand(p.id)||!p._out)return;
+      const ds=asim.demandStats[p.id], inv=asim.inventory[p.id];
+      const txt=asim.demandMode==='stream'
+        ?`FG ${inv===Infinity?'∞':inv} · ✓${ds.fulfilled} ✗${ds.stockouts}`
+        :`out ${ds.fulfilled}`;
+      g+=`<text x="${exitX+10}" y="${p._out.y+15}" font-size="8" fill="#8aa0b0">${txt}</text>`;
+    });
+  }
 
   floor.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
   renderLegend();
@@ -525,9 +657,108 @@ function renderFloor(){
 function renderLegend(){
   $('legend').innerHTML=config.parts.map(p=>
     `<span><i style="background:${p.color};border-color:${p.color}"></i>${p.name}`+
-    `<span style="color:var(--faint)"> · ${p.type}${inDemand(p.id)?' · demand':''}</span></span>`).join('');
+    `<span style="color:var(--faint)"> · ${p.type}${inDemand(p.id)?' · demand':''}</span></span>`).join('')
+    +`<span style="margin-left:auto"><i style="background:rgba(54,224,200,.3);border-color:var(--sim)"></i>busy</span>`
+    +`<span><i style="border-color:var(--idle)"></i>idle</span>`
+    +`<span><i style="background:rgba(255,107,107,.3);border-color:var(--down)"></i>down</span>`;
 }
 $('refresh').onclick=renderFloor;
+
+/* ===================================================================
+   Panel 5 — run controls (supply mode · demand mode · playback)
+   =================================================================== */
+function renderRun(){
+  const sup=config.supplyMode, dem=config.demandMode;
+  $('aLimitless').classList.toggle('on',sup==='limitless');
+  $('aSupStream').classList.toggle('on',sup==='stream');
+  $('aDemInstant').classList.toggle('on',dem==='instant');
+  $('aDemStream').classList.toggle('on',dem==='stream');
+  $('runNote').textContent=
+    (sup==='limitless'
+      ?'Limitless source: purchased components are always available and raw-material parts are released the moment their first workcenter has a free slot. '
+      :'Arrival stream: raw-material parts arrive per their interarrival distributions below; purchased parts go straight to component inventory. ')+
+    (dem==='instant'
+      ?'Instant demand consumes every finished product immediately.'
+      :'Demand stream: each product gets an independent demand process; an empty finished-goods shelf is a stockout (lost sale).');
+  const ab=$('arrivalsBox'); ab.innerHTML='';
+  if(sup==='stream'){
+    const sh=document.createElement('div');sh.className='sub-h';sh.textContent='Raw-material interarrival times';ab.appendChild(sh);
+    config.parts.filter(p=>p.type==='purchased'||!p.bom.length).forEach(p=>{
+      if(p.type==='produced'&&!p.routing.length)return;
+      const row=document.createElement('div');row.className='row';row.style.marginBottom='4px';
+      row.innerHTML=`<span style="font-family:'JetBrains Mono',monospace;font-size:11px;min-width:150px"><span class="swatch" style="background:${p.color}"></span>${p.name}</span>`;
+      const box=document.createElement('div');box.style.flex='1';box.appendChild(distEditor(p.arrival,renderFloor));
+      row.appendChild(box);ab.appendChild(row);
+    });
+  }
+  const db=$('demandBox'); db.innerHTML='';
+  if(dem==='stream'){
+    const sh=document.createElement('div');sh.className='sub-h';sh.textContent='Customer demand interarrival (each product gets its own stream)';db.appendChild(sh);
+    db.appendChild(distEditor(config.demandDist,renderFloor));
+  }
+}
+$('aLimitless').onclick=()=>{config.supplyMode='limitless';renderFloor();};
+$('aSupStream').onclick=()=>{config.supplyMode='stream';renderFloor();};
+$('aDemInstant').onclick=()=>{config.demandMode='instant';renderFloor();};
+$('aDemStream').onclick=()=>{config.demandMode='stream';renderFloor();};
+
+/* ---- playback (same pattern as index.html) ---- */
+function aloop(ts){
+  if(!playing)return;
+  let dt=(ts-lastFrame)/1000; lastFrame=ts; if(!isFinite(dt)||dt<0)dt=0;
+  cursor+=dt*speed;
+  let budget=800;
+  while(asim.fel.length&&asim.fel.peek().time<=cursor&&budget-->0)asim.step();
+  if(!asim.fel.length){playing=false;$('aplay').textContent='▶ Play';}
+  drawFloor();renderMetrics();
+  if(playing)requestAnimationFrame(aloop);
+}
+$('aplay').onclick=()=>{
+  playing=!playing;$('aplay').textContent=playing?'⏸ Pause':'▶ Play';
+  if(playing){cursor=Math.max(cursor,asim.now);lastFrame=performance.now();requestAnimationFrame(aloop);}
+};
+$('astep').onclick=()=>{playing=false;$('aplay').textContent='▶ Play';
+  if(asim.fel.length){cursor=asim.fel.peek().time;asim.step();drawFloor();renderMetrics();}};
+$('aff').onclick=()=>{playing=false;$('aplay').textContent='▶ Play';
+  for(let i=0;i<1000&&asim.fel.length;i++)asim.step();
+  cursor=asim.now;drawFloor();renderMetrics();};
+$('areset').onclick=()=>{rebuildSim();drawFloor();renderMetrics();};
+$('aspd').oninput=e=>{speed=parseFloat(e.target.value);$('aspdV').textContent=speed+'×';};
+
+/* ===================================================================
+   Panel 6 — live metrics
+   =================================================================== */
+function renderMetrics(){
+  if(!asim)return;
+  const T=asim.now||1e-9;
+  let bi=-1,bu=-1;
+  const utils=asim.resources.map((R,i)=>{
+    const u=R.aBusy/(R.slots.length*T);
+    if(u>bu){bu=u;bi=i;}
+    return u;
+  });
+  $('bneck').textContent=bi>=0&&bu>0.001?`bottleneck: ${asim.resources[bi].cfg.name} (${(bu*100).toFixed(0)}%)`:'—';
+  $('resTable').innerHTML=asim.resources.map((R,i)=>{
+    const u=utils[i],down=R.aDown/(R.slots.length*T);
+    const color=u>0.85?'var(--down)':u>0.65?'var(--thy)':'var(--sim)';
+    return `<tr><td>${R.cfg.name}${i===bi&&bu>0.001?'<span class="btag">BOTTLENECK</span>':''}</td>
+      <td>${(u*100).toFixed(0)}%</td>
+      <td class="bar"><span class="util-bar" style="width:${Math.min(60,u*60)}px;background:${color}"></span></td>
+      <td>${(R.aQ/T).toFixed(1)}</td>
+      <td>${(down*100).toFixed(0)}%</td>
+      <td>${R.processed}</td></tr>`;
+  }).join('');
+  $('partTable').innerHTML=config.parts.map(p=>{
+    const st=asim.pstats[p.id],ds=asim.demandStats[p.id],inv=asim.inventory[p.id];
+    const th=st.completed/T, ct=st.completed?st.sumCycle/st.completed:0;
+    return `<tr><td><span class="swatch" style="background:${p.color}"></span>${p.name}</td>
+      <td>${p.type==='purchased'?'—':th.toFixed(2)}</td>
+      <td>${st.completed?ct.toFixed(2):'—'}</td>
+      <td>${st.wip}</td>
+      <td>${inv===Infinity?'∞':inv}</td>
+      <td>${ds?(ds.demanded?((ds.fulfilled/ds.demanded)*100).toFixed(1)+'%':'—'):'—'}</td></tr>`;
+  }).join('');
+}
 
 /* ===================================================================
    Save / load (same pattern as index.html)
@@ -579,6 +810,7 @@ function parseFactory(text){
     const type=p.type==='purchased'?'purchased':'produced';
     return {id,name:String(p.name||('Part '+(i+1))),
       color:/^#[0-9a-fA-F]{6}$/.test(p.color)?p.color:PALETTE[i%PALETTE.length],type,
+      arrival:p.arrival?normDist(p.arrival,`part ${id} arrival`):newDist('exp',{mean:3}),
       bom:type==='produced'&&Array.isArray(p.bom)?p.bom.map(b=>({partId:String(b.partId),qty:Math.max(1,parseInt(b.qty)||1)})):[],
       routing:type==='produced'&&Array.isArray(p.routing)?p.routing.map((s,si)=>({
         resourceId:String(s.resourceId),
@@ -592,7 +824,10 @@ function parseFactory(text){
   const demand=Array.isArray(cfg.demand)
     ?cfg.demand.filter(d=>parts.some(q=>q.id===d.partId)).map(d=>({partId:String(d.partId),qty:Math.max(1,parseInt(d.qty)||1)}))
     :[];
-  return {resources,parts,demand};
+  return normalizeFactory({resources,parts,demand,
+    supplyMode:cfg.supplyMode==='stream'?'stream':'limitless',
+    demandMode:cfg.demandMode==='stream'?'stream':'instant',
+    demandDist:cfg.demandDist?normDist(cfg.demandDist,'demand'):newDist('exp',{mean:3})});
 }
 
 function renderAll(){renderResources();renderParts();renderRoutings();renderFloor();}
