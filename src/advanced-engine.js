@@ -55,6 +55,13 @@ export class AdvancedSim {
     // (assemblies vs raw-material sources) in different index spaces.
     this.rrPtr = 0;     // into this.parts, advances on each assembly release
     this.rrFeed = 0;    // into this.sourceParts, advances on each source release
+    // Pull-mode demand explosion: pullPlan[pid] = units authorized to release now
+    // (external + dependent demand, netted, CONWIP-capped — see computePullNeeds);
+    // extTurn[pid] rotates a shared intermediate's finished units between its
+    // external customers and the parent assemblies that consume it.
+    this.pullPlan = {};
+    this.extTurn = {};
+    this._pullOrder = null;   // cached BOM topological order (parents before components)
 
     // Workcenters: FIFO queue (optionally finite) + capacity slots with
     // preempt-resume breakdowns and blocking when downstream queues fill
@@ -232,6 +239,17 @@ export class AdvancedSim {
   pullSatisfy(pid) {
     const d = this.demand.find((x) => x.partId === pid); if (!d) return;
     const ds = this.demandStats[pid], q = Math.max(1, d.qty | 0);
+    // Fair allocation: when this part is ALSO consumed by a parent assembly that
+    // currently wants it, external customers and assembly take turns for the
+    // finished pool so neither monopolises it (extTurn alternates per unit).
+    if (this.controlMode === 'pull' && this.dependentPending(pid)) {
+      if (this.extTurn[pid] === false) { this.extTurn[pid] = true; return; }   // reserve this unit for assembly
+      if (ds.backlog > 0 && this.inventory[pid] >= q) {
+        this.inventory[pid] -= q; ds.backlog--; ds.fulfilled++;
+        this.extTurn[pid] = false;                                              // assembly's turn next
+      }
+      return;
+    }
     while (ds.backlog > 0 && this.inventory[pid] >= q) {
       this.inventory[pid] -= q; ds.backlog--; ds.fulfilled++;
     }
@@ -242,11 +260,79 @@ export class AdvancedSim {
     for (const b of p.bom) if (!(this.inventory[b.partId] >= b.qty)) return false;
     return true;
   }
+
+  /* ---- pull-mode dependent-demand explosion ---- */
+  // CONWIP in-flight limit for a part: a demand product is capped by its own
+  // conwip; a pure intermediate has no own cap — its in-flight is bounded by the
+  // dependent demand it receives, which is already CONWIP-capped at its parents.
+  pullLimit(pid) {
+    const d = this.demand.find((x) => x.partId === pid);
+    return d ? Math.max(1, d.conwip | 0 || 5) : Infinity;
+  }
+
+  // Topological order of produced parts that own a BOM (assembled via
+  // tryAssembleAll), parents before the components they consume. Cached; BOMs
+  // are acyclic, and a back-edge to an in-progress node is skipped defensively.
+  buildPullOrder() {
+    const ids = new Set(this.parts.filter((p) => p.type === 'produced' && p.bom && p.bom.length).map((p) => p.id));
+    const state = {}, post = [];
+    const visit = (pid) => {
+      if (!ids.has(pid) || state[pid]) return;     // unknown, done (2), or visiting (1: cycle) → stop
+      state[pid] = 1;
+      const p = this.parts[this.partIdx.get(pid)];
+      for (const b of p.bom) visit(b.partId);       // descend into components first
+      state[pid] = 2;
+      post.push(pid);
+    };
+    for (const pid of ids) visit(pid);
+    return post.reverse();                           // reverse post-order ⇒ parents first
+  }
+
+  // Explode external customer demand AND dependent demand (from parent
+  // assemblies) down through the BOM, netting each part's requirement against
+  // its on-hand inventory and in-flight WIP, and cap the result by the part's
+  // CONWIP limit. The capped requirement is what drives component demand, so a
+  // part's components are pulled just enough to keep its pipeline full without
+  // running away. Result stored in this.pullPlan[pid] = units to release now.
+  computePullNeeds() {
+    if (!this._pullOrder) this._pullOrder = this.buildPullOrder();
+    const gross = {}, plan = {};
+    for (const pid of this._pullOrder) gross[pid] = 0;
+    // top-level external demand, in units (only parts that are produced w/ BOM)
+    for (const d of this.demand) {
+      if (gross[d.partId] != null) gross[d.partId] += this.demandStats[d.partId].backlog * Math.max(1, d.qty | 0);
+    }
+    for (const pid of this._pullOrder) {            // parents first, cascading down
+      const p = this.parts[this.partIdx.get(pid)];
+      const inv = this.inventory[pid] === Infinity ? 0 : this.inventory[pid];
+      const wip = this.pstats[pid].wip;
+      const netReq = Math.max(0, gross[pid] - inv - wip);   // units owed beyond shelf + pipeline
+      const lim = this.pullLimit(pid);
+      const headroom = lim === Infinity ? netReq : Math.max(0, lim - wip);
+      plan[pid] = Math.min(netReq, headroom);               // never authorize past the CONWIP limit
+      for (const b of p.bom) {                              // cascade to produced-w/-BOM components
+        if (gross[b.partId] != null) gross[b.partId] += plan[pid] * Math.max(1, b.qty | 0);
+      }
+    }
+    this.pullPlan = plan;
+    return plan;
+  }
+
+  // Does a parent assembly currently want this part as a component? (Used to
+  // share a finished intermediate fairly between external and internal demand.)
+  dependentPending(pid) {
+    for (const p of this.parts) {
+      if (p.type !== 'produced' || !p.bom) continue;
+      if (this.pullPlan[p.id] > 0 && p.bom.some((b) => b.partId === pid)) return true;
+    }
+    return false;
+  }
   // Start every assembly whose BOM is fully available. A BOM made entirely of
   // limitless purchased components is an unbounded generator, so it is gated
   // on a free slot at its first operation (like the limitless source feed).
   tryAssembleAll() {
     const n = this.parts.length;
+    if (this.controlMode === 'pull') this.computePullNeeds();   // refresh authorizations for this round
     let guard = 1000, again = true;
     while (again && guard-- > 0) {
       again = false;
@@ -259,16 +345,10 @@ export class AdvancedSim {
         if (p.type !== 'produced' || !p.bom || !p.bom.length) continue;
         if (!this.canAssemble(p)) continue;
         if (!this.canAccept(p)) continue;        // first operation's queue is at capacity
-        // CONWIP pull: release a demand product only against an unmet demand
-        // signal, and never beyond its conwip limit of jobs in flight
-        if (this.controlMode === 'pull' && this.inDemand(p.id)) {
-          const d = this.demand.find((x) => x.partId === p.id);
-          const lim = Math.max(1, d.conwip | 0 || 5), q = Math.max(1, d.qty | 0);
-          const st = this.pstats[p.id], ds = this.demandStats[p.id];
-          if (st.wip >= lim) continue;
-          const onHand = this.inventory[p.id] === Infinity ? ds.backlog : Math.floor(this.inventory[p.id] / q);
-          if (ds.backlog - onHand - st.wip <= 0) continue;   // nothing owed beyond pipeline + shelf
-        }
+        // CONWIP pull: release only what pullPlan authorizes — external customer
+        // demand AND dependent demand from parent assemblies, exploded through the
+        // BOM, netted against shelf + pipeline, capped by this part's CONWIP limit
+        if (this.controlMode === 'pull' && !(this.pullPlan[p.id] > 0)) continue;
         const allInfinite = p.bom.every((b) => this.inventory[b.partId] === Infinity);
         if (allInfinite) {
           if (!p.routing || !p.routing.length) continue;           // degenerate generator — skip
@@ -280,6 +360,7 @@ export class AdvancedSim {
           this.bomConsumed[p.id][b.partId] = (this.bomConsumed[p.id][b.partId] || 0) + b.qty;
         }
         this.createJob(p);
+        if (this.controlMode === 'pull') this.pullPlan[p.id]--;   // consume one authorization
         this.rrPtr = (idx + 1) % n;   // next scan favours the following product (round-robin)
         again = true;
       }

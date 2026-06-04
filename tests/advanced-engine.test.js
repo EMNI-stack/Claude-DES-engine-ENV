@@ -335,3 +335,139 @@ test("Little's Law holds per workcenter with scrap + blocking + breakdowns", () 
       `${R.cfg.name}: avgN=${avgN.toFixed(3)} vs TH×W=${thXw.toFixed(3)} (${(rel * 100).toFixed(1)}% off)`);
   }
 });
+
+/* ================================================================
+   13. Dependent demand in pull mode (the reported bug): an intermediate
+       ("Computer") is BOTH a demand product with RARE external demand AND
+       a component of a parent ("Upgraded PC") with FREQUENT demand. The
+       parent must actually be produced — i.e. the intermediate is pulled
+       to satisfy dependent demand, not throttled to its own rare external
+       backlog (which would starve the parent to ~0).
+   ================================================================ */
+test('pull: dependent demand pulls an intermediate to feed a frequent-demand parent', () => {
+  const cfg = normalizeFactory({
+    resources: [
+      { id: 'wcA', name: 'Build Computer', capacity: 1, service: newDist('exp', { mean: 1.0 }), brk: false },
+      { id: 'wcB', name: 'Build PC', capacity: 1, service: newDist('exp', { mean: 1.0 }), brk: false },
+    ],
+    parts: [
+      { id: 'raw', name: 'Raw', color: '#888888', type: 'purchased', bom: [], routing: [] },
+      { id: 'computer', name: 'Computer', color: '#36e0c8', type: 'produced',
+        bom: [{ partId: 'raw', qty: 1 }], routing: [{ resourceId: 'wcA', service: newDist('exp', { mean: 1.0 }) }] },
+      { id: 'upc', name: 'Upgraded PC', color: '#f2b13c', type: 'produced',
+        bom: [{ partId: 'computer', qty: 1 }], routing: [{ resourceId: 'wcB', service: newDist('exp', { mean: 1.0 }) }] },
+    ],
+    demand: [
+      { partId: 'computer', qty: 1, conwip: 8, dist: newDist('exp', { mean: 50 }) },   // RARE external demand
+      { partId: 'upc', qty: 1, conwip: 5, dist: newDist('exp', { mean: 2 }) },          // FREQUENT external demand
+    ],
+    supplyMode: 'limitless', demandMode: 'stream', controlMode: 'pull',
+  });
+  const sim = new AdvancedSim(cfg, 13579);
+  for (let i = 0; i < 200_000 && sim.fel.length; i++) {
+    sim.step();
+    assert.ok(sim.pstats.computer.wip <= 8, `computer in-flight ${sim.pstats.computer.wip} > CONWIP 8`);
+    assert.ok(sim.pstats.upc.wip <= 5, `upc in-flight ${sim.pstats.upc.wip} > CONWIP 5`);
+  }
+  // the parent is genuinely produced (it would be ~0 without dependent-demand propagation)
+  assert.ok(sim.pstats.upc.completed > 300,
+    `Upgraded PC barely produced (${sim.pstats.upc.completed}) — dependent demand is not propagating`);
+  // the intermediate was produced far beyond its own rare external demand
+  assert.ok(sim.pstats.computer.completed > 300,
+    `Computer not produced for dependent demand (${sim.pstats.computer.completed})`);
+  assert.ok(sim.pstats.computer.completed >= sim.bomConsumed.upc.computer,
+    'more computers consumed by PCs than were produced (negative balance)');
+  // pull mode: no lost sales, demand conserved
+  for (const d of sim.demand) {
+    const ds = sim.demandStats[d.partId];
+    assert.equal(ds.demanded, ds.fulfilled + ds.backlog, `${d.partId}: demanded != fulfilled + backlog`);
+    assert.equal(ds.stockouts, 0, `${d.partId}: pull mode should not lose sales`);
+  }
+  assert.equal(sim.jobsCreated, sim.jobsCompleted + sim.WIP(), 'job conservation broken');
+});
+
+/* ================================================================
+   14. Multi-level BOM under pull: Grandparent -> Parent -> Component,
+       only the grandparent is sold. Demand must explode all the way down
+       (both intermediates get produced), CONWIP bounds hold on the sold
+       part, and the un-capped intermediates do not run away.
+   ================================================================ */
+test('pull: demand propagates through a multi-level BOM (grandparent → parent → component)', () => {
+  const cfg = normalizeFactory({
+    resources: [
+      { id: 'w1', name: 'Make Component', capacity: 1, service: newDist('exp', { mean: 0.8 }), brk: false },
+      { id: 'w2', name: 'Make Parent', capacity: 1, service: newDist('exp', { mean: 0.8 }), brk: false },
+      { id: 'w3', name: 'Make Grand', capacity: 1, service: newDist('exp', { mean: 0.8 }), brk: false },
+    ],
+    parts: [
+      { id: 'raw', name: 'Raw', color: '#888888', type: 'purchased', bom: [], routing: [] },
+      { id: 'comp', name: 'Component', color: '#36e0c8', type: 'produced',
+        bom: [{ partId: 'raw', qty: 1 }], routing: [{ resourceId: 'w1', service: newDist('exp', { mean: 0.8 }) }] },
+      { id: 'parent', name: 'Parent', color: '#f2b13c', type: 'produced',
+        bom: [{ partId: 'comp', qty: 1 }], routing: [{ resourceId: 'w2', service: newDist('exp', { mean: 0.8 }) }] },
+      { id: 'grand', name: 'Grandparent', color: '#c792ea', type: 'produced',
+        bom: [{ partId: 'parent', qty: 1 }], routing: [{ resourceId: 'w3', service: newDist('exp', { mean: 0.8 }) }] },
+    ],
+    demand: [{ partId: 'grand', qty: 1, conwip: 6, dist: newDist('exp', { mean: 2 }) }],   // only the top is sold
+    supplyMode: 'limitless', demandMode: 'stream', controlMode: 'pull',
+  });
+  const sim = new AdvancedSim(cfg, 24681);
+  for (let i = 0; i < 200_000 && sim.fel.length; i++) {
+    sim.step();
+    assert.ok(sim.pstats.grand.wip <= 6, `grand in-flight ${sim.pstats.grand.wip} > CONWIP 6`);
+    // intermediates are CONWIP-uncapped but bounded by the (capped) dependent demand — no runaway
+    assert.ok(sim.pstats.comp.wip < 50 && sim.pstats.parent.wip < 50, 'intermediate WIP ran away');
+    assert.ok(sim.inventory.comp < 100 && sim.inventory.parent < 100, 'intermediate inventory ran away');
+  }
+  assert.ok(sim.pstats.grand.completed > 300, `grand not produced (${sim.pstats.grand.completed})`);
+  assert.ok(sim.pstats.parent.completed > 300, `parent dependent demand not propagated (${sim.pstats.parent.completed})`);
+  assert.ok(sim.pstats.comp.completed > 300, `component dependent demand not propagated (${sim.pstats.comp.completed})`);
+  assert.equal(sim.jobsCreated, sim.jobsCompleted + sim.WIP(), 'job conservation broken');
+  const ds = sim.demandStats.grand;
+  assert.equal(ds.demanded, ds.fulfilled + ds.backlog, 'grand demand conservation broken');
+  assert.equal(ds.stockouts, 0, 'pull mode should not lose sales');
+});
+
+/* ================================================================
+   15. Shared intermediate with BOTH consumers under pull: "Shared Module"
+       is sold to customers AND consumed by "Product". Neither consumer may
+       monopolise the finished pool — both must be served — and demand +
+       entity conservation must hold.
+   ================================================================ */
+test('pull: an intermediate with both external and internal consumers serves both', () => {
+  const cfg = normalizeFactory({
+    resources: [
+      { id: 'wS', name: 'Make Shared', capacity: 1, service: newDist('exp', { mean: 0.6 }), brk: false },
+      { id: 'wP', name: 'Make Product', capacity: 1, service: newDist('exp', { mean: 0.9 }), brk: false },
+    ],
+    parts: [
+      { id: 'raw', name: 'Raw', color: '#888888', type: 'purchased', bom: [], routing: [] },
+      { id: 'shared', name: 'Shared Module', color: '#36e0c8', type: 'produced',
+        bom: [{ partId: 'raw', qty: 1 }], routing: [{ resourceId: 'wS', service: newDist('exp', { mean: 0.6 }) }] },
+      { id: 'product', name: 'Product', color: '#f2b13c', type: 'produced',
+        bom: [{ partId: 'shared', qty: 1 }], routing: [{ resourceId: 'wP', service: newDist('exp', { mean: 0.9 }) }] },
+    ],
+    demand: [
+      { partId: 'shared', qty: 1, conwip: 10, dist: newDist('exp', { mean: 4 }) },   // external customers
+      { partId: 'product', qty: 1, conwip: 6, dist: newDist('exp', { mean: 3 }) },    // internal consumer
+    ],
+    supplyMode: 'limitless', demandMode: 'stream', controlMode: 'pull',
+  });
+  const sim = new AdvancedSim(cfg, 36912);
+  for (let i = 0; i < 200_000 && sim.fel.length; i++) {
+    sim.step();
+    assert.ok(sim.pstats.shared.wip <= 10, `shared in-flight ${sim.pstats.shared.wip} > CONWIP 10`);
+    assert.ok(sim.pstats.product.wip <= 6, `product in-flight ${sim.pstats.product.wip} > CONWIP 6`);
+  }
+  // BOTH consumers served — neither starved the other
+  assert.ok(sim.demandStats.shared.fulfilled > 300,
+    `external customers of the shared module starved (${sim.demandStats.shared.fulfilled})`);
+  assert.ok(sim.pstats.product.completed > 300,
+    `product (internal consumer) starved of the shared module (${sim.pstats.product.completed})`);
+  for (const d of sim.demand) {
+    const ds = sim.demandStats[d.partId];
+    assert.equal(ds.demanded, ds.fulfilled + ds.backlog, `${d.partId}: demanded != fulfilled + backlog`);
+    assert.equal(ds.stockouts, 0, `${d.partId}: pull mode should not lose sales`);
+  }
+  assert.equal(sim.jobsCreated, sim.jobsCompleted + sim.WIP(), 'job conservation broken');
+});
