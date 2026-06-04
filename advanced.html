@@ -159,6 +159,7 @@
     <button id="astep">⏭ Step</button>
     <button id="aff">⏩ FF 1000</button>
     <button id="areset">↺ Reset</button>
+    <button id="adljson" title="Export this run as a des-analysis/v1 JSON file for the Python dashboard">⬇ Data</button>
     <label class="fld spdfld">speed <span style="color:var(--sim)" id="aspdV">3×</span>
       <input id="aspd" type="range" min="0.25" max="80" step="0.25" value="3"></label>
     <span class="pill" id="aclock" style="margin-left:auto">clock 0.0</span>
@@ -324,10 +325,17 @@ let config=normalizeFactory(defaultFactory());
 
 /* ---- simulation lifecycle ---- */
 let asim=null, playing=false, cursor=0, lastFrame=0, speed=3, fgeo={}, flowPhase=0;
+const asamples=[];   // live WIP/FG/output time series for the JSON export
+function pushASample(){
+  if(!asim)return;
+  let fg=0; for(const d of config.demand){const inv=asim.inventory[d.partId];if(inv!==Infinity&&inv>0)fg+=inv;}
+  asamples.push({t:asim.now,wip:asim.WIP(),fg,completed:asim.jobsCompleted});
+  if(asamples.length>3000)asamples.splice(0,asamples.length-3000);
+}
 function rebuildSim(){
   normalizeFactory(config);
   asim=new AdvancedSim(config,12345);
-  playing=false; cursor=0;
+  playing=false; cursor=0; asamples.length=0; pushASample();
   if(typeof atok!=='undefined'&&atok){for(const el of atok.values())el.remove();atok.clear();}   // job ids restart — drop stale overlay tokens
   const pb=$('aplay'); if(pb)pb.textContent='▶ Play';
   updatePills();
@@ -948,7 +956,7 @@ function aloop(ts){
   let budget=800;
   while(asim.fel.length&&asim.fel.peek().time<=cursor&&budget-->0)asim.step();
   if(!asim.fel.length){playing=false;$('aplay').textContent='▶ Play';}
-  drawFloor();renderMetrics();
+  pushASample();drawFloor();renderMetrics();
   if(playing)requestAnimationFrame(aloop);
 }
 $('aplay').onclick=()=>{
@@ -956,12 +964,59 @@ $('aplay').onclick=()=>{
   if(playing){cursor=Math.max(cursor,asim.now);lastFrame=performance.now();requestAnimationFrame(aloop);}
 };
 $('astep').onclick=()=>{playing=false;$('aplay').textContent='▶ Play';
-  if(asim.fel.length){cursor=asim.fel.peek().time;asim.step();drawFloor();renderMetrics();}};
+  if(asim.fel.length){cursor=asim.fel.peek().time;asim.step();pushASample();drawFloor();renderMetrics();}};
 $('aff').onclick=()=>{playing=false;$('aplay').textContent='▶ Play';
-  for(let i=0;i<1000&&asim.fel.length;i++)asim.step();
-  cursor=asim.now;drawFloor();renderMetrics();};
+  for(let i=0;i<1000&&asim.fel.length;i++){asim.step();if((i&31)===0)pushASample();}
+  cursor=asim.now;pushASample();drawFloor();renderMetrics();};
 $('areset').onclick=()=>{rebuildSim();drawFloor();renderMetrics();};
 $('aspd').oninput=e=>{speed=parseFloat(e.target.value);$('aspdV').textContent=speed+'×';};
+
+/* ---- export this live run as a des-analysis/v1 JSON file (same schema as the
+   Node harness and index.html, so the Python dashboard handles all three) ---- */
+const jround=(v,d=4)=>{if(v==null||!isFinite(v))return v==null?null:v;const m=10**d;return Math.round(v*m)/m;};
+function downloadJSON(obj,name){
+  const blob=new Blob([JSON.stringify(obj)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href);
+}
+$('adljson').onclick=()=>{
+  if(!asim){alert('Run the simulation first (Play or FF), then download.');return;}
+  const T=asim.now||1e-9;
+  const resources=asim.resources.map(R=>{const M=R.slots.length;return{
+    id:R.cfg.id,name:R.cfg.name,capacity:M,
+    utilization:jround(R.aBusy/(M*T)),blocked:jround(R.aBlk/(M*T)),down:jround(R.aDown/(M*T)),
+    avgQueue:jround(R.aQ/T),processed:R.processed,throughput:jround(R.departed/T),
+    avgFlowTime:R.departed?jround(R.sumFlow/R.departed):null};});
+  const parts=asim.parts.map(p=>{const st=asim.pstats[p.id],inv=asim.inventory[p.id];return{
+    id:p.id,name:p.name,created:st.created,completed:st.completed,scrapped:st.scrapped,
+    wip:st.wip,inventory:inv===Infinity?null:inv,avgCycleTime:st.completed?jround(st.sumCycle/st.completed):null};});
+  const demand=config.demand.map(d=>{const ds=asim.demandStats[d.partId];return{
+    id:d.partId,demanded:ds.demanded,fulfilled:ds.fulfilled,stockouts:ds.stockouts,backlog:ds.backlog};});
+  const completedTot=asim.parts.reduce((a,p)=>a+asim.pstats[p.id].completed,0);
+  const scrappedTot=asim.parts.reduce((a,p)=>a+asim.pstats[p.id].scrapped,0);
+  const cycleTot=asim.parts.reduce((a,p)=>a+asim.pstats[p.id].sumCycle,0);
+  const demandedTot=demand.reduce((a,d)=>a+d.demanded,0), fulfilledTot=demand.reduce((a,d)=>a+d.fulfilled,0), stockoutTot=demand.reduce((a,d)=>a+d.stockouts,0);
+  const rep={
+    seed:12345,now:jround(asim.now,3),events:asim.events,
+    scalars:{
+      throughput:jround(asim.jobsCompleted/T),avgWIP:jround(asim.aWIP/T),
+      avgCycleTime:completedTot?jround(cycleTot/completedTot):null,
+      yield:(completedTot+scrappedTot)?jround(completedTot/(completedTot+scrappedTot)):null,
+      fillRate:demandedTot?jround(fulfilledTot/demandedTot):null,avgFG:null,
+      entered:asim.jobsCreated,completed:asim.jobsCompleted,scrapped:asim.jobsScrapped,rejected:0,
+      demanded:demandedTot,fulfilled:fulfilledTot,stockouts:stockoutTot},
+    resources,parts,demand,
+    cycleSamples:asim.cycles.map(c=>({part:c.pid,ct:jround(c.ct,4)})),
+    timeseries:{t:asamples.map(s=>jround(s.t,3)),wip:asamples.map(s=>s.wip),fg:asamples.map(s=>s.fg),completed:asamples.map(s=>s.completed)},
+  };
+  const data={schema:'des-analysis/v1',kind:'advanced',generatedBy:'browser',generatedAt:new Date().toISOString(),
+    config:{control:config.controlMode==='pull'?'pull':'push',supply:config.supplyMode==='stream'?'stream':'limitless',
+      demandMode:config.demandMode==='stream'?'stream':'instant',
+      summary:`${config.resources.length} workcenters · ${config.parts.length} parts (browser export)`,
+      resources:config.resources.map(rc=>({id:rc.id,name:rc.name,capacity:Math.max(1,rc.capacity|0),serviceMean:jround(distMean(rc.service)),scrap:0,brk:!!rc.brk})),
+      parts:config.parts.map(p=>({id:p.id,name:p.name,type:p.type,bom:(p.bom||[]).map(b=>({partId:b.partId,qty:b.qty})),routingMean:jround((p.routing||[]).reduce((a,s)=>a+distMean(s.service),0)),isDemand:inDemand(p.id)}))},
+    runLength:jround(asim.now,1),warmupHint:null,replications:[rep]};
+  downloadJSON(data,'des-advanced-data.json');
+};
 
 /* ---- setup drawer (matches index.html) ---- */
 const drawerWrap=$('drawerWrap');
