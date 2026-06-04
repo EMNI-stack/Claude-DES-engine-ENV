@@ -49,6 +49,7 @@ export class AdvancedSim {
     this.demandDist = cfg.demandDist || DEF_ARRIVAL();
     this.jobId = 0; this.jobsCreated = 0; this.jobsCompleted = 0; this.jobsScrapped = 0;
     this.aWIP = 0; this.logbuf = []; this.scrapRecent = [];
+    this.cycles = [];   // ring buffer of recent completed-job cycle times (analysis export)
     // Round-robin start indices: rotate which product gets first claim on a
     // scarce shared component, so the first-listed product can't monopolise it.
     // Separate pointers because the two loops iterate disjoint part sets
@@ -222,7 +223,10 @@ export class AdvancedSim {
   finishJob(job) {
     this.jobsCompleted++;
     const st = this.pstats[job.pid];
-    st.completed++; st.wip--; st.sumCycle += this.now - job.tA;
+    const ct = this.now - job.tA;
+    st.completed++; st.wip--; st.sumCycle += ct;
+    this.cycles.push({ pid: job.pid, ct });   // capped ring buffer for cycle-time distributions
+    if (this.cycles.length > 6000) this.cycles.shift();
     if (this.controlMode === 'pull' && this.inDemand(job.pid)) {
       // CONWIP: the finished unit satisfies the oldest deferred demand;
       // the freed WIP slot authorises a new release via tryAssembleAll
