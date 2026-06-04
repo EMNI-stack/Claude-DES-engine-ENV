@@ -22,9 +22,9 @@ import plotly.graph_objects as go
 import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from des_analysis import load_results, metrics, output_analysis as oa  # noqa: E402
+from des_analysis import load_results, metrics, output_analysis as oa, characteristic as ch  # noqa: E402
 from des_analysis.exporters import export_tidy  # noqa: E402
-from des_analysis.ingest import Dataset  # noqa: E402
+from des_analysis.ingest import Dataset, read_json  # noqa: E402
 
 # ---------------------------------------------------------------- palette / theme
 BG = "#0c1015"
@@ -90,28 +90,28 @@ def fmt(x, nd=2, pct=False):
 # ---------------------------------------------------------------- data source
 @st.cache_data(show_spinner=False)
 def _load_path(path: str, mtime: float):
-    return load_results(path).raw  # cache the raw dict (Dataset isn't hashable)
+    return read_json(path)  # raw dict; may be des-analysis/v1 OR sweep-v1
 
 
-def resolve_dataset() -> Dataset | None:
+def resolve_raw() -> dict | None:
     st.sidebar.header("Data source")
     samples = sorted(SAMPLE_DIR.glob("*.json")) if SAMPLE_DIR.exists() else []
     mode = st.sidebar.radio("Load from", ["Sample data", "Upload JSON"], index=0)
     if mode == "Upload JSON":
-        up = st.sidebar.file_uploader("des-analysis/v1 results file", type="json")
+        up = st.sidebar.file_uploader("results JSON (run or CONWIP sweep)", type="json")
         if up is None:
             st.info("Upload a results JSON exported from the simulator, or switch to sample data.")
             return None
         import json
-        return load_results(json.loads(up.getvalue().decode("utf-8")))
+        return json.loads(up.getvalue().decode("utf-8"))
     if not samples:
         st.warning("No sample data found. Run:  `node analysis/run_sim.mjs`")
         return None
     names = [p.name for p in samples]
-    choice = st.sidebar.selectbox("Sample dataset", names,
-                                  index=names.index("advanced_factory.json") if "advanced_factory.json" in names else 0)
+    default = "advanced_factory.json" if "advanced_factory.json" in names else names[0]
+    choice = st.sidebar.selectbox("Sample dataset", names, index=names.index(default))
     p = SAMPLE_DIR / choice
-    return Dataset(_load_path(str(p), p.stat().st_mtime))
+    return _load_path(str(p), p.stat().st_mtime)
 
 
 # ---------------------------------------------------------------- views
@@ -338,6 +338,59 @@ def view_export(ds: Dataset):
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.markdown("##### One-page summary")
     st.dataframe(oa.summarize_replications(ds.scalars), use_container_width=True, hide_index=True)
+
+
+# ---------------------------------------------------------------- characteristic curve (sweep)
+def render_sweep(raw: dict):
+    cfg = raw.get("config", {})
+    T0, rb, W0 = cfg.get("T0"), cfg.get("rb"), cfg.get("W0")
+    st.markdown(f"#### {cfg.get('summary', 'CONWIP sweep')}")
+    st.caption(f"source: {raw.get('generatedBy','?')} · {raw.get('reps','?')} reps per WIP level · "
+               f"bottleneck: {cfg.get('bottleneck','?')}")
+    cols = st.columns(4)
+    kpi(cols[0], "Raw process time T₀", fmt(T0, 2), "Σ mean op times", "accent")
+    kpi(cols[1], "Bottleneck rate r_b", fmt(rb, 3), "max sustainable TH")
+    kpi(cols[2], "Critical WIP W₀", fmt(W0, 2), "= r_b · T₀")
+    kpi(cols[3], "Bottleneck", cfg.get("bottleneck", "—"), "highest utilization", "warn")
+
+    pts = ch.measured_points(raw)
+    wmax = float(pts["wip_cap"].max()) if not pts.empty else 16
+    wgrid = np.linspace(0.8, wmax + 1, 120)
+    ref = ch.reference_curves(T0, rb, W0, wgrid)
+
+    def curve_fig(measured_y, hw, best_y, pwc_y, worst_y, ytitle, title):
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=ref["w"], y=worst_y, mode="lines", name="worst case",
+                                 line=dict(color="#7a3b3b", width=1.4, dash="dot")))
+        fig.add_trace(go.Scatter(x=ref["w"], y=pwc_y, mode="lines", name="practical worst case",
+                                 line=dict(color=AMBER, width=1.8, dash="dash")))
+        fig.add_trace(go.Scatter(x=ref["w"], y=best_y, mode="lines", name="best case",
+                                 line=dict(color="#7aa2ff", width=1.8)))
+        fig.add_trace(go.Scatter(x=pts["wip_mean"], y=measured_y, mode="markers",
+                                 error_y=dict(type="data", array=hw, color=TEAL, thickness=1.3, width=5),
+                                 marker=dict(color=TEAL, size=9, line=dict(color=BG, width=1)),
+                                 name="simulated"))
+        fig.add_vline(x=W0, line=dict(color=FAINT, dash="dot"),
+                      annotation_text=f"W₀={W0:.1f}", annotation_position="top", annotation_font_color=FAINT)
+        fig.update_xaxes(title="WIP (jobs)"); fig.update_yaxes(title=ytitle)
+        return plotly_layout(fig, 380, title)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        f = curve_fig(pts["th_mean"], pts["th_hw"], ref["best_th"], ref["pwc_th"], ref["worst_th"],
+                      "throughput", "Throughput vs WIP")
+        f.add_hline(y=rb, line=dict(color="#7aa2ff", dash="dot"),
+                    annotation_text=f"r_b={rb:.2f}", annotation_font_color="#7aa2ff")
+        st.plotly_chart(f, use_container_width=True)
+    with c2:
+        st.plotly_chart(curve_fig(pts["ct_mean"], pts["ct_hw"], ref["best_ct"], ref["pwc_ct"], ref["worst_ct"],
+                                  "cycle time", "Cycle time vs WIP"), use_container_width=True)
+    st.markdown(
+        "A flow needs WIP to reach full throughput — TH climbs from `w/T₀` toward the bottleneck rate `r_b`, "
+        "and cycle time grows past `T₀` once WIP exceeds the critical level `W₀`. The simulated line should sit "
+        "**between best and worst case**; sitting near or above the practical-worst-case line marks a well-behaved, "
+        "low-variability line. Pushing WIP far past `W₀` buys little extra throughput but inflates cycle time.")
+    st.dataframe(pts.style.format(precision=3), use_container_width=True, hide_index=True)
 
 
 # ---------------------------------------------------------------- main

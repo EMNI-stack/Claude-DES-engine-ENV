@@ -17,6 +17,14 @@ import pandas as pd
 SCHEMA = "des-analysis/v1"
 
 
+def read_json(source: str | Path | dict) -> dict:
+    """Parse a results file to a raw dict without schema enforcement (lets
+    callers branch between des-analysis/v1 and the sweep schema)."""
+    if isinstance(source, dict):
+        return source
+    return json.loads(Path(source).read_text(encoding="utf-8"))
+
+
 def load_results(source: str | Path | dict) -> "Dataset":
     """Load a results file (path or already-parsed dict) into a Dataset."""
     if isinstance(source, dict):

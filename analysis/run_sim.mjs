@@ -41,6 +41,8 @@ function parseArgs(argv) {
     else if (k === '--supply') a.supply = argv[++i];       // limitless | stream
     else if (k === '--conwip') a.conwip = parseInt(argv[++i], 10);
     else if (k === '--scenario') a.scenario = argv[++i];   // output filename stem
+    else if (k === '--sweep') a.sweep = true;              // CONWIP characteristic-curve sweep
+    else if (k === '--wipMax') a.wipMax = parseInt(argv[++i], 10);
   }
   return a;
 }
@@ -267,6 +269,66 @@ function buildDataset(kind, opts) {
     config: advancedConfigSummary(cfg), runLength: opts.time, warmupHint: null, replications: reps };
 }
 
+/* ---------- CONWIP characteristic-curve sweep (Factory-Physics §6) ----------
+   A single-product line whose per-product CONWIP cap is a clean total-WIP knob.
+   Sweeping the cap and measuring steady-state TH & CT traces the line's
+   characteristic curve, to be compared against the best / practical-worst /
+   worst-case reference curves (computed in Python from T0, rb, W0). */
+function sweepLineConfig(conwip) {
+  return normalizeFactory({
+    resources: [
+      { id: 'op1', name: 'Op 1', capacity: 1, service: newDist('exp', { mean: 1.0 }), brk: false },
+      { id: 'op2', name: 'Op 2 (bottleneck)', capacity: 1, service: newDist('exp', { mean: 1.3 }), brk: false },
+      { id: 'op3', name: 'Op 3', capacity: 1, service: newDist('exp', { mean: 0.9 }), brk: false },
+    ],
+    parts: [
+      { id: 'raw', name: 'Raw', color: '#8fb3c4', type: 'purchased', bom: [], routing: [], arrival: newDist('exp', { mean: 1 }) },
+      { id: 'job', name: 'Job', color: '#36e0c8', type: 'produced', bom: [{ partId: 'raw', qty: 1 }],
+        routing: [{ resourceId: 'op1', service: newDist('exp', { mean: 1.0 }) },
+                  { resourceId: 'op2', service: newDist('exp', { mean: 1.3 }) },
+                  { resourceId: 'op3', service: newDist('exp', { mean: 0.9 }) }] },
+    ],
+    demand: [{ partId: 'job', qty: 1, conwip }],
+    supplyMode: 'limitless', demandMode: 'stream', controlMode: 'pull',
+    demandDist: newDist('exp', { mean: 0.2 }),   // hungry demand → line rides at the CONWIP cap
+  });
+}
+
+function buildSweep(opts) {
+  const wipMax = opts.wipMax || 16;
+  const tmpl = sweepLineConfig(1);
+  const job = tmpl.parts.find((p) => p.id === 'job');
+  const te = job.routing.map((s) => distMean(s.service));
+  const T0 = te.reduce((a, b) => a + b, 0);
+  const caps = tmpl.resources.map((rc) => Math.max(1, rc.capacity | 0) / distMean(rc.service));
+  const rb = Math.min(...caps);
+  const W0 = rb * T0;
+  const bottleneckIdx = caps.indexOf(rb);
+  const points = [];
+  for (let w = 1; w <= wipMax; w++) {
+    const wip = [], th = [], ct = [];
+    for (let i = 0; i < opts.reps; i++) {
+      const sim = new AdvancedSim(sweepLineConfig(w), opts.seed + w * 1000 + i);
+      while (sim.fel.length && peekTime(sim) <= opts.time) sim.step();
+      sim.accumulate(opts.time); sim.now = opts.time;
+      const T = sim.now || 1e-9, comp = sim.pstats.job.completed;
+      wip.push(r(sim.aWIP / T, 4)); th.push(r(sim.jobsCompleted / T, 5));
+      ct.push(comp ? r(sim.pstats.job.sumCycle / comp, 4) : null);
+    }
+    points.push({ wipCap: w, wip, throughput: th, cycleTime: ct });
+  }
+  return {
+    schema: 'des-analysis/sweep-v1', kind: 'sweep', generatedBy: 'harness', generatedAt: null,
+    config: {
+      summary: 'CONWIP sweep — single-product 3-operation line',
+      T0: r(T0, 4), rb: r(rb, 4), W0: r(W0, 4),
+      bottleneck: tmpl.resources[bottleneckIdx].name,
+      resources: tmpl.resources.map((rc) => ({ id: rc.id, name: rc.name, capacity: rc.capacity, serviceMean: r(distMean(rc.service)) })),
+    },
+    reps: opts.reps, runLength: opts.time, wipMax, points,
+  };
+}
+
 function defaultName(kind, opts) {
   if (opts.scenario) return `${opts.scenario}.json`;
   return kind === 'simple' ? 'simple_line.json' : 'advanced_factory.json';
@@ -276,6 +338,17 @@ function main() {
   const opts = parseArgs(process.argv.slice(2));
   const outdir = join(ROOT, opts.outdir);
   mkdirSync(outdir, { recursive: true });
+
+  if (opts.sweep) {
+    const t0 = Date.now();
+    const data = buildSweep(opts);
+    const file = join(outdir, `${opts.scenario || 'sweep_line'}.json`);
+    writeFileSync(file, JSON.stringify(data));
+    console.log(`[sweep] WIP 1..${data.wipMax} × ${opts.reps} reps → ${file} (${Date.now() - t0} ms) ` +
+      `T0=${data.config.T0} rb=${data.config.rb} W0=${data.config.W0}`);
+    return;
+  }
+
   const kinds = opts.kind === 'both' ? ['simple', 'advanced'] : [opts.kind];
   for (const kind of kinds) {
     const t0 = Date.now();
