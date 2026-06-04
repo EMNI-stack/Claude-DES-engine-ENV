@@ -49,6 +49,12 @@ export class AdvancedSim {
     this.demandDist = cfg.demandDist || DEF_ARRIVAL();
     this.jobId = 0; this.jobsCreated = 0; this.jobsCompleted = 0; this.jobsScrapped = 0;
     this.aWIP = 0; this.logbuf = []; this.scrapRecent = [];
+    // Round-robin start indices: rotate which product gets first claim on a
+    // scarce shared component, so the first-listed product can't monopolise it.
+    // Separate pointers because the two loops iterate disjoint part sets
+    // (assemblies vs raw-material sources) in different index spaces.
+    this.rrPtr = 0;     // into this.parts, advances on each assembly release
+    this.rrFeed = 0;    // into this.sourceParts, advances on each source release
 
     // Workcenters: FIFO queue (optionally finite) + capacity slots with
     // preempt-resume breakdowns and blocking when downstream queues fill
@@ -240,10 +246,16 @@ export class AdvancedSim {
   // limitless purchased components is an unbounded generator, so it is gated
   // on a free slot at its first operation (like the limitless source feed).
   tryAssembleAll() {
+    const n = this.parts.length;
     let guard = 1000, again = true;
     while (again && guard-- > 0) {
       again = false;
-      for (const p of this.parts) {
+      // start the scan at rrPtr so competing products take turns claiming a
+      // scarce shared component; base is fixed for the pass so order is stable
+      const base = this.rrPtr;
+      for (let k = 0; k < n; k++) {
+        const idx = (base + k) % n;
+        const p = this.parts[idx];
         if (p.type !== 'produced' || !p.bom || !p.bom.length) continue;
         if (!this.canAssemble(p)) continue;
         if (!this.canAccept(p)) continue;        // first operation's queue is at capacity
@@ -268,6 +280,7 @@ export class AdvancedSim {
           this.bomConsumed[p.id][b.partId] = (this.bomConsumed[p.id][b.partId] || 0) + b.qty;
         }
         this.createJob(p);
+        this.rrPtr = (idx + 1) % n;   // next scan favours the following product (round-robin)
         again = true;
       }
     }
@@ -277,14 +290,22 @@ export class AdvancedSim {
   // the moment their first workcenter has a free slot — never starved.
   feedSources() {
     if (this.supplyMode !== 'limitless') return;
+    const m = this.sourceParts.length;
+    if (!m) return;
     let progress = true;
     while (progress) {
       progress = false;
-      for (const p of this.sourceParts) {
+      // rotate the start (rrFeed) so raw-material parts sharing a first
+      // workcenter take turns rather than the first-listed always winning
+      const base = this.rrFeed;
+      for (let k = 0; k < m; k++) {
+        const idx = (base + k) % m;
+        const p = this.sourceParts[idx];
         if (p.type !== 'produced' || !p.routing || !p.routing.length) continue;
         const ri = this.resIdx.get(p.routing[0].resourceId);
         if (ri == null || this.freeSlot(this.resources[ri]) < 0) continue;
         this.createJob(p);
+        this.rrFeed = (idx + 1) % m;
         progress = true;
       }
     }

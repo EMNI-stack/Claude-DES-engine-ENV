@@ -280,6 +280,38 @@ test('per-product demand streams fire at their own rates', () => {
 });
 
 /* ================================================================
+   12. Fair allocation of a scarce shared component: Frame feeds BOTH
+       Widget and Gadget, and is supplied slower than the two products
+       combined could consume it. Round-robin must keep either product
+       from monopolising the shared Frame — each gets a meaningful share
+       instead of one getting ~all and the other ~none.
+   ================================================================ */
+test('scarce shared component is split fairly between products', () => {
+  const cfg = factory({ supplyMode: 'stream', demandMode: 'instant' });
+  // Frame (the shared input) is gated by Cutting at ~1/1.5 = 0.67/min, while
+  // Body and Controller are plentiful — so Frame is the single binding
+  // constraint that both products compete for.
+  cfg.parts[0].arrival = newDist('exp', { mean: 1.0 });   // frame  -> cutting (the bottleneck)
+  cfg.parts[1].arrival = newDist('exp', { mean: 0.3 });   // body   -> plentiful (widget's other input)
+  cfg.parts[2].arrival = newDist('exp', { mean: 0.3 });   // controller (purchased) -> plentiful
+  const sim = new AdvancedSim(cfg, 24680);
+  runTo(sim, 200_000);
+
+  const w = sim.pstats.widget.completed;
+  const g = sim.pstats.gadget.completed;
+  const total = w + g;
+  assert.ok(total > 1000, `not enough assemblies (widget=${w}, gadget=${g})`);
+  assert.ok(w / total >= 0.3 && g / total >= 0.3,
+    `neither product starved of the shared Frame: widget ${(100 * w / total).toFixed(0)}%, ` +
+    `gadget ${(100 * g / total).toFixed(0)}% of ${total} (round-robin should keep both ≥30%)`);
+
+  // correctness unaffected: Frame material balance still holds exactly
+  const framesConsumed = sim.bomConsumed.widget.frame + sim.bomConsumed.gadget.frame;
+  assert.equal(sim.pstats.frame.completed - framesConsumed, sim.inventory.frame,
+    'frame material balance broken under round-robin');
+});
+
+/* ================================================================
    10. Little's Law per workcenter still holds with scrap, finite
        queues (blocking) and breakdowns all active. Uses departure
        counts (blocked time at a workcenter belongs to its flow time).
