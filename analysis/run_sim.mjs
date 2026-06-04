@@ -26,7 +26,8 @@ const ROOT = join(__dirname, '..');
 
 /* ---------- tiny CLI ---------- */
 function parseArgs(argv) {
-  const a = { kind: 'both', reps: 12, time: 20000, samples: 500, seed: 1000, outdir: 'analysis/sample_data' };
+  const a = { kind: 'both', reps: 12, time: 20000, samples: 500, seed: 1000, outdir: 'analysis/sample_data',
+    control: null, demand: null, supply: null, conwip: 6, scenario: null };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     if (k === '--kind') a.kind = argv[++i];
@@ -35,8 +36,35 @@ function parseArgs(argv) {
     else if (k === '--samples') a.samples = parseInt(argv[++i], 10);
     else if (k === '--seed') a.seed = parseInt(argv[++i], 10);
     else if (k === '--outdir') a.outdir = argv[++i];
+    else if (k === '--control') a.control = argv[++i];     // push | pull
+    else if (k === '--demand') a.demand = argv[++i];       // instant | stream
+    else if (k === '--supply') a.supply = argv[++i];       // limitless | stream
+    else if (k === '--conwip') a.conwip = parseInt(argv[++i], 10);
+    else if (k === '--scenario') a.scenario = argv[++i];   // output filename stem
   }
   return a;
+}
+
+// Apply CLI control/demand/supply overrides to an advanced config in place.
+function applyAdvancedOverrides(cfg, opts) {
+  if (opts.supply) cfg.supplyMode = opts.supply;
+  if (opts.demand) cfg.demandMode = opts.demand;
+  if (opts.control) cfg.controlMode = opts.control;
+  if (cfg.controlMode === 'pull') {
+    cfg.demandMode = 'stream';
+    for (const d of cfg.demand) d.conwip = Math.max(1, opts.conwip | 0 || 6);
+    if (!cfg.demandDist) cfg.demandDist = newDist('exp', { mean: 3 });
+  }
+  return cfg;
+}
+// Apply overrides to a simple-line config in place.
+function applySimpleOverrides(cfg, opts) {
+  if (opts.supply) cfg.supply = opts.supply;
+  if (opts.control) cfg.control = opts.control;
+  if (opts.demand === 'stream' && (!cfg.demand || cfg.demand.mode !== 'stream')) {
+    cfg.demand = { mode: 'stream', dist: newDist('exp', { mean: 2.5 }) };
+  }
+  return cfg;
 }
 
 const r = (v, d = 4) => {
@@ -228,15 +256,20 @@ function advancedReplication(cfg, seed, T, M) {
 function buildDataset(kind, opts) {
   const reps = [];
   if (kind === 'simple') {
-    const cfg = defaultConfig();
-    for (let i = 0; i < opts.reps; i++) reps.push(simpleReplication(defaultConfig(), opts.seed + i, opts.time, opts.samples));
+    const cfg = applySimpleOverrides(defaultConfig(), opts);
+    for (let i = 0; i < opts.reps; i++) reps.push(simpleReplication(applySimpleOverrides(defaultConfig(), opts), opts.seed + i, opts.time, opts.samples));
     return { schema: 'des-analysis/v1', kind: 'simple', generatedBy: 'harness', generatedAt: null,
       config: simpleConfigSummary(cfg), runLength: opts.time, warmupHint: null, replications: reps };
   }
-  const cfg = advancedDefaultConfig();
-  for (let i = 0; i < opts.reps; i++) reps.push(advancedReplication(advancedDefaultConfig(), opts.seed + i, opts.time, opts.samples));
+  const cfg = applyAdvancedOverrides(advancedDefaultConfig(), opts);
+  for (let i = 0; i < opts.reps; i++) reps.push(advancedReplication(applyAdvancedOverrides(advancedDefaultConfig(), opts), opts.seed + i, opts.time, opts.samples));
   return { schema: 'des-analysis/v1', kind: 'advanced', generatedBy: 'harness', generatedAt: null,
     config: advancedConfigSummary(cfg), runLength: opts.time, warmupHint: null, replications: reps };
+}
+
+function defaultName(kind, opts) {
+  if (opts.scenario) return `${opts.scenario}.json`;
+  return kind === 'simple' ? 'simple_line.json' : 'advanced_factory.json';
 }
 
 function main() {
@@ -247,7 +280,7 @@ function main() {
   for (const kind of kinds) {
     const t0 = Date.now();
     const data = buildDataset(kind, opts);
-    const file = join(outdir, kind === 'simple' ? 'simple_line.json' : 'advanced_factory.json');
+    const file = join(outdir, defaultName(kind, opts));
     writeFileSync(file, JSON.stringify(data));
     const ms = Date.now() - t0;
     const ex = data.replications[0].scalars;

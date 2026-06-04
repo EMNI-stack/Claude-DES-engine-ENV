@@ -88,14 +88,34 @@ Notes:
 ## Iteration backlog (highest value first)
 
 - [x] Engine: add AdvancedSim.cycles ring buffer (additive).
-- [ ] D1 Data bridge: run_sim.mjs harness + schema + sample_data/.
-- [ ] D1 Browser: "Download data (JSON)" buttons in index.html + advanced.html (same schema).
-- [ ] D2 Python core: ingest → tidy DataFrames; Factory-Physics metrics; Little's Law check.
-- [ ] D2 Python core: Welch warm-up, t-CIs, batch means; pytest.
-- [ ] D3 Dashboard: Streamlit + Plotly, dark theme, KPI header + 6 views + exports.
-- [ ] D4 Site integration: "Open analysis dashboard" popup button; README.
-- [ ] Iterate: nicer charts, annotations, bottleneck deep-dive, VUT overlay, cost-of-variability views.
+- [x] D1 Data bridge: run_sim.mjs harness + schema + sample_data/.
+- [x] D1 Browser: "Download data (JSON)" buttons in index.html + advanced.html (same schema).
+- [x] D2 Python core: ingest → tidy DataFrames; Factory-Physics metrics; Little's Law check.
+- [x] D2 Python core: Welch warm-up, MSER-5, t-CIs, batch means; pytest.
+- [x] D3 Dashboard: Streamlit + Plotly, dark theme, KPI header + views + exports.
+- [x] D4 Site integration: "Open analysis dashboard" popup button; README.
+- [x] Iterate-1: harness scenario flags (--control/--demand/--supply/--conwip/--scenario);
+      Welch window slider; Steady-state (batch-means) tab for single-replication browser exports;
+      pull-mode sample dataset; smoke test now covers every committed sample.
+- [ ] Iterate-2: TH/CT-vs-WIP characteristic curve (best / practical-worst / worst envelope, §6) —
+      needs a clean single-WIP-cap knob; investigate driving it via the harness.
+- [ ] Iterate-2: VUT / flow-factor (CT ÷ raw-process-time) annotation tying util+SCV to congestion.
+- [ ] Iterate-2: per-resource interdeparture-CV propagation view (theory-notes §9), if exportable.
+
+## Decisions (continued)
+
+- **Warm-up detector.** Primary cutoff = Welch moving-average flattening within a
+  relative tolerance band (the textbook visual method); `converged=False` when it
+  only settles past 60% of the run (near-saturation / non-stationary). MSER-5 is
+  kept as a separate single-run statistic (it over-truncates clean plateaus, so
+  it's reported, not used as the primary cutoff).
+- **Single-replication files.** Browser exports are n=1, where the i.i.d.
+  replication CI is degenerate; the Steady-state tab uses batch means on one
+  post-warm-up run instead. Both paths are in the dashboard.
 
 ## Status log (overnight)
 
-- Scaffolding done; venv installing; AdvancedSim.cycles added; npm test green (32).
+- D1–D4 complete and committed. 32 npm tests green; 27→ Python tests green
+  (math + ingest + exporters + headless dashboard render of every sample).
+- Iterate-1 complete: scenario flags, batch-means tab, Welch window slider,
+  pull sample; parametrized dashboard smoke test passes for all 3 samples.

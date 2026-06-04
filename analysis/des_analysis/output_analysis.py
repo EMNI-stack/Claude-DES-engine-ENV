@@ -98,20 +98,20 @@ def welch_warmup(timeseries: pd.DataFrame, metric: str = "wip", window: int | No
     if window is None:
         window = max(1, min(n // 10, 50))
     sm = moving_average(ybar, window)
-    plateau = float(np.mean(sm[-max(1, n // 3):]))  # steady-state level estimate
+    plateau = float(np.mean(sm[-max(1, n // 3):]))  # steady-state level estimate (last third)
     scale = abs(plateau) if plateau != 0 else (np.max(np.abs(sm)) or 1.0)
     within = np.abs(sm - plateau) <= tol * scale
     cutoff = n - 1
     for i in range(n):
-        if within[i:].all():       # first index from which it stays settled
+        if within[i:].all():       # first index from which the smoothed curve stays settled
             cutoff = i
             break
-    # If the curve only "settles" at the very end, it never really reached a
-    # plateau within the run — flag it rather than claiming the whole run is warm-up.
+    # If the curve only "settles" at the very end it never really reached a usable
+    # plateau within the run (e.g. utilization near 1 / non-stationary) — flag it.
     converged = bool(cutoff < 0.6 * n)
     return {"t": t, "ybar": ybar, "smoothed": sm, "window": window,
             "cutoff_index": int(cutoff), "cutoff_time": float(t[cutoff]) if n else 0.0,
-            "plateau": plateau, "converged": converged}
+            "plateau": plateau, "converged": converged, "tol": tol}
 
 
 def mser5(series) -> dict:

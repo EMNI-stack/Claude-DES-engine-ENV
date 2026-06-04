@@ -165,10 +165,14 @@ def view_overview(ds: Dataset):
 
 
 def view_flow(ds: Dataset):
-    metric = st.selectbox("Metric over time", ["wip", "fg", "completed"], index=0,
+    c1, c2 = st.columns([2, 1])
+    metric = c1.selectbox("Metric over time", ["wip", "fg", "completed"], index=0,
                           format_func=lambda m: {"wip": "Work in process", "fg": "Finished-goods inventory",
                                                  "completed": "Cumulative output"}[m])
-    w = oa.welch_warmup(ds.timeseries, metric)
+    npts = ds.timeseries["t"].nunique() or 100
+    window = c2.slider("Welch smoothing window (half-width)", 1, max(2, min(80, npts // 4)),
+                       value=max(1, min(npts // 10, 50)))
+    w = oa.welch_warmup(ds.timeseries, metric, window=window)
     fig = go.Figure()
     # faint individual replications
     for r, sub in ds.timeseries.groupby("rep"):
@@ -278,6 +282,44 @@ def view_replications(ds: Dataset):
                "A wide relative half-width means more replications (or longer runs) are needed for that metric.")
 
 
+def view_steady_state(ds: Dataset):
+    st.markdown("##### Steady-state estimate from a single long run (batch means)")
+    st.caption("Browser exports are one replication, so the i.i.d. replication CI does not apply. "
+               "Batch means splits one post-warm-up run into ≈independent batches and builds a t-interval — "
+               "the standard single-run method.")
+    w = oa.welch_warmup(ds.timeseries, "wip")
+    reps = sorted(ds.timeseries["rep"].unique().tolist())
+    c1, c2 = st.columns(2)
+    rep = c1.selectbox("Replication", reps, index=0)
+    n_batches = c2.slider("Number of batches", 5, 40, value=20)
+    sub = ds.timeseries[ds.timeseries["rep"] == rep].sort_values("t")
+    cutoff_t = w["cutoff_time"] if w["converged"] else 0.0
+    kept = sub[sub["t"] >= cutoff_t]["wip"].astype(float).values
+    if kept.size < n_batches * 2:
+        kept = sub["wip"].astype(float).values
+        cutoff_t = 0.0
+    bm = oa.batch_means(kept, n_batches=n_batches, warmup=0)
+    ms = oa.mser5(sub["wip"].astype(float).values)
+    cols = st.columns(4)
+    kpi(cols[0], "WIP estimate", fmt(bm["mean"], 2), "post-warm-up mean", "accent")
+    kpi(cols[1], "95% CI half-width", fmt(bm["halfwidth"], 3), f"± on the mean")
+    kpi(cols[2], "Warm-up dropped", fmt(cutoff_t, 0), "Welch cutoff (time)")
+    kpi(cols[3], "MSER-5 cutoff", fmt(ms.get("obs_index", 0), 0), "alt. truncation (index)")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=sub["t"], y=sub["wip"], mode="lines", line=dict(color=FAINT, width=0.8), name="WIP"))
+    if cutoff_t > 0:
+        fig.add_vrect(x0=0, x1=cutoff_t, fillcolor=AMBER, opacity=0.10, line_width=0,
+                      annotation_text="warm-up (dropped)", annotation_position="top left", annotation_font_color=AMBER)
+    fig.add_hline(y=bm["mean"], line=dict(color=TEAL, width=1.5), annotation_text=f"mean {bm['mean']:.2f}", annotation_font_color=TEAL)
+    if np.isfinite(bm.get("halfwidth", float("nan"))):
+        fig.add_hrect(y0=bm["mean"] - bm["halfwidth"], y1=bm["mean"] + bm["halfwidth"],
+                      fillcolor=TEAL, opacity=0.12, line_width=0)
+    fig.update_xaxes(title="simulation clock"); fig.update_yaxes(title="WIP")
+    st.plotly_chart(plotly_layout(fig, 360, f"Replication {rep}: WIP with batch-means 95% CI"), use_container_width=True)
+    st.caption(f"{bm.get('n_batches','?')} batches × {bm.get('batch_size','?')} obs each. "
+               "If the half-width is wide relative to the mean, run longer or use more replications.")
+
+
 def view_export(ds: Dataset):
     st.markdown("##### Export tidy data")
     st.write(f"Writes labeled CSVs and a multi-sheet Excel workbook to `{EXPORT_DIR}`.")
@@ -323,13 +365,15 @@ def main():
     kpi_header(ds)
     st.write("")
 
-    tabs = st.tabs(["Overview", "Flow over time", "Cycle time", "Resources", "Replications", "Export"])
+    tabs = st.tabs(["Overview", "Flow over time", "Cycle time", "Resources",
+                    "Replications", "Steady state", "Export"])
     with tabs[0]: view_overview(ds)
     with tabs[1]: view_flow(ds)
     with tabs[2]: view_cycle(ds)
     with tabs[3]: view_resources(ds)
     with tabs[4]: view_replications(ds)
-    with tabs[5]: view_export(ds)
+    with tabs[5]: view_steady_state(ds)
+    with tabs[6]: view_export(ds)
 
 
 if __name__ == "__main__":
