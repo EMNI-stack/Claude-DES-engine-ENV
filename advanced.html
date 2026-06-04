@@ -247,6 +247,7 @@
       <div class="panel-b">
         <p class="note" style="margin:0 0 9px"><b>Purchased</b> parts come from raw supply — no operations needed. <b>Produced</b> parts consume their BOM components to start production, then follow their routing. Mark finished products with customer demand to show them exiting the floor.</p>
         <div id="parts"></div>
+        <p class="note" id="partCap" style="margin:9px 0 0;color:var(--warn,#f2b13c);display:none">Maximum of 10 parts reached — remove a part to add another.</p>
       </div>
     </div>
 
@@ -457,6 +458,9 @@ $('addRes').onclick=()=>{
    =================================================================== */
 function renderParts(){
   const box=$('parts'); box.innerHTML='';
+  const atCap=config.parts.length>=PART_CAP;
+  $('addPart').disabled=atCap;
+  $('partCap').style.display=atCap?'block':'none';
   config.parts.forEach((p,k)=>{
     const card=document.createElement('div');card.className='card';
     const h=document.createElement('div');h.className='card-h';
@@ -534,7 +538,9 @@ function renderParts(){
   });
 }
 const PALETTE=['#36e0c8','#f2b13c','#ff8753','#c792ea','#8fb3c4','#7aa2ff','#ff6b9d','#9ce26b'];
+const PART_CAP=10;
 $('addPart').onclick=()=>{
+  if(config.parts.length>=PART_CAP)return;
   config.parts.push({id:uid('p',config.parts),name:'Part '+(config.parts.length+1),
     color:PALETTE[config.parts.length%PALETTE.length],type:'produced',bom:[],routing:[]});
   renderAll();
