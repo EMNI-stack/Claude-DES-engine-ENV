@@ -73,7 +73,17 @@
   .pill{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 9px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
 
   /* factory floor */
-  .floor-scroll{overflow-x:auto;border-radius:8px;background:radial-gradient(circle at 50% 130%,rgba(54,224,200,.04),transparent 60%)}
+  .floor-scroll{overflow-x:auto;border-radius:10px;border:1px solid var(--line);
+    background:
+      radial-gradient(circle at 50% 125%,rgba(54,224,200,.06),transparent 58%),
+      linear-gradient(rgba(255,255,255,.022) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.022) 1px,transparent 1px),
+      linear-gradient(180deg,rgba(20,26,34,.45),rgba(12,16,21,.2));
+    background-size:auto,28px 28px,28px 28px,auto}
+  #floor{position:relative;width:max-content;transform-origin:0 0}
+  #floorBg{display:block}
+  #floorTok{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
+  #floorTok circle{transition:transform .32s cubic-bezier(.33,.02,.2,1),opacity .3s;filter:drop-shadow(0 1px 2px rgba(0,0,0,.55))}
   .legend{display:flex;gap:16px;flex-wrap:wrap;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--muted);margin-top:10px}
   .legend i{width:11px;height:11px;border-radius:3px;display:inline-block;vertical-align:-1px;margin-right:5px;border:1.5px solid rgba(255,255,255,.25)}
   svg text{font-family:'JetBrains Mono',monospace}
@@ -312,11 +322,12 @@ function defaultFactory(){
 let config=normalizeFactory(defaultFactory());
 
 /* ---- simulation lifecycle ---- */
-let asim=null, playing=false, cursor=0, lastFrame=0, speed=3;
+let asim=null, playing=false, cursor=0, lastFrame=0, speed=3, fgeo={}, flowPhase=0;
 function rebuildSim(){
   normalizeFactory(config);
   asim=new AdvancedSim(config,12345);
   playing=false; cursor=0;
+  if(typeof atok!=='undefined'&&atok){for(const el of atok.values())el.remove();atok.clear();}   // job ids restart — drop stale overlay tokens
   const pb=$('aplay'); if(pb)pb.textContent='▶ Play';
   updatePills();
 }
@@ -668,7 +679,7 @@ function drawFloor(){
     return k<0?null:{k,x:colX(k),y:laneY(p._lane)};
   };
 
-  let g='';
+  let g='<defs><filter id="cglow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="3"/></filter></defs>';
   const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
   const curve=(x1,y1,x2,y2)=>{const dx=Math.max(24,(x2-x1)/2);return `C ${x1+dx} ${y1} ${x2-dx} ${y2} ${x2} ${y2}`;};
 
@@ -686,15 +697,25 @@ function drawFloor(){
     g+=`<text x="${x}" y="${yTop-16}" text-anchor="middle" font-size="11" fill="#e8eef2">${esc(r.name)}</text>`;
     g+=`<text x="${x}" y="${yTop-4}" text-anchor="middle" font-size="8" fill="${lanes.length>1?'#ff8753':'#5b6e7c'}">cap ${r.capacity}${r.brk?' · breaks down':''}${lanes.length>1?' · SHARED':''}</text>`;
     const slots=asim?asim.resources[k].slots:null;
+    const busyHere=slots&&slots.some(s=>s.busy);
+    const downHere=slots&&slots.some(s=>s.down);
+    const blkHere=slots&&slots.some(s=>s.blocked&&s.job&&!s.down);
+    // soft glow behind an actively-processing column (matches index.html's busy machine glow)
+    if(busyHere&&!downHere&&!blkHere)
+      g+=`<rect x="${x-colBoxW/2}" y="${yTop}" width="${colBoxW}" height="${bh}" rx="9" fill="none" stroke="#36e0c8" stroke-width="2" opacity=".55" filter="url(#cglow)"/>`;
+    const cs=10,cyy=yTop+bh-15;
     for(let m=0;m<Math.min(r.capacity,6);m++){
-      const s=slots?slots[m]:null;
-      const fill=s?(s.down?'rgba(255,107,107,.3)':s.busy?'rgba(54,224,200,.45)':s.blocked&&s.job?'rgba(255,135,83,.4)':'rgba(255,255,255,.04)'):'rgba(54,224,200,.15)';
+      const s=slots?slots[m]:null, cxx=x-colBoxW/2+7+m*12;
+      const fill=s?(s.down?'rgba(255,107,107,.3)':s.busy?'rgba(54,224,200,.18)':s.blocked&&s.job?'rgba(255,135,83,.4)':'rgba(255,255,255,.04)'):'rgba(54,224,200,.15)';
       const stroke=s?(s.down?'#ff6b6b':s.busy?'#36e0c8':s.blocked&&s.job?'#ff8753':'#33424f'):'#36e0c8';
-      g+=`<rect x="${x-colBoxW/2+7+m*10}" y="${yTop+bh-13}" width="8" height="8" rx="2" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`;
+      // progress fill rising from the bottom of the chip = fraction of the current operation done
+      if(s&&s.busy&&s.remaining>0){let f=1-(s.endTime-asim.now)/s.remaining;f=f<0?0:f>1?1:f;const ph=(cs-2)*f;
+        g+=`<rect x="${cxx+1}" y="${cyy+1+(cs-2-ph)}" width="${cs-2}" height="${ph}" rx="1" fill="#36e0c8"/>`;}
+      g+=`<rect x="${cxx}" y="${cyy}" width="${cs}" height="${cs}" rx="2" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`;
     }
-    if(slots&&slots.some(s=>s.down))   // breakdown: red border like index.html's down machines
+    if(downHere)   // breakdown: red border like index.html's down machines
       g+=`<rect x="${x-colBoxW/2}" y="${yTop}" width="${colBoxW}" height="${bh}" rx="9" fill="none" stroke="#ff6b6b" stroke-width="1.6" opacity=".9"/>`;
-    else if(slots&&slots.some(s=>s.blocked&&s.job&&!s.down))   // blocked: amber, like index.html
+    else if(blkHere)   // blocked: amber, like index.html
       g+=`<rect x="${x-colBoxW/2}" y="${yTop}" width="${colBoxW}" height="${bh}" rx="9" fill="none" stroke="#ff8753" stroke-width="2.4" opacity=".9"/>`;
     if(r.queueCap!=null)
       g+=`<text x="${x-colBoxW/2-6}" y="${yTop+bh+11}" text-anchor="end" font-size="8" fill="#5b6e7c">Q≤${r.queueCap}</text>`;
@@ -732,6 +753,8 @@ function drawFloor(){
       g+=`<text x="${exitX+10}" y="${last.y+3}" font-size="9" fill="${p.color}">${esc(p.name)} →</text>`;
     }
     g=`<path d="${dPath}" fill="none" stroke="${p.color}" stroke-width="2.5" opacity=".9" stroke-linecap="round"/>`+g;
+    // subtle animated flow indication along active links while running
+    if(playing)g+=`<path d="${dPath}" fill="none" stroke="#dffaf3" stroke-width="1.5" opacity=".55" stroke-linecap="round" stroke-dasharray="2 12" stroke-dashoffset="${-flowPhase}"/>`;
     p._out={x:last.x+colBoxW/2,y:last.y};
   });
 
@@ -757,26 +780,11 @@ function drawFloor(){
     });
   });
 
-  /* ---- live job tokens ---- */
+  /* ---- static-position overlays drawn in the background layer ---- */
   if(asim){
-    const laneOf={}; routed.forEach(p=>{laneOf[p.id]=p._lane;});
-    res.forEach((r,k)=>{
-      const R=asim.resources[k], geo=r._geo;
-      // queue: stack of tokens to the left of the column (FIFO head nearest)
-      R.queue.slice(0,8).forEach((job,i)=>{
-        const p=partById(job.pid); if(!p||laneOf[p.id]==null)return;
-        g+=`<circle cx="${geo.x-colBoxW/2-12-i*12}" cy="${laneY(laneOf[p.id])}" r="5" fill="${p.color}" stroke="#0c1015" stroke-width="1.2"/>`;
-      });
-      if(R.queue.length>8)
-        g+=`<text x="${geo.x-colBoxW/2-12-8*12}" y="${geo.yTop+geo.bh/2}" text-anchor="end" font-size="9" fill="#8aa0b0">+${R.queue.length-8}</text>`;
-      // in service: token inside the column on the part's lane
-      R.slots.forEach((s,si)=>{
-        if(!s.job)return;
-        const p=partById(s.job.pid); if(!p||laneOf[p.id]==null)return;
-        const ring=s.down?'#ff6b6b':s.blocked?'#ff8753':'#0c1015';
-        g+=`<circle cx="${geo.x-8+si*9}" cy="${laneY(laneOf[p.id])}" r="6" fill="${p.color}" stroke="${ring}" stroke-width="1.5"${s.down?' opacity=".55"':''}/>`;
-      });
-    });
+    // queue overflow "+N" counts (the tokens themselves live in the overlay layer)
+    res.forEach((r,k)=>{const R=asim.resources[k],geo=r._geo;
+      if(R.queue.length>8)g+=`<text x="${geo.x-colBoxW/2-12-8*12}" y="${geo.yTop+geo.bh/2}" text-anchor="end" font-size="9" fill="#8aa0b0">+${R.queue.length-8}</text>`;});
     // scrapped tokens dropping out of the flow (recent scraps fade as they fall)
     asim.scrapRecent.forEach(rec=>{
       const age=asim.now-rec.time; if(age>2.5)return;
@@ -795,9 +803,55 @@ function drawFloor(){
     });
   }
 
-  floor.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
+  ensureLayers();
+  const bg=$('floorBg'); bg.setAttribute('width',W);bg.setAttribute('height',H);bg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  bg.innerHTML=g;
+  const tok=$('floorTok'); tok.setAttribute('width',W);tok.setAttribute('height',H);tok.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  fgeo={colBoxW,ly:laneY,laneOf:Object.fromEntries(routed.map(p=>[p.id,p._lane]))};
+  updateTokens();
   fitFloor(W,H);
   renderLegend();
+}
+// create the two stacked SVG layers once: a per-frame background (structure +
+// machine state) and a persistent token overlay whose circles transition
+// smoothly between positions (CSS transform). Mirrors index.html's DOM tokens.
+function ensureLayers(){
+  const floor=$('floor');
+  if($('floorBg')&&$('floorTok'))return;
+  floor.innerHTML='<svg id="floorBg" xmlns="http://www.w3.org/2000/svg"></svg><svg id="floorTok" xmlns="http://www.w3.org/2000/svg"></svg>';
+}
+const SVGNS='http://www.w3.org/2000/svg';
+let atok=new Map();   // jobId -> circle in the overlay
+function tokPos(el,x,y,scale){el.style.transform=`translate(${x}px,${y}px)`+(scale?` scale(${scale})`:'');}
+function updateTokens(){
+  const tok=$('floorTok'); if(!tok||!asim){return;}
+  const present=new Set(), cb=fgeo.colBoxW;
+  function place(job,x,y,r,ring,dim){
+    present.add(job.id);
+    let el=atok.get(job.id);
+    const p=partById(job.pid);
+    if(!el){el=document.createElementNS(SVGNS,'circle');el.setAttribute('cx',0);el.setAttribute('cy',0);
+      el.setAttribute('r',r);el.setAttribute('fill',(p&&p.color)||'#8aa0b0');el.style.transform=`translate(${x}px,${y}px)`;
+      tok.appendChild(el);atok.set(job.id,el);}
+    el.setAttribute('r',r);
+    el.setAttribute('stroke',ring);el.setAttribute('stroke-width',ring==='#0c1015'?1.2:1.6);
+    el.style.opacity=dim?'.85':'1';
+    tokPos(el,x,y);
+  }
+  config.resources.forEach((r,k)=>{
+    const R=asim.resources[k], geo=r._geo; if(!geo)return;
+    R.queue.slice(0,8).forEach((job,i)=>{const lane=fgeo.laneOf[job.pid];if(lane==null)return;
+      place(job,geo.x-cb/2-12-i*12,fgeo.ly(lane),5,'#0c1015',true);});
+    R.slots.forEach((s,si)=>{if(!s.job)return;const lane=fgeo.laneOf[s.job.pid];if(lane==null)return;
+      place(s.job,geo.x-8+si*9,fgeo.ly(lane),6,s.down?'#ff6b6b':s.blocked?'#ff8753':'#0c1015',false);});
+  });
+  // remove tokens no longer present — brief pop on exit, then drop
+  for(const[id,el]of atok){if(present.has(id))continue;
+    atok.delete(id);
+    if(speed<=12){const m=/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(el.style.transform);
+      if(m)tokPos(el,parseFloat(m[1]),parseFloat(m[2]),1.7);el.style.opacity='0';const e=el;setTimeout(()=>e.remove(),320);}
+    else el.remove();
+  }
 }
 // hero scaling: small factories are magnified to fill the available width;
 // large ones keep their natural size and scroll horizontally (matches index.html)
@@ -873,7 +927,7 @@ $('aDemStream').onclick=()=>{config.demandMode='stream';renderFloor();};
 function aloop(ts){
   if(!playing)return;
   let dt=(ts-lastFrame)/1000; lastFrame=ts; if(!isFinite(dt)||dt<0)dt=0;
-  cursor+=dt*speed;
+  cursor+=dt*speed; flowPhase+=1.6;
   let budget=800;
   while(asim.fel.length&&asim.fel.peek().time<=cursor&&budget-->0)asim.step();
   if(!asim.fel.length){playing=false;$('aplay').textContent='▶ Play';}
