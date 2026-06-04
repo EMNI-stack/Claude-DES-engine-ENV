@@ -641,10 +641,12 @@ function renderMiniFloor(){
   // BOM component edges into merge points
   parts.forEach(p=>{
     if(!p.bom.length||!p._mmerge)return;
+    let noRouteIdx=0; // per-merge-point counter: fan no-routing components out vertically so they don't overlap
     p.bom.forEach(b=>{
       const c=partById(b.partId); if(!c)return;
-      let from=c.routing.length&&c._mout?c._mout:{x:6,y:p._mmerge.y+10};
-      if(!(c.routing.length&&c._mout))g+=`<text x="6" y="${from.y+8}" font-size="7" fill="${c.color}">${esc(c.name)}</text>`;
+      const routed=c.routing.length&&c._mout;
+      let from=routed?c._mout:{x:6,y:p._mmerge.y+10+noRouteIdx*14};
+      if(!routed){g+=`<text x="6" y="${from.y+8}" font-size="7" fill="${c.color}">${esc(c.name)}</text>`;noRouteIdx++;}
       g=`<path d="M ${from.x} ${from.y} L ${p._mmerge.x} ${p._mmerge.y}" fill="none" stroke="${c.color}" stroke-width="1.4" opacity=".7" stroke-dasharray="${c.routing.length?'':'3 2'}"/>`+g;
     });
   });
@@ -761,13 +763,15 @@ function drawFloor(){
   // BOM component edges: each component's flow merges into its consumer's assembly point
   parts.forEach(p=>{
     if(!p.bom.length||!p._merge)return;
+    let noRouteIdx=0; // per-merge-point counter: fan no-routing components out vertically so they don't overlap
     p.bom.forEach(b=>{
       const c=partById(b.partId); if(!c)return;
       let from;
       if(c.routing.length&&c._out)from=c._out;
       else{ // purchased / no-op component enters from the left
-        from={x:14,y:p._merge.y+14};
+        from={x:14,y:p._merge.y+14+noRouteIdx*22};
         g+=`<text x="14" y="${from.y+12}" font-size="9" fill="${c.color}">${esc(c.name)}</text>`;
+        noRouteIdx++;
       }
       g=`<path d="M ${from.x} ${from.y} ${curve(from.x,from.y,p._merge.x,p._merge.y)}" fill="none" stroke="${c.color}" stroke-width="2" opacity=".75" stroke-dasharray="${c.routing.length?'':'4 3'}" stroke-linecap="round"/>`+g;
       if(b.qty>1)g+=`<text x="${p._merge.x-12}" y="${p._merge.y-8}" font-size="8" fill="${c.color}">×${b.qty}</text>`;
