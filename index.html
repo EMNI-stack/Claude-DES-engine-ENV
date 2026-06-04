@@ -256,7 +256,6 @@
         <button class="vchip on" data-t="pCyc">Cycle-time histogram</button>
         <button class="vchip" data-t="pFel">Future Event List</button>
         <button class="vchip" data-t="pLog">Event log</button>
-        <button id="xlsx" style="margin-left:auto">⇩ Export to Excel</button>
       </div>
       <div class="grid" style="margin-top:12px">
         <div>
@@ -363,7 +362,6 @@
   </aside>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script type="module">
 import { Sim, station, defaultConfig } from './src/engine.js';
 import { DISTS, newDist, sample, distMean, mulberry32 } from './src/distributions.js';
@@ -808,110 +806,6 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();});
 $('analysis').addEventListener('toggle',()=>{
   if($('analysis').open)requestAnimationFrame(()=>{drawWip();drawFg();drawCyc();});
 });
-
-/* ---- export to Excel ---- */
-const round=(v,d=2)=>{const m=10**d;return Math.round(v*m)/m;};
-function distStr(d){
-  const ps=DISTS[d.type].f.map(([key,label])=>`${label}=${d.params[key]}`).join(', ');
-  return `${DISTS[d.type].label} (${ps})`+(d.variability>0?` +${Math.round(d.variability*100)}% noise`:'');
-}
-function bold(row,size){row.font={bold:true,size:size||11};return row;}
-$('xlsx').onclick=async()=>{
-  const T=sim.now||1e-9;
-  const wb=new ExcelJS.Workbook(); wb.created=new Date();
-
-  /* Sheet 1 — Assumptions */
-  const A=wb.addWorksheet('Assumptions');
-  [24,10,12,46,11,12,34,30].forEach((w,i)=>A.getColumn(i+1).width=w);
-  bold(A.addRow(['Simulation assumptions']),14);
-  A.addRow([]);
-  const isPull=config.control==='pull';
-  A.addRow(['Control mode',isPull?'Pull (kanban base-stock)':'Push']).getCell(1).font={bold:true};
-  A.addRow([isPull?'Supplier (replenishment)':'Arrivals (interarrival)',
-    config.supply==='limitless'?'limitless — raw material always available':distStr(config.source)]).getCell(1).font={bold:true};
-  const fgBuf=config.buffers[config.stations.length];
-  A.addRow(['Customer demand',config.demand.mode==='stream'?distStr(config.demand.dist):'instant (push to sink)']).getCell(1).font={bold:true};
-  A.addRow(['Finished goods buffer',(fgBuf.finite?'K = '+fgBuf.cap:'unlimited')+(isPull?`, target ${fgBuf.target}`:'')+(fgBuf.init?`, initial ${fgBuf.init}`:'')]).getCell(1).font={bold:true};
-  A.addRow([]);
-  bold(A.addRow(['Stations']),12);
-  bold(A.addRow(['Station','Machines','Input buffer','Service time','Scrap prob','Breakdowns','Time to failure','Time to repair']));
-  config.stations.forEach((s,k)=>{
-    const b=config.buffers[k];
-    A.addRow([`${k+1}. ${s.name}`,s.machines,(b.finite?('K = '+b.cap):'unlimited')+(isPull?`, target ${b.target}`:'')+(b.init?`, init ${b.init}`:''),distStr(s.service),
-      s.scrap,s.brk?'yes':'no',
-      s.brk?distStr(s.ttf):'—',s.brk?distStr(s.ttr):'—']);
-  });
-
-  /* Sheet 2 — Output */
-  const O=wb.addWorksheet('Output');
-  [26,12,10,11,11,10,11].forEach((w,i)=>O.getColumn(i+1).width=w);
-  bold(O.addRow(['Simulation output']),14);
-  O.addRow(['Simulated time (min)',round(sim.now,1),'',`${sim.events} events`]);
-  O.addRow([]);
-  bold(O.addRow(['System metrics']),12);
-  bold(O.addRow(['Metric','Value']));
-  const fin=sim.completed+sim.scrapped;
-  const metrics=[
-    ['Throughput (parts/min)',round(sim.completed/T,3)],
-    ['Entered',sim.entered],['Completed',sim.completed],
-    ['Scrapped',sim.scrapped],['Rejected at entry',sim.rejected],
-    ['Yield',fin?round(sim.completed/fin,4):'—'],
-    ['Avg WIP',round(sim.areaWIP/T,2)],
-    ['Avg cycle time (min)',sim.completed?round(sim.sumCycle/sim.completed,2):'—'],
-    ['Demanded',sim.demanded],['Fulfilled from stock',sim.fulfilled],
-    ['Stockouts (lost sales)',sim.stockouts],
-    ['Fill rate',sim.demanded?round(sim.fulfilled/sim.demanded,4):'—'],
-    ['FG on hand (now)',sim.fg],
-    ['Avg FG inventory',round(sim.aFG/T,2)],
-  ];
-  metrics.forEach(([k,v])=>{const r=O.addRow([k,v]);if((k==='Yield'||k==='Fill rate')&&typeof v==='number')r.getCell(2).numFmt='0.0%';});
-  O.addRow([]);
-  bold(O.addRow(['Per-station statistics']),12);
-  bold(O.addRow(['Station','Utilization','Blocked','Down','Avg queue','Scrap','Processed']));
-  config.stations.forEach((s,k)=>{
-    const st=sim.stations[k],M=st.machines.length;
-    const r=O.addRow([`${k+1}. ${s.name}`,round(st.aBusy/(M*T),4),round(st.aBlk/(M*T),4),round(st.aDown/(M*T),4),round(st.aQ/T,2),st.scrapped,st.processed]);
-    [2,3,4].forEach(c=>r.getCell(c).numFmt='0.0%');
-  });
-  O.addRow([]);
-  bold(O.addRow(['Raw data — use these to build native Excel charts']),12);
-  bold(O.addRow(['Clock (min)','WIP','FG stock','','Cycle time (min)']));
-  const n=Math.max(samples.length,sim.cycles.length);
-  for(let i=0;i<n;i++){
-    const s=samples[i],c=sim.cycles[i];
-    O.addRow([s?round(s.t,2):null,s?s.w:null,s?s.fg:null,null,c!=null?round(c,3):null]);
-  }
-
-  /* Sheet 3 — Analysis */
-  const N=wb.addWorksheet('Analysis');
-  [26,14].forEach((w,i)=>N.getColumn(i+1).width=w);
-  bold(N.addRow(['Analysis']),14);
-  N.addRow([]);
-  let peakK=0;config.stations.forEach((s,k)=>{const st=sim.stations[k];if(st.aBusy/st.machines.length>sim.stations[peakK].aBusy/sim.stations[peakK].machines.length)peakK=k;});
-  [['Throughput (parts/min)',round(sim.completed/T,3)],
-   ['Avg WIP',round(sim.areaWIP/T,2)],
-   ['Avg cycle time (min)',sim.completed?round(sim.sumCycle/sim.completed,2):'—'],
-   ['Yield',fin?round(sim.completed/fin,4):'—'],
-   ['Bottleneck (highest util)',`${peakK+1}. ${config.stations[peakK].name}`],
-  ].forEach(([k,v])=>{const r=N.addRow([k,v]);r.getCell(1).font={bold:true};if(k==='Yield'&&fin)r.getCell(2).numFmt='0.0%';});
-  drawWip();drawCyc();   // make sure both canvases are freshly rendered
-  let imgRow=N.rowCount+2;
-  for(const[title,cv]of[['Work-in-process over time',wipC],['Cycle-time distribution',cycC]]){
-    if(!cv.width)continue;   // canvas hidden / zero-size
-    bold(N.getRow(imgRow),12).getCell(1).value=title;
-    const id=wb.addImage({base64:cv.toDataURL('image/png'),extension:'png'});
-    N.addImage(id,{tl:{col:0,row:imgRow},ext:{width:620,height:210}});
-    imgRow+=17;  // ~210px of default 15px rows, plus a gap
-  }
-
-  const buf=await wb.xlsx.writeBuffer();
-  const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download='des-results.xlsx';
-  a.click();
-  URL.revokeObjectURL(a.href);
-};
 
 /* views */
 function setView(id,on){$(id).classList.toggle('hidden',!on);const c=document.querySelector(`.vchip[data-t="${id}"]`);if(c)c.classList.toggle('on',on);}
