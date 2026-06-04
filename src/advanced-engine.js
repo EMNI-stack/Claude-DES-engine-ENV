@@ -101,9 +101,10 @@ export class AdvancedSim {
       // limitless: purchased components are always available
       for (const p of cfg.parts) if (p.type === 'purchased') this.inventory[p.id] = Infinity;
     }
-    // demand streams (one independent stream per demand product)
+    // demand streams (one independent stream per demand product, each with its
+    // own interarrival distribution; this.demandDist is only a legacy fallback)
     if (this.demandMode === 'stream') {
-      for (const d of this.demand) this.schedule(sample(this.demandDist, this.rng), { t: 'DEM', pid: d.partId });
+      for (const d of this.demand) this.schedule(sample(d.dist || this.demandDist, this.rng), { t: 'DEM', pid: d.partId });
     }
     if (this.supplyMode === 'limitless') this.feedSources();
     this.tryAssembleAll();
@@ -327,7 +328,7 @@ export class AdvancedSim {
     } else if (ev.t === 'DEM') {
       const d = this.demand.find((x) => x.partId === ev.pid);
       if (d) {
-        this.schedule(sample(this.demandDist, this.rng), { t: 'DEM', pid: d.partId });
+        this.schedule(sample(d.dist || this.demandDist, this.rng), { t: 'DEM', pid: d.partId });
         const ds = this.demandStats[d.partId]; ds.demanded++;
         if (this.controlMode === 'pull') {
           // CONWIP: the demand signal joins the backlog; it is satisfied from
@@ -406,12 +407,15 @@ export function normalizeFactory(cfg) {
       s.scrapProbability = Math.min(1, Math.max(0, parseFloat(s.scrapProbability) || 0));
     }
   }
+  if (!cfg.demandDist) cfg.demandDist = DEF_ARRIVAL();
   for (const d of (cfg.demand || [])) {
     d.conwip = Math.max(1, parseInt(d.conwip) || 5);
+    // every demand entry owns its interarrival distribution; legacy entries
+    // without one inherit a private clone of the global default
+    if (!d.dist) d.dist = JSON.parse(JSON.stringify(cfg.demandDist));
   }
   cfg.supplyMode = cfg.supplyMode === 'stream' ? 'stream' : 'limitless';
   cfg.demandMode = cfg.demandMode === 'stream' ? 'stream' : 'instant';
   cfg.controlMode = cfg.controlMode === 'pull' ? 'pull' : 'push';
-  if (!cfg.demandDist) cfg.demandDist = DEF_ARRIVAL();
   return cfg;
 }

@@ -492,7 +492,7 @@ function renderParts(){
     const dEntry=config.demand.find(d=>d.partId===p.id);
     dQty.value=dEntry?dEntry.qty:1;dQty.disabled=!dChk.checked;
     dChk.onchange=()=>{
-      if(dChk.checked)config.demand.push({partId:p.id,qty:Math.max(1,parseInt(dQty.value)||1),conwip:5});
+      if(dChk.checked)config.demand.push({partId:p.id,qty:Math.max(1,parseInt(dQty.value)||1),conwip:5,dist:newDist('exp',{mean:3})});
       else config.demand=config.demand.filter(d=>d.partId!==p.id);
       dQty.disabled=!dChk.checked;renderParts();renderFloor();
     };
@@ -923,7 +923,14 @@ function renderRun(){
   const db=$('demandBox'); db.innerHTML='';
   if(dem==='stream'){
     const sh=document.createElement('div');sh.className='sub-h';sh.textContent='Customer demand interarrival (each product gets its own stream)';db.appendChild(sh);
-    db.appendChild(distEditor(config.demandDist,renderFloor));
+    config.demand.forEach(d=>{
+      const p=config.parts.find(x=>x.id===d.partId); if(!p)return;
+      if(!d.dist)d.dist=newDist('exp',{mean:3});
+      const row=document.createElement('div');row.className='row';row.style.marginBottom='4px';
+      row.innerHTML=`<span style="font-family:'JetBrains Mono',monospace;font-size:11px;min-width:150px"><span class="swatch" style="background:${p.color}"></span>${p.name}</span>`;
+      const box=document.createElement('div');box.style.flex='1';box.appendChild(distEditor(d.dist,renderFloor));
+      row.appendChild(box);db.appendChild(row);
+    });
   }
 }
 $('aPush').onclick=()=>{config.controlMode='push';renderParts();renderFloor();};
@@ -1115,8 +1122,10 @@ function parseFactory(text){
     p.bom=p.bom.filter(b=>b.partId!==p.id&&parts.some(q=>q.id===b.partId));
     p.routing=p.routing.filter(s=>resources.some(r=>r.id===s.resourceId));
   });
+  const fallbackDem=cfg.demandDist?normDist(cfg.demandDist,'demand'):newDist('exp',{mean:3});
   const demand=Array.isArray(cfg.demand)
-    ?cfg.demand.filter(d=>parts.some(q=>q.id===d.partId)).map(d=>({partId:String(d.partId),qty:Math.max(1,parseInt(d.qty)||1),conwip:Math.max(1,parseInt(d.conwip)||5)}))
+    ?cfg.demand.filter(d=>parts.some(q=>q.id===d.partId)).map(d=>({partId:String(d.partId),qty:Math.max(1,parseInt(d.qty)||1),conwip:Math.max(1,parseInt(d.conwip)||5),
+      dist:d.dist?normDist(d.dist,`demand ${d.partId}`):JSON.parse(JSON.stringify(fallbackDem))}))
     :[];
   return normalizeFactory({resources,parts,demand,
     supplyMode:cfg.supplyMode==='stream'?'stream':'limitless',

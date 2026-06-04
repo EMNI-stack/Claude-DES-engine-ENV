@@ -260,6 +260,26 @@ test('pull mode: in-flight jobs never exceed CONWIP limits', () => {
 });
 
 /* ================================================================
+   11. Per-product demand streams: each demand product samples its OWN
+       interarrival distribution, so two products with very different
+       means generate demand counts in the expected (inverse-mean) ratio.
+   ================================================================ */
+test('per-product demand streams fire at their own rates', () => {
+  const cfg = factory({ demandMode: 'stream' });
+  cfg.demand[0].dist = newDist('exp', { mean: 2 });   // widget — fast (4× the events)
+  cfg.demand[1].dist = newDist('exp', { mean: 8 });   // gadget — slow
+  const sim = new AdvancedSim(cfg, 31415);
+  runTo(sim, 200_000);
+
+  const wd = sim.demandStats.widget.demanded;
+  const gd = sim.demandStats.gadget.demanded;
+  assert.ok(wd > 1000 && gd > 200, `not enough demand events (widget=${wd}, gadget=${gd})`);
+  const ratio = wd / gd;                       // means 8:2 ⇒ rates 1/2 : 1/8 ⇒ counts ≈ 4:1
+  assert.ok(Math.abs(ratio - 4) / 4 < 0.1,
+    `widget/gadget demand ratio ${ratio.toFixed(2)} should be ≈ 4 (independent per-product streams)`);
+});
+
+/* ================================================================
    10. Little's Law per workcenter still holds with scrap, finite
        queues (blocking) and breakdowns all active. Uses departure
        counts (blocked time at a workcenter belongs to its flow time).
