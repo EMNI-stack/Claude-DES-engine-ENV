@@ -1,0 +1,14 @@
+# Streamlit theme — matches the DES app palette (teal / amber on near-black).
+[theme]
+base = "dark"
+primaryColor = "#36e0c8"
+backgroundColor = "#0c1015"
+secondaryBackgroundColor = "#141a21"
+textColor = "#c8d2dc"
+font = "monospace"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
