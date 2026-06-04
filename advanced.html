@@ -88,6 +88,43 @@
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   @media(max-width:860px){.grid2{grid-template-columns:1fr}}
   .btag{font-family:'JetBrains Mono',monospace;font-size:8px;padding:2px 5px;border-radius:4px;background:rgba(255,135,83,.15);color:var(--blocked);margin-left:6px}
+
+  /* ---- visualisation-first layout (matches index.html) ---- */
+  .controlbar{position:sticky;top:8px;z-index:60;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+    background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:9px 12px;margin-bottom:10px;
+    box-shadow:0 8px 26px rgba(0,0,0,.4)}
+  .controlbar .spdfld{flex-direction:row;align-items:center;gap:7px}
+  .controlbar input[type=range]{width:130px}
+  .cdiv{width:1px;height:22px;background:var(--line);margin:0 2px}
+  .kpistrip{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:10px}
+  .kpi{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:9px 10px}
+  .kpi .k{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .kpi .v{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;margin-top:3px;color:var(--ink)}
+  .hero{margin-bottom:10px}
+  #floor{transform-origin:0 0}
+
+  details.analysis{margin-bottom:14px}
+  details.analysis summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:11px 13px;background:var(--panel-2);user-select:none}
+  details.analysis summary::-webkit-details-marker{display:none}
+  details.analysis summary h2{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);margin:0;font-weight:500}
+  details.analysis summary:after{content:'▸';margin-left:auto;color:var(--faint);transition:.15s}
+  details.analysis[open] summary:after{transform:rotate(90deg)}
+  details.analysis[open] summary{border-bottom:1px solid var(--line)}
+  details.analysis summary:hover h2{color:var(--sim)}
+  .analysis .panel{margin-bottom:14px}
+
+  /* setup drawer */
+  #drawerWrap{position:fixed;inset:0;z-index:100;pointer-events:none}
+  #backdrop{position:absolute;inset:0;background:rgba(4,7,10,.62);opacity:0;transition:opacity .22s}
+  #drawer{position:absolute;top:0;right:0;bottom:0;width:min(880px,100vw);background:var(--bg);
+    border-left:1px solid var(--line);transform:translateX(103%);transition:transform .25s ease;
+    overflow-y:auto;padding:14px 16px;box-shadow:-18px 0 50px rgba(0,0,0,.5)}
+  #drawerWrap.open{pointer-events:auto}
+  #drawerWrap.open #backdrop{opacity:1}
+  #drawerWrap.open #drawer{transform:none}
+  .drawer-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+  .drawer-h h2{font-family:'Fraunces',serif;font-size:21px;font-weight:600;margin:0}
+  .drawer-prev{border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:10px 12px;margin-bottom:12px;overflow-x:auto}
 </style>
 </head>
 <body>
@@ -95,124 +132,142 @@
   <header>
     <p class="eyebrow">Discrete Event Simulation · Factory Builder</p>
     <h1>Factory <em>BOM &amp; Routing</em> Builder</h1>
-    <p class="sub">Define <b>workcenters</b>, <b>parts</b> with their <b>bills of materials</b>, and the <b>routing</b> (ordered operations)
-      each produced part follows. The factory floor below draws every part's flow through its workcenters —
-      where flows <b>converge on a shared workcenter</b>, you are looking at a bottleneck candidate.
-      In the default factory, <b>Frame</b> feeds both products and <b>Assembly</b> serves both routings.</p>
+    <p class="sub">Workcenters, parts with <b>bills of materials</b>, and the <b>routing</b> each produced part follows — under <b>push</b> or <b>pull</b> (CONWIP) control.
+      Open <b>⚙ Setup system</b> to build the factory, then watch parts flow through it. Where routings <b>converge on a shared workcenter</b>, you are looking at a bottleneck candidate.</p>
     <a class="navlink" href="index.html">← Production Line</a>
   </header>
 
-  <!-- RESOURCES -->
-  <div class="panel">
-    <div class="panel-h"><h2>1 · Workcenters</h2>
-      <span style="display:inline-flex;gap:8px;flex-wrap:wrap">
-        <button id="saveCfg">⇣ Save config</button>
-        <button id="loadCfg">⇡ Load config</button>
-        <input type="file" id="cfgFile" accept=".json,application/json" style="display:none">
-        <button id="addRes">+ Add workcenter</button>
-      </span>
-    </div>
-    <div class="panel-b">
-      <p class="note" style="margin:0 0 9px">Workcenters are arranged left → right on the factory floor in this order. Each has parallel capacity, a default processing-time distribution (used when adding routing steps), and optional breakdowns.</p>
-      <div id="resources"></div>
-    </div>
+  <!-- CONTROL BAR -->
+  <div class="controlbar">
+    <button id="setupBtn" class="primary">⚙ Setup system</button>
+    <span class="segwrap">
+      <button class="seg on" id="aPush">Push</button>
+      <button class="seg" id="aPull">Pull (CONWIP)</button>
+    </span>
+    <span class="cdiv"></span>
+    <button id="aplay">▶ Play</button>
+    <button id="astep">⏭ Step</button>
+    <button id="aff">⏩ FF 1000</button>
+    <button id="areset">↺ Reset</button>
+    <label class="fld spdfld">speed <span style="color:var(--sim)" id="aspdV">3×</span>
+      <input id="aspd" type="range" min="0.25" max="80" step="0.25" value="3"></label>
+    <span class="pill" id="aclock" style="margin-left:auto">clock 0.0</span>
+    <span class="pill" id="aev">0 events</span>
   </div>
 
-  <!-- PARTS & BOM -->
-  <div class="panel">
-    <div class="panel-h"><h2>2 · Parts &amp; BOM</h2><button id="addPart">+ Add part</button></div>
-    <div class="panel-b">
-      <p class="note" style="margin:0 0 9px"><b>Purchased</b> parts come from raw supply — no operations needed. <b>Produced</b> parts consume their BOM components to start production, then follow their routing. Mark finished products with customer demand to show them exiting the floor.</p>
-      <div id="parts"></div>
-    </div>
-  </div>
+  <!-- KPI STRIP (populated by renderMetrics) -->
+  <div class="kpistrip" id="kpistrip"></div>
 
-  <!-- ROUTINGS -->
-  <div class="panel">
-    <div class="panel-h"><h2>3 · Routings</h2></div>
-    <div class="panel-b">
-      <p class="note" style="margin:0 0 9px">The routing is the ordered sequence of operations a produced part goes through after its BOM components are available. Each operation runs at a workcenter with its own processing-time distribution.</p>
-      <div id="routings"></div>
-    </div>
-  </div>
-
-  <!-- FACTORY FLOOR -->
-  <div class="panel">
-    <div class="panel-h"><h2>4 · Factory floor</h2>
+  <!-- HERO: FACTORY FLOOR -->
+  <div class="panel hero">
+    <div class="panel-h"><h2>Factory floor — the system you built</h2>
       <span style="display:inline-flex;gap:8px;align-items:center">
         <span class="pill" id="floorStats"></span>
-        <button id="refresh" class="primary">⟳ Build / Refresh layout</button>
+        <button id="refresh">⟳ Refresh layout</button>
       </span>
     </div>
     <div class="panel-b">
       <div class="floor-scroll"><div id="floor"></div></div>
       <div class="legend" id="legend"></div>
-      <p class="note">Colored lines are part routings flowing left → right through workcenter columns. <b>⊕</b> marks a BOM assembly point where component flows merge into a product's flow; the counts beneath it are the component inventories waiting to be consumed. Lines converging on the same column share that workcenter's capacity. During a run, tokens show jobs queued (left of a column) and in service (inside it); capacity chips turn <span style="color:var(--sim)">busy</span> / <span style="color:var(--down)">down</span>.</p>
+      <p class="note">Colored lines are part routings flowing left → right through workcenter columns. <b>⊕</b> marks a BOM assembly point where component flows merge into a product's flow; the counts beneath it are the component inventories waiting to be consumed. Lines converging on the same column share that workcenter's capacity. During a run, tokens show jobs queued (left of a column) and in service (inside it); capacity chips turn <span style="color:var(--sim)">busy</span> / <span style="color:var(--blocked)">blocked</span> / <span style="color:var(--down)">down</span>.</p>
     </div>
   </div>
 
-  <!-- RUN -->
-  <div class="panel">
-    <div class="panel-h"><h2>5 · Run</h2>
-      <span style="display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <span class="pill" id="aclock">clock 0.0</span>
-        <span class="pill" id="aev">0 events</span>
-      </span>
-    </div>
+  <!-- ANALYSIS (collapsible) -->
+  <details class="panel analysis" id="analysis">
+    <summary><h2>📊 Analysis &amp; metrics</h2><span class="pill" id="bneck">—</span></summary>
     <div class="panel-b">
-      <div class="row">
-        <span class="segwrap">
-          <button class="seg on" id="aPush">Push</button>
-          <button class="seg" id="aPull">Pull (CONWIP)</button>
-        </span>
-        <span class="segwrap">
-          <button class="seg on" id="aLimitless">Limitless source</button>
-          <button class="seg" id="aSupStream">Arrival stream</button>
-        </span>
-        <span class="segwrap">
-          <button class="seg on" id="aDemInstant">Instant demand</button>
-          <button class="seg" id="aDemStream">Demand stream</button>
-        </span>
+      <div class="grid2">
+        <div>
+          <div class="sub-h" style="margin-top:0">Workcenter utilisation</div>
+          <table><thead><tr><th>Workcenter</th><th>Util</th><th></th><th>Avg Q</th><th>Block</th><th>Down</th><th>Jobs</th></tr></thead>
+          <tbody id="resTable"></tbody></table>
+          <p class="note">Utilisation = busy slot-time / available slot-time. The <b>bottleneck</b> (highest utilisation) caps the whole factory's throughput. Block = fraction of slot-time spent holding a finished job because the downstream queue is full.</p>
+        </div>
+        <div>
+          <div class="sub-h" style="margin-top:0">Per-part statistics</div>
+          <table><thead><tr><th>Part</th><th>TH/min</th><th>Avg CT</th><th>WIP</th><th>On hand</th><th>Scrap</th><th>Yield</th><th>Fill</th><th>Backlog</th></tr></thead>
+          <tbody id="partTable"></tbody></table>
+          <p class="note">Throughput = completions / time; cycle time = completion − job creation (Little's Law: WIP = TH × CT). Yield = completions / (completions + scraps). In pull mode WIP shows in-flight vs CONWIP limit, and unmet demand waits as backlog.</p>
+        </div>
       </div>
-      <p class="note" id="runNote" style="margin:0 0 9px"></p>
-      <div id="arrivalsBox"></div>
-      <div id="demandBox"></div>
-      <label class="fld" style="margin:10px 0 8px">Playback speed <span style="color:var(--sim)" id="aspdV">3×</span>
-        <input id="aspd" type="range" min="0.25" max="80" step="0.25" value="3" style="width:240px"></label>
-      <div class="btnrow">
-        <button id="aplay" class="primary">▶ Play</button>
-        <button id="astep">⏭ Step</button>
-        <button id="aff">⏩ FF 1000 events</button>
-        <button id="areset">↺ Reset</button>
+      <div id="scrapSection" class="hidden" style="margin-top:12px">
+        <div class="sub-h">Scrap by operation</div>
+        <table><thead><tr><th>Part · operation</th><th>Workcenter</th><th>Scrap prob</th><th>Entered</th><th>Scrapped</th><th>Op yield</th></tr></thead>
+        <tbody id="scrapTable"></tbody></table>
+      </div>
+      <div style="margin-top:12px">
+        <div class="sub-h">Event log</div>
+        <div class="log-list" id="alog" style="font-family:'JetBrains Mono',monospace;font-size:11px;max-height:170px;overflow:auto"></div>
       </div>
     </div>
-  </div>
-
-  <!-- METRICS -->
-  <div class="panel">
-    <div class="panel-h"><h2>6 · Live metrics</h2><span class="pill" id="bneck">—</span></div>
-    <div class="panel-b"><div class="grid2">
-      <div>
-        <div class="sub-h">Workcenter utilisation</div>
-        <table><thead><tr><th>Workcenter</th><th>Util</th><th></th><th>Avg Q</th><th>Block</th><th>Down</th><th>Jobs</th></tr></thead>
-        <tbody id="resTable"></tbody></table>
-        <p class="note">Utilisation = busy slot-time / available slot-time. The <b>bottleneck</b> (highest utilisation) caps the whole factory's throughput. Block = fraction of slot-time spent holding a finished job because the downstream queue is full.</p>
-      </div>
-      <div>
-        <div class="sub-h">Per-part statistics</div>
-        <table><thead><tr><th>Part</th><th>TH/min</th><th>Avg CT</th><th>WIP</th><th>On hand</th><th>Scrap</th><th>Yield</th><th>Fill</th><th>Backlog</th></tr></thead>
-        <tbody id="partTable"></tbody></table>
-        <p class="note">Throughput = completions / time; cycle time = completion − job creation (Little's Law: WIP = TH × CT). Yield = completions / (completions + scraps). In pull mode WIP shows in-flight vs CONWIP limit, and unmet demand waits as backlog.</p>
-      </div>
-    </div>
-    <div id="scrapSection" class="hidden" style="margin-top:12px">
-      <div class="sub-h">Scrap by operation</div>
-      <table><thead><tr><th>Part · operation</th><th>Workcenter</th><th>Scrap prob</th><th>Entered</th><th>Scrapped</th><th>Op yield</th></tr></thead>
-      <tbody id="scrapTable"></tbody></table>
-    </div></div>
-  </div>
+  </details>
 
   <p class="note"><a href="index.html" style="color:var(--thy)">← Production Line</a> has the single-routing push/pull simulator.</p>
+</div>
+
+<!-- SETUP DRAWER -->
+<div id="drawerWrap">
+  <div id="backdrop"></div>
+  <aside id="drawer">
+    <div class="drawer-h">
+      <h2>⚙ Setup factory</h2>
+      <span style="display:inline-flex;gap:8px;flex-wrap:wrap">
+        <button id="saveCfg">⇣ Save</button>
+        <button id="loadCfg">⇡ Load</button>
+        <input type="file" id="cfgFile" accept=".json,application/json" style="display:none">
+        <button id="applyClose" class="primary">✓ Apply / Close</button>
+      </span>
+    </div>
+    <div class="drawer-prev">
+      <div class="sub-h" style="margin-top:0">Live preview</div>
+      <div class="floor-scroll"><div id="miniFloor"></div></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-h"><h2>1 · Workcenters</h2><button id="addRes">+ Add workcenter</button></div>
+      <div class="panel-b">
+        <p class="note" style="margin:0 0 9px">Workcenters are arranged left → right on the factory floor in this order. Each has parallel capacity, a default processing-time distribution, an optional finite queue (blocking), and optional breakdowns.</p>
+        <div id="resources"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-h"><h2>2 · Parts &amp; BOM</h2><button id="addPart">+ Add part</button></div>
+      <div class="panel-b">
+        <p class="note" style="margin:0 0 9px"><b>Purchased</b> parts come from raw supply — no operations needed. <b>Produced</b> parts consume their BOM components to start production, then follow their routing. Mark finished products with customer demand to show them exiting the floor.</p>
+        <div id="parts"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-h"><h2>3 · Routings</h2></div>
+      <div class="panel-b">
+        <p class="note" style="margin:0 0 9px">The routing is the ordered sequence of operations a produced part goes through after its BOM components are available. Each operation runs at a workcenter, with its own processing-time distribution and scrap probability.</p>
+        <div id="routings"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-h"><h2>4 · Source &amp; demand</h2>
+        <span style="display:inline-flex;gap:8px;flex-wrap:wrap">
+          <span class="segwrap">
+            <button class="seg on" id="aLimitless">Limitless source</button>
+            <button class="seg" id="aSupStream">Arrival stream</button>
+          </span>
+          <span class="segwrap">
+            <button class="seg on" id="aDemInstant">Instant demand</button>
+            <button class="seg" id="aDemStream">Demand stream</button>
+          </span>
+        </span>
+      </div>
+      <div class="panel-b">
+        <p class="note" id="runNote" style="margin:0 0 9px"></p>
+        <div id="arrivalsBox"></div>
+        <div id="demandBox"></div>
+      </div>
+    </div>
+  </aside>
 </div>
 
 <script type="module">
@@ -532,6 +587,57 @@ function renderFloor(){   // config changed: reset the simulation, then draw
   drawFloor();
   renderRun();
   renderMetrics();
+  renderMiniFloor();
+}
+// compact static preview of the factory layout for the setup drawer —
+// resources as columns, each part's routing as a coloured path, BOM merge dots.
+// Updates live as the configuration is edited.
+function renderMiniFloor(){
+  const el=$('miniFloor'); if(!el)return;
+  const res=config.resources, parts=config.parts;
+  if(!res.length){el.innerHTML='<p class="note" style="margin:0">Add a workcenter…</p>';return;}
+  const routed=parts.filter(p=>p.routing.some(s=>res.some(r=>r.id===s.resourceId)));
+  routed.forEach((p,i)=>{p._mlane=i;});
+  const colW=64,padL=56,boxW=30,laneH=16,top=26;
+  const W=padL+res.length*colW+96, H=top+Math.max(2,routed.length)*laneH+30;
+  const exitX=W-72, colX=k=>padL+k*colW+24, laneY=l=>top+l*laneH;
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const visits=res.map(()=>[]);
+  parts.forEach(p=>p.routing.forEach(s=>{const k=res.findIndex(r=>r.id===s.resourceId);if(k>=0&&p._mlane!=null&&!visits[k].includes(p._mlane))visits[k].push(p._mlane);}));
+  let g='';
+  // columns
+  res.forEach((r,k)=>{
+    const x=colX(k),lanes=visits[k],shared=lanes.length>1;
+    const yt=lanes.length?Math.min(...lanes.map(laneY))-7:top,yb=lanes.length?Math.max(...lanes.map(laneY))+7:top+14;
+    const bh=Math.max(16,yb-yt);
+    g+=`<rect x="${x-boxW/2}" y="${yt}" width="${boxW}" height="${bh}" rx="5" fill="rgba(255,255,255,.02)" stroke="${shared?'#ff8753':'#33424f'}" stroke-width="${shared?1.4:1}" stroke-dasharray="${shared?'':'4 3'}"/>`;
+    g+=`<text x="${x}" y="${yt-3}" text-anchor="middle" font-size="8" fill="${shared?'#ff8753':'#8aa0b0'}">${esc(r.name)}</text>`;
+  });
+  // routing paths
+  parts.forEach(p=>{
+    if(p._mlane==null)return;
+    const ports=p.routing.map(s=>{const k=res.findIndex(r=>r.id===s.resourceId);return k<0?null:colX(k);}).filter(v=>v!=null);
+    if(!ports.length)return;
+    const y=laneY(p._mlane);
+    let d;
+    if(p.bom.length){d=`M ${ports[0]-boxW/2-12} ${y}`;g+=`<circle cx="${ports[0]-boxW/2-12}" cy="${y}" r="4" fill="#0c1015" stroke="${p.color}" stroke-width="1.3"/><text x="${ports[0]-boxW/2-12}" y="${y+2.5}" text-anchor="middle" font-size="7" fill="${p.color}">+</text>`;p._mmerge={x:ports[0]-boxW/2-12,y};}
+    else{d=`M 6 ${y}`;g+=`<text x="6" y="${y-4}" font-size="7" fill="${p.color}">${esc(p.name)}</text>`;p._mmerge=null;}
+    ports.forEach(x=>{d+=` L ${x} ${y}`;});
+    if(inDemand(p.id)){d+=` L ${exitX} ${y}`;g+=`<text x="${exitX+4}" y="${y+2.5}" font-size="7" fill="${p.color}">${esc(p.name)} →</text>`;}
+    g=`<path d="${d}" fill="none" stroke="${p.color}" stroke-width="1.8" opacity=".9"/>`+g;
+    p._mout={x:ports[ports.length-1],y};
+  });
+  // BOM component edges into merge points
+  parts.forEach(p=>{
+    if(!p.bom.length||!p._mmerge)return;
+    p.bom.forEach(b=>{
+      const c=partById(b.partId); if(!c)return;
+      let from=c.routing.length&&c._mout?c._mout:{x:6,y:p._mmerge.y+10};
+      if(!(c.routing.length&&c._mout))g+=`<text x="6" y="${from.y+8}" font-size="7" fill="${c.color}">${esc(c.name)}</text>`;
+      g=`<path d="M ${from.x} ${from.y} L ${p._mmerge.x} ${p._mmerge.y}" fill="none" stroke="${c.color}" stroke-width="1.4" opacity=".7" stroke-dasharray="${c.routing.length?'':'3 2'}"/>`+g;
+    });
+  });
+  el.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
 }
 function drawFloor(){
   const res=config.resources, parts=config.parts;
@@ -690,7 +796,17 @@ function drawFloor(){
   }
 
   floor.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
+  fitFloor(W,H);
   renderLegend();
+}
+// hero scaling: small factories are magnified to fill the available width;
+// large ones keep their natural size and scroll horizontally (matches index.html)
+function fitFloor(W,H){
+  const sc=$('floor').parentElement; if(!sc)return;
+  const avail=sc.clientWidth-4;
+  const f=avail>0?Math.min(Math.max(avail/W,1),1.4):1;
+  $('floor').style.transform=f>1?`scale(${f})`:'';
+  sc.style.height=(H*f+12)+'px';
 }
 function renderLegend(){
   $('legend').innerHTML=config.parts.map(p=>
@@ -776,6 +892,20 @@ $('aff').onclick=()=>{playing=false;$('aplay').textContent='▶ Play';
 $('areset').onclick=()=>{rebuildSim();drawFloor();renderMetrics();};
 $('aspd').oninput=e=>{speed=parseFloat(e.target.value);$('aspdV').textContent=speed+'×';};
 
+/* ---- setup drawer (matches index.html) ---- */
+const drawerWrap=$('drawerWrap');
+function openDrawer(){
+  playing=false;$('aplay').textContent='▶ Play';   // opening the drawer pauses playback
+  drawerWrap.classList.add('open');
+  renderMiniFloor();
+}
+function closeDrawer(){drawerWrap.classList.remove('open');}
+$('setupBtn').onclick=openDrawer;
+$('backdrop').onclick=closeDrawer;
+$('applyClose').onclick=closeDrawer;   // edits already rebuilt the sim live; play resumes on the new factory
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();});
+window.addEventListener('resize',()=>{if(asim)drawFloor();});
+
 /* ===================================================================
    Panel 6 — live metrics
    =================================================================== */
@@ -832,6 +962,30 @@ function renderMetrics(){
   });});
   $('scrapSection').classList.toggle('hidden',!rows.length);
   $('scrapTable').innerHTML=rows.join('');
+
+  /* ---- compact KPI strip (key live metrics) ---- */
+  const kpi=(k,v)=>`<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  let strip=kpi('Clock',asim.now.toFixed(1));
+  let totDem=0,totFul=0;
+  config.demand.forEach(d=>{
+    const st=asim.pstats[d.partId],ds=asim.demandStats[d.partId];
+    strip+=kpi('TH · '+(partById(d.partId)||{name:d.partId}).name.split('—')[0].trim(),(st.completed/T).toFixed(2)+'/min');
+    totDem+=ds.demanded;totFul+=ds.fulfilled;
+  });
+  strip+=kpi('Total WIP',asim.WIP());
+  strip+=kpi('Bottleneck',bi>=0&&bu>0.001?`${asim.resources[bi].cfg.name.split(' ')[0]} ${(bu*100).toFixed(0)}%`:'—');
+  strip+=kpi('Fill rate',totDem?((totFul/totDem)*100).toFixed(1)+'%':'—');
+  $('kpistrip').innerHTML=strip;
+
+  /* ---- event log ---- */
+  const map={arr:['arrival',''],dem:['demand ✓','var(--thy)'],stk:['STOCKOUT','var(--down)'],
+    op:['op done',''],scrap:['SCRAPPED','var(--down)'],fail:['BREAKDOWN','var(--down)'],rep:['REPAIRED','var(--blocked)']};
+  $('alog').innerHTML=asim.logbuf.slice(0,16).map(e=>{
+    const[txt,col]=map[e.t]||['',''];
+    const who=e.pid?(partById(e.pid)||{name:e.pid}).name.split('—')[0].trim():'';
+    const wc=e.ri!=null&&asim.resources[e.ri]?' @'+asim.resources[e.ri].cfg.name:'';
+    return `<div style="padding:3px 6px;color:var(--muted)"><span style="color:var(--thy)">t=${e.time.toFixed(2)}</span> <span style="color:${col||'var(--muted)'}">${txt}</span> ${who}${wc}</div>`;
+  }).join('');
 }
 
 /* ===================================================================
