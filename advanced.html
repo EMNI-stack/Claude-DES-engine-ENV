@@ -160,6 +160,7 @@
     <button id="aff">⏩ FF 1000</button>
     <button id="areset">↺ Reset</button>
     <button id="adljson" title="Export this run as a des-analysis/v1 JSON file for the Python dashboard">⬇ Data</button>
+    <button id="aopendash" title="Open the local Python analysis dashboard (must be running: streamlit run analysis/dashboard.py)">📊 Dashboard</button>
     <label class="fld spdfld">speed <span style="color:var(--sim)" id="aspdV">3×</span>
       <input id="aspd" type="range" min="0.25" max="80" step="0.25" value="3"></label>
     <span class="pill" id="aclock" style="margin-left:auto">clock 0.0</span>
@@ -1016,6 +1017,11 @@ $('adljson').onclick=()=>{
       parts:config.parts.map(p=>({id:p.id,name:p.name,type:p.type,bom:(p.bom||[]).map(b=>({partId:b.partId,qty:b.qty})),routingMean:jround((p.routing||[]).reduce((a,s)=>a+distMean(s.service),0)),isDemand:inDemand(p.id)}))},
     runLength:jround(asim.now,1),warmupHint:null,replications:[rep]};
   downloadJSON(data,'des-advanced-data.json');
+};
+$('aopendash').onclick=()=>{
+  const url='http://localhost:8501';
+  const w=window.open(url,'desDashboard','width=1320,height=900,menubar=no,toolbar=no');
+  if(!w)alert('Popup blocked. Allow popups, or open '+url+' manually.\n\nThe dashboard is a local tool — start it with:\n  streamlit run analysis/dashboard.py');
 };
 
 /* ---- setup drawer (matches index.html) ---- */

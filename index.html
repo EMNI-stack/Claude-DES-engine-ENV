@@ -257,6 +257,7 @@
         <button class="vchip" data-t="pFel">Future Event List</button>
         <button class="vchip" data-t="pLog">Event log</button>
         <button id="dljson" style="margin-left:auto" title="Export this run as a des-analysis/v1 JSON file for the Python dashboard">⬇ Download data (JSON)</button>
+        <button id="opendash" title="Open the local Python analysis dashboard (must be running: streamlit run analysis/dashboard.py)">📊 Analysis dashboard</button>
       </div>
       <div class="grid" style="margin-top:12px">
         <div>
@@ -842,6 +843,15 @@ $('dljson').onclick=()=>{
       resources:config.stations.map((s,k)=>({id:`s${k}`,name:s.name,capacity:s.machines,serviceMean:jround(distMean(s.service)),scrap:s.scrap||0,brk:!!s.brk}))},
     runLength:jround(sim.now,1),warmupHint:null,replications:[rep]};
   downloadJSON(data,'des-simple-data.json');
+};
+
+/* ---- open the local Python analysis dashboard in a popup. It is a LOCAL
+   companion (Streamlit) and must be running: `streamlit run analysis/dashboard.py`.
+   Workflow: Download data (JSON) here → upload it in the dashboard. ---- */
+$('opendash').onclick=()=>{
+  const url='http://localhost:8501';
+  const w=window.open(url,'desDashboard','width=1320,height=900,menubar=no,toolbar=no');
+  if(!w)alert('Popup blocked. Allow popups, or open '+url+' manually.\n\nThe dashboard is a local tool — start it with:\n  streamlit run analysis/dashboard.py');
 };
 
 /* views */
