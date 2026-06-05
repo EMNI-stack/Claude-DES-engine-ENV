@@ -10,8 +10,8 @@ analysis/NOTES.md). Three layers:
   warm-up, MSER-5, t-confidence-intervals, batch means).
 """
 from .ingest import Dataset, load_results, read_json
-from . import metrics, output_analysis, characteristic, exporters
+from . import metrics, output_analysis, characteristic, compare, exporters
 
 __all__ = ["Dataset", "load_results", "read_json", "metrics",
-           "output_analysis", "characteristic", "exporters"]
+           "output_analysis", "characteristic", "compare", "exporters"]
 __version__ = "0.1.0"

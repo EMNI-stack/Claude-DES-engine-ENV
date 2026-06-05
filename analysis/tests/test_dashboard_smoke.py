@@ -33,3 +33,14 @@ def test_every_committed_sample_renders(fname):
             sb.set_value(fname).run()
             break
     assert at.exception == [], f"{fname} raised: {[str(e) for e in at.exception]}"
+
+
+@pytest.mark.skipif(len(_SAMPLES) < 2, reason="need >=2 samples to compare")
+def test_compare_mode_renders():
+    """Toggling Compare scenarios renders the multi-dataset view without raising."""
+    from streamlit.testing.v1 import AppTest
+    at = AppTest.from_file(str(DASH), default_timeout=90)
+    at.run()
+    if at.toggle:
+        at.toggle[0].set_value(True).run()
+    assert at.exception == [], f"compare mode raised: {[str(e) for e in at.exception]}"

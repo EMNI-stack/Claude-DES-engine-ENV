@@ -22,7 +22,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from des_analysis import load_results, metrics, output_analysis as oa, characteristic as ch  # noqa: E402
+from des_analysis import load_results, metrics, output_analysis as oa, characteristic as ch, compare as cmp  # noqa: E402
 from des_analysis.exporters import export_tidy  # noqa: E402
 from des_analysis.ingest import Dataset, read_json  # noqa: E402
 
@@ -489,6 +489,100 @@ def render_sweep(raw: dict):
     st.dataframe(pts.style.format(precision=3), use_container_width=True, hide_index=True)
 
 
+# ---------------------------------------------------------------- scenario comparison
+def resolve_compare():
+    """Sidebar multi-select of run samples → {name: Dataset}, or None if <2 chosen.
+    CONWIP-sweep files are excluded (different schema)."""
+    if not SAMPLE_DIR.exists():
+        return None
+    runs = []
+    for p in sorted(SAMPLE_DIR.glob("*.json")):
+        try:
+            if read_json(str(p)).get("schema") == "des-analysis/v1":
+                runs.append(p)
+        except Exception:
+            pass
+    if len(runs) < 2:
+        st.info("Need at least two run datasets in sample_data/ to compare.")
+        return None
+    names = [p.stem for p in runs]
+    default = names[:2]
+    chosen = st.sidebar.multiselect("Scenarios to compare", names, default=default)
+    if len(chosen) < 2:
+        st.info("Pick at least two scenarios in the sidebar to compare them.")
+        return None
+    out = {}
+    for stem in chosen:
+        p = SAMPLE_DIR / f"{stem}.json"
+        out[stem] = Dataset(_load_path(str(p), p.stat().st_mtime))
+    return out
+
+
+def render_compare(datasets: dict):
+    st.markdown("#### Scenario comparison")
+    st.caption("Means across replications with 95% confidence intervals. Where intervals overlap, "
+               "the difference is not statistically resolved at this replication count.")
+    kdf = cmp.compare_kpis(datasets)
+    if kdf.empty:
+        st.warning("No comparable metrics across the selected scenarios.")
+        return
+    scen = list(datasets.keys())
+    cmap = {s: SERIES[i % len(SERIES)] for i, s in enumerate(scen)}
+
+    # winner badges per KPI
+    metrics_present = [(k, lab) for k, lab, _ in cmp.KPIS if k in kdf["metric"].values]
+    badges = []
+    for key, lab in metrics_present:
+        win = cmp.best_scenario(kdf, key)
+        if win:
+            badges.append(f'<span class="badge">best {lab}: <b style="color:{TEAL}">{win}</b></span>')
+    st.markdown(" ".join(badges), unsafe_allow_html=True)
+
+    # one grouped CI chart per KPI, laid out two-up
+    cols = st.columns(2)
+    for i, (key, lab) in enumerate(metrics_present):
+        sub = kdf[kdf["metric"] == key]
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=sub["scenario"], y=sub["mean"],
+            marker=dict(color=[cmap[s] for s in sub["scenario"]]),
+            error_y=dict(type="data", array=sub["halfwidth"], color=FAINT, thickness=1.5, width=8),
+            text=[f"{v:.3g}" for v in sub["mean"]], textposition="outside", showlegend=False))
+        higher = bool(sub.iloc[0]["higher_is_better"])
+        fig.update_yaxes(title=lab, rangemode="tozero")
+        cols[i % 2].plotly_chart(plotly_layout(fig, 300,
+                                 f"{lab}  ({'higher' if higher else 'lower'} is better)"),
+                                 use_container_width=True)
+
+    # utilization by resource, grouped across scenarios
+    udf = cmp.compare_utilization(datasets)
+    if not udf.empty:
+        st.markdown("##### Utilization by resource")
+        fig = go.Figure()
+        for s in scen:
+            ss = udf[udf["scenario"] == s]
+            fig.add_trace(go.Bar(x=ss["resource"], y=ss["utilization"], name=s,
+                                 marker=dict(color=cmap[s])))
+        fig.update_layout(barmode="group")
+        fig.update_yaxes(title="utilization", range=[0, 1.05], tickformat=".0%")
+        st.plotly_chart(plotly_layout(fig, 340, "Where each policy loads the line"), use_container_width=True)
+
+    # flow factor + raw KPI table
+    ff = cmp.compare_flow_factor(datasets)
+    if not ff["flow_factor"].isna().all():
+        st.markdown("##### Flow factor")
+        ff2 = ff.dropna(subset=["flow_factor"])
+        fig = go.Figure(go.Bar(x=ff2["scenario"], y=ff2["flow_factor"],
+                               marker=dict(color=[cmap[s] for s in ff2["scenario"]]),
+                               text=[f"{v:.2f}×" for v in ff2["flow_factor"]], textposition="outside"))
+        fig.add_hline(y=1, line=dict(color=FAINT, dash="dot"), annotation_text="ideal (1×)")
+        fig.update_yaxes(title="flow factor", rangemode="tozero")
+        st.plotly_chart(plotly_layout(fig, 300, "Cycle-time efficiency (lower is leaner)"), use_container_width=True)
+    pivot = kdf.pivot(index="label", columns="scenario", values="mean")
+    st.markdown("##### KPI table (means)")
+    st.dataframe(pivot.style.format("{:.4g}"), use_container_width=True)
+
+
 # ---------------------------------------------------------------- main
 def main():
     st.set_page_config(page_title="DES factory — analysis", page_icon="🏭", layout="wide")
@@ -498,6 +592,14 @@ def main():
     args, _ = parser.parse_known_args()
 
     st.markdown("# 🏭 DES factory — analysis dashboard")
+
+    compare_mode = st.sidebar.toggle("Compare scenarios", value=False,
+                                     help="Line several run datasets up side by side")
+    if compare_mode:
+        datasets = resolve_compare()
+        if datasets:
+            render_compare(datasets)
+        return
 
     raw = None
     if args.path:

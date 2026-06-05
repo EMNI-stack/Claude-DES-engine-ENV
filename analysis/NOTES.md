@@ -113,6 +113,15 @@ Notes:
       equation c²_d = 1 + (1−u²)(c²ₐ−1) + (u²/√m)(c²ₑ−1) down the serial line; dashboard Congestion tab
       charts c²ₐ/c²ₑ/c²_d per station. New `stream_line` sample (external arrivals). test_propagation.py.
 
+## Iteration backlog — Iterate-3 (highest value first)
+
+- [x] Scenario comparison: sidebar "Compare scenarios" toggle → multiselect of run
+      samples; `compare.py` (compare_kpis / compare_utilization / compare_flow_factor /
+      best_scenario); dashboard grouped CI bars per KPI, winner badges, grouped
+      utilization, flow-factor bars, KPI table. test_compare.py + compare-mode smoke.
+- [ ] Sankey / flow map of the advanced factory routings + throughput per arc.
+- [ ] "Teaching captions" pass: one-glance takeaway per chart, plain-language.
+
 ## Decisions (continued)
 
 - **Warm-up detector.** Primary cutoff = Welch moving-average flattening within a
@@ -141,3 +150,6 @@ Notes:
   serviceScv + arrivalScv now in the schema (harness + both browser exports);
   linking-equation propagation metric + Congestion-tab chart; new stream_line
   sample. 48 Python tests green; 32 npm tests green. Iterate-2 backlog cleared.
+- 2026-06-05 — Iterate-3: tidy export now carries the flow-factor/congestion/
+  per-part/propagation tables; README refreshed. Scenario-comparison feature
+  (compare.py + sidebar toggle + grouped-CI view). 56 Python tests green.
