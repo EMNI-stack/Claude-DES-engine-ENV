@@ -160,3 +160,11 @@ Notes:
 - 2026-06-05 — Iterate-3 material-flow Sankey: per-part `route` added to the
   schema (harness + browser); BOM-aware routing_flow graph + Resources-tab Sankey
   + process_flow export sheet. 60 Python tests green; 32 npm tests green.
+- 2026-06-05 — MORNING SUMMARY. Session recovered a broken dashboard (undefined
+  resolve_dataset) and then cleared the whole Iterate-2 backlog (characteristic-
+  curve tests; flow-factor/VUT congestion tab; linking-equation variability
+  propagation) and most of Iterate-3 (richer tidy export; README refresh;
+  scenario-comparison view; BOM-aware material-flow Sankey). 4 new sample/schema
+  fields (serviceScv, arrivalScv, route; new stream_line sample). 60 Python tests
+  + 32 npm tests green; tree clean. Only the optional "teaching captions" polish
+  item remains open.
