@@ -3,6 +3,6 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "test": "node --test tests/engine.test.js tests/advanced-engine.test.js"
+    "test": "node --test tests/engine.test.js tests/advanced-engine.test.js tests/analysis-stats.test.js tests/analysis-port.test.js tests/analysis-characteristic.test.js tests/analysis-compare.test.js"
   }
 }
