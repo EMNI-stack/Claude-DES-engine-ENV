@@ -16,7 +16,7 @@ GitHub Pages deployment — the browser app stays fully static and backend-free.
 | Path | What it is |
 |---|---|
 | `run_sim.mjs` | Node harness — runs the real engines over N seeded replications, writes the JSON schema |
-| `des_analysis/` | Pure Python package: `ingest`, `metrics`, `output_analysis`, `exporters` |
+| `des_analysis/` | Pure Python package: `ingest`, `metrics`, `output_analysis`, `characteristic`, `exporters` |
 | `dashboard.py` | Streamlit + Plotly dashboard |
 | `sample_data/` | Committed example datasets (so the dashboard demos with zero setup) |
 | `tests/` | pytest suite for the analysis math + a headless dashboard smoke test |
@@ -55,7 +55,18 @@ analysis/.venv/bin/python   -m pip install pandas numpy scipy plotly streamlit o
 
   Flags: `--kind both|simple|advanced`, `--reps N`, `--time T` (sim clock per
   replication), `--samples M` (time-series grid points), `--seed BASE`,
-  `--outdir DIR`.
+  `--outdir DIR`. Scenario overrides: `--control push|pull`, `--supply
+  limitless|stream`, `--demand instant|stream`, `--conwip K`, `--scenario NAME`
+  (output filename stem).
+
+  **CONWIP sweep** (characteristic curve). Sweep a single-product line's WIP cap
+  to trace its throughput/cycle-time curve against the best / practical-worst /
+  worst-case bounds:
+
+  ```bash
+  node analysis/run_sim.mjs --sweep --reps 12 --time 8000 --wipMax 16
+  # writes analysis/sample_data/sweep_line.json  (sweep-v1 schema)
+  ```
 
 **2 — Launch the dashboard.**
 
@@ -84,8 +95,18 @@ and a multi-sheet Excel workbook to `analysis/exports/`.
   honestly when no steady state is reached (near-saturation / unstable).
 - **Cycle time** — distribution with p50/p90/p95 markers and a per-part SCV table.
 - **Resources** — utilization bar with the bottleneck highlighted; per-resource and per-part tables.
+- **Congestion** — flow factor (CT ÷ raw process time), where cycle time accrues
+  (process vs waiting) per resource, a VUT congestion-vs-utilization curve against
+  the M/M/1 reference, per-part flow factor, and — for a serial line — how
+  variability propagates station to station via the linking equations.
 - **Replications** — means with 95% Student-t confidence intervals + summary table.
-- **Export** — tidy CSV/Excel download.
+- **Steady state** — single-run batch-means estimate (for 1-replication browser exports).
+- **Export** — tidy CSV/Excel download (now including the flow-factor, congestion,
+  per-part and variability-propagation tables).
+
+A **CONWIP-sweep** file (`sweep-v1`) opens into a dedicated characteristic-curve
+view instead of the tabs above: simulated TH/CT vs WIP overlaid on the best /
+practical-worst / worst-case reference bounds.
 
 ## Run the tests
 

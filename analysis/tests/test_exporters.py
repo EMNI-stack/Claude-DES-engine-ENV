@@ -41,3 +41,20 @@ def test_export_csv_only(tmp_path):
     written = export_tidy(_ds(), tmp_path, csv=True, excel=False)
     assert "excel" not in written
     assert all(Path(p).exists() for k, p in written.items())
+
+
+def test_export_includes_analysis_sheets(tmp_path):
+    """The new flow-factor / congestion / per-part analyses are exported too."""
+    written = export_tidy(_ds(), tmp_path, csv=True, excel=True)
+    xls = pd.ExcelFile(written["excel"])
+    for sheet in ("flow_factor", "congestion", "part_flow_factor"):
+        assert sheet in xls.sheet_names, f"missing sheet {sheet}"
+
+
+def test_simple_export_has_variability_propagation(tmp_path):
+    p = SAMPLE_DIR / "stream_line.json"
+    if not p.exists():
+        pytest.skip("stream_line sample not generated")
+    written = export_tidy(load_results(p), tmp_path, csv=True, excel=True)
+    xls = pd.ExcelFile(written["excel"])
+    assert "variability_propagation" in xls.sheet_names

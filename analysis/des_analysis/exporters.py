@@ -16,6 +16,7 @@ def summary_table(ds: Dataset, alpha: float = 0.05) -> pd.DataFrame:
 
 
 def _frames(ds: Dataset, alpha: float) -> dict[str, pd.DataFrame]:
+    ff = metrics.flow_factor(ds)
     frames = {
         "summary_stats": summary_table(ds, alpha),
         "scalars": ds.scalars,
@@ -23,12 +24,16 @@ def _frames(ds: Dataset, alpha: float) -> dict[str, pd.DataFrame]:
         "utilization": metrics.utilization_summary(ds),
         "littles_law": metrics.littles_law(ds),
         "cycle_time_stats": metrics.cycle_time_stats(ds),
+        "flow_factor": pd.DataFrame([ff]),
+        "congestion": metrics.congestion_by_resource(ds),
+        "variability_propagation": metrics.variability_propagation(ds),
         "timeseries": ds.timeseries,
         "cycle_samples": ds.cycle_samples,
     }
     if ds.is_advanced:
         frames["parts"] = ds.parts
         frames["demand"] = ds.demand
+        frames["part_flow_factor"] = metrics.part_flow_factor(ds)
     return {k: v for k, v in frames.items() if v is not None and not v.empty}
 
 
