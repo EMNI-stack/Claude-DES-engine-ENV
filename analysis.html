@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DES factory — analysis dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Archivo:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="vendor/plotly.min.js"></script>
+<style>
+  :root{
+    --bg:#0c1015;--panel:#141a22;--panel-2:#1b232d;--line:#283441;
+    --ink:#e8eef2;--muted:#8aa0b0;--faint:#5b6e7c;
+    --sim:#36e0c8;--thy:#f2b13c;--down:#ff6b6b;--blocked:#ff8753;--blue:#7aa2ff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:'Archivo',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  body{background-image:radial-gradient(circle at 15% -10%,rgba(54,224,200,.06),transparent 40%),radial-gradient(circle at 90% 0%,rgba(242,177,60,.05),transparent 40%),linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px);background-size:auto,auto,26px 26px,26px 26px;padding:20px;min-height:100vh}
+  .wrap{max-width:1240px;margin:0 auto}
+  header{margin-bottom:14px;position:relative}
+  .navlink{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--thy);text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:7px 11px;position:absolute;top:0;right:0;background:var(--panel-2)}
+  .navlink:hover{border-color:var(--thy)}
+  .eyebrow{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--sim);margin:0 0 6px}
+  h1{font-family:'Fraunces',serif;font-weight:600;font-size:30px;line-height:1.05;margin:0;letter-spacing:-.01em}
+  h1 em{font-style:italic;color:var(--thy)}
+  .sub{color:var(--muted);max-width:80ch;margin:8px 0 0;font-size:13px;line-height:1.55}
+  .sub b{color:var(--ink)}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;position:relative;overflow:hidden;margin-bottom:14px}
+  .panel.hidden{display:none}
+  .panel-h{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 13px;border-bottom:1px solid var(--line);background:var(--panel-2);flex-wrap:wrap}
+  .panel-h h2{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);margin:0;font-weight:500}
+  .panel-b{padding:13px}
+
+  button{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;background:var(--panel-2);color:var(--ink);border:1px solid var(--line);padding:8px 12px;border-radius:8px;cursor:pointer;transition:.15s;font-weight:500}
+  button:hover{border-color:var(--sim);color:var(--sim)}
+  button.primary{background:var(--sim);color:#06201c;border-color:var(--sim);font-weight:700}
+  button:active{transform:translateY(1px)}
+  .tabs{display:flex;flex-wrap:wrap;gap:4px}
+  .tab{border-radius:8px 8px 0 0;padding:7px 13px}
+  .tab.on{background:var(--sim);color:#06201c;border-color:var(--sim);font-weight:700}
+  select,input[type=number]{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+  select:hover,input:hover{border-color:var(--sim)}
+  label.fld{display:inline-flex;flex-direction:column;gap:3px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--faint);letter-spacing:.05em}
+  .check{display:inline-flex;align-items:center;gap:7px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);cursor:pointer;user-select:none}
+  .check input{accent-color:var(--sim);width:14px;height:14px;cursor:pointer}
+  input[type=range]{-webkit-appearance:none;height:4px;border-radius:3px;background:var(--line);outline:none;width:160px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--sim);cursor:pointer;border:2px solid var(--bg)}
+
+  .controls{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap}
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+  @media(max-width:760px){.kpis{grid-template-columns:repeat(2,1fr)}}
+  .kpi{background:linear-gradient(180deg,var(--panel-2),#10161d);border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+  .kpi .k{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .kpi .v{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;margin-top:3px;color:var(--ink)}
+  .kpi .s{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--faint);margin-top:2px}
+  .kpi.accent .v{color:var(--sim)} .kpi.warn .v{color:var(--thy)}
+  .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-family:'JetBrains Mono',monospace;border:1px solid var(--line);color:var(--muted);margin:3px 6px 3px 0}
+  .badge b{color:var(--sim)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:860px){.grid{grid-template-columns:1fr}}
+  .note{color:var(--muted);font-size:12px;line-height:1.55;margin:10px 2px 2px}
+  .note code{color:var(--sim);background:rgba(54,224,200,.08);padding:1px 4px;border-radius:4px}
+  table{width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:11.5px;margin-top:8px}
+  th,td{text-align:right;padding:6px 6px;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  thead th{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .plot{width:100%}
+  .empty{color:var(--faint);font-family:'JetBrains Mono',monospace;font-size:12px;padding:20px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="navlink" href="index.html">← back to simulator</a>
+    <p class="eyebrow">Analysis &amp; visualization</p>
+    <h1>DES factory — <em>analysis dashboard</em></h1>
+    <p class="sub" id="dsline">Load a results file from the simulator (<b>Analyze this run</b> hands one off automatically), upload a JSON, or pick a bundled sample. Everything runs in your browser — no server.</p>
+  </header>
+
+  <div class="panel">
+    <div class="panel-h"><h2>Data source</h2><span id="srcmeta" class="badge"></span></div>
+    <div class="panel-b controls">
+      <label class="fld">Bundled sample
+        <select id="sample"></select>
+      </label>
+      <label class="fld">Upload JSON
+        <input type="file" id="file" accept="application/json" style="font-size:11px;color:var(--muted)">
+      </label>
+      <label class="check" style="margin-left:auto"><input type="checkbox" id="cmpToggle"> Compare scenarios</label>
+      <div id="cmpPick" class="hidden" style="width:100%;display:flex;gap:14px;flex-wrap:wrap"></div>
+    </div>
+  </div>
+
+  <div id="kpipanel" class="panel hidden">
+    <div class="panel-b"><div class="kpis" id="kpis"></div></div>
+  </div>
+
+  <div id="tabpanel" class="panel hidden">
+    <div class="panel-h"><div class="tabs" id="tabs"></div></div>
+    <div class="panel-b" id="view"></div>
+  </div>
+</div>
+
+<script type="module">
+import { loadResults } from './src/analysis/ingest.js';
+import * as M from './src/analysis/metrics.js';
+import * as OA from './src/analysis/output_analysis.js';
+import * as CH from './src/analysis/characteristic.js';
+import * as CMP from './src/analysis/compare.js';
+
+const $ = (id) => document.getElementById(id);
+const TH = { bg:'#0c1015', panel:'#141a22', grid:'#283441', ink:'#e8eef2', faint:'#5b6e7c',
+  teal:'#36e0c8', amber:'#f2b13c', blue:'#7aa2ff', red:'#7a3b3b' };
+const SERIES = ['#36e0c8','#f2b13c','#ff8753','#c792ea','#8fb3c4','#7aa2ff','#ff6b9d','#9ce26b'];
+const SAMPLES = ['advanced_factory','simple_line','stream_line','advanced_pull','sweep_line'];
+const CONF = { displayModeBar:false, responsive:true };
+
+const fmt = (x,nd=2,pct=false) => (x==null||(typeof x==='number'&&!isFinite(x))) ? '—'
+  : (pct ? `${(100*x).toFixed(1)}%` : Number(x).toFixed(nd));
+const g4 = (x) => (x==null||!isFinite(x)) ? '—' : Number(x).toPrecision(4).replace(/\.?0+$/,'');
+
+function layout(title, extra={}) {
+  return Object.assign({
+    paper_bgcolor:TH.bg, plot_bgcolor:TH.panel,
+    font:{ family:'JetBrains Mono, ui-monospace, monospace', color:TH.ink, size:12 },
+    margin:{ l:58, r:20, t:title?40:14, b:42 },
+    title:title?{ text:title, font:{ size:13, color:TH.ink } }:undefined,
+    legend:{ bgcolor:'rgba(0,0,0,0)', font:{ size:11 }, orientation:'h', y:-0.18 },
+    hoverlabel:{ bgcolor:TH.panel, font:{ size:12 } },
+    xaxis:{ gridcolor:TH.grid, zerolinecolor:TH.grid, linecolor:TH.grid },
+    yaxis:{ gridcolor:TH.grid, zerolinecolor:TH.grid, linecolor:TH.grid },
+  }, extra);
+}
+function plot(el, data, lay, h=340) { lay.height = h; Plotly.newPlot(el, data, lay, CONF); }
+function el(tag, cls, html) { const e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
+function kpiCard(label, value, sub='', kind='') {
+  return `<div class="kpi ${kind}"><div class="k">${label}</div><div class="v">${value}</div><div class="s">${sub}</div></div>`;
+}
+function tableHTML(cols, rows, fmts={}) {
+  const head = cols.map((c)=>`<th>${c.label}</th>`).join('');
+  const body = rows.map((r)=>'<tr>'+cols.map((c)=>{
+    const v=r[c.key]; const f=fmts[c.key];
+    return `<td>${f?f(v,r):(v==null?'—':v)}</td>`;
+  }).join('')+'</tr>').join('');
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+function plotDiv() { const d=el('div','plot'); return d; }
+function noteEl(html){ return el('div','note',html); }
+
+// ---------------------------------------------------------------- state
+let DS = null;          // current Dataset (single)
+let RAW = null;         // current raw object (may be sweep)
+let activeTab = 'Overview';
+
+const TABS = ['Overview','Flow over time','Cycle time','Resources','Congestion','Replications','Steady state','Export'];
+
+// ---------------------------------------------------------------- views
+function viewOverview(c) {
+  const ll = M.littlesLaw(DS);
+  const relMean = ll.reduce((a,r)=>a+(isFinite(r.rel_error)?r.rel_error:0),0)/(ll.length||1);
+  const grid = el('div','grid');
+  const left = el('div'); left.innerHTML = '<div class="note" style="margin-top:0">Little\'s Law consistency — mean |WIP − TH·CT| / WIP</div>';
+  const gauge = plotDiv(); left.appendChild(gauge);
+  const right = el('div'); right.innerHTML = '<div class="note" style="margin-top:0">Per-replication WIP vs TH·CT</div>';
+  const sc = plotDiv(); right.appendChild(sc);
+  grid.appendChild(left); grid.appendChild(right); c.appendChild(grid);
+
+  plot(gauge, [{ type:'indicator', mode:'gauge+number', value:100*relMean,
+    number:{ suffix:'%', font:{ color: relMean<0.05?TH.teal:TH.amber } },
+    gauge:{ axis:{ range:[0,20], tickcolor:TH.faint }, bar:{ color: relMean<0.05?TH.teal:TH.amber },
+      bgcolor:TH.panel, bordercolor:TH.grid,
+      steps:[{range:[0,5],color:'#16323a'},{range:[5,20],color:'#2a2533'}] } }], layout(null), 250);
+
+  const wip = ll.map(r=>r.wip), thct = ll.map(r=>r.th_ct);
+  const lim = Math.max(...wip, ...thct)*1.1 || 1;
+  plot(sc, [
+    { x:thct, y:wip, mode:'markers', marker:{ color:TH.teal, size:9, line:{color:TH.bg,width:1} }, name:'reps' },
+    { x:[0,lim], y:[0,lim], mode:'lines', line:{ color:TH.faint, dash:'dash' }, name:'y = x' },
+  ], layout(null, { xaxis:{ title:'TH × CT', gridcolor:TH.grid }, yaxis:{ title:'measured WIP', gridcolor:TH.grid } }), 250);
+
+  const q = M.qualitySummary(DS);
+  const badges = el('div'); badges.style.marginTop='10px';
+  badges.innerHTML =
+    `<span class="badge">control: <b>${DS.config.control||'?'}</b></span>`+
+    `<span class="badge">supply: <b>${DS.config.supply||'?'}</b></span>`+
+    `<span class="badge">demand: <b>${DS.config.demandMode||'?'}</b></span>`+
+    `<span class="badge">yield: <b>${fmt(q.yield,0,true)}</b></span>`+
+    `<span class="badge">${DS.nReps} replications</span>`+
+    `<span class="badge">run length: <b>${fmt(DS.runLength,0)}</b></span>`;
+  c.appendChild(badges);
+  c.appendChild(noteEl('WIP = TH × CT is a conservation law; a small gap confirms the run is internally consistent.'));
+}
+
+function viewFlow(c) {
+  const bar = el('div','controls'); bar.style.marginBottom='8px';
+  const metricSel = el('select'); ['wip','fg','completed'].forEach(m=>{
+    const o=el('option'); o.value=m; o.textContent={wip:'Work in process',fg:'Finished-goods inventory',completed:'Cumulative output'}[m]; metricSel.appendChild(o);
+  });
+  const npts = new Set(DS.timeseries().map(r=>r.t)).size || 100;
+  const wmax = Math.max(2, Math.min(80, Math.floor(npts/4)));
+  const slider = el('input'); slider.type='range'; slider.min=1; slider.max=wmax; slider.value=Math.max(1,Math.min(Math.floor(npts/10),50));
+  const sLab = el('span'); sLab.className='badge';
+  bar.appendChild(el('label','fld','Metric over time')); bar.lastChild.appendChild(metricSel);
+  const sl = el('label','fld','Welch smoothing window (half-width)'); sl.appendChild(slider); bar.appendChild(sl); bar.appendChild(sLab);
+  c.appendChild(bar);
+  const d = plotDiv(); c.appendChild(d);
+  const msg = noteEl(''); c.appendChild(msg);
+
+  function draw() {
+    const metric = metricSel.value, window = +slider.value;
+    sLab.textContent = `w = ${window}`;
+    const w = OA.welchWarmup(DS.timeseries(), metric, window);
+    const traces = [];
+    const byRep = new Map();
+    for (const r of DS.timeseries()) { if(!byRep.has(r.rep)) byRep.set(r.rep,[]); byRep.get(r.rep).push(r); }
+    for (const [,rows] of byRep) traces.push({ x:rows.map(r=>r.t), y:rows.map(r=>r[metric]), mode:'lines',
+      line:{ color:TH.faint, width:0.6 }, opacity:0.32, showlegend:false, hoverinfo:'skip' });
+    if (w.t.length) {
+      traces.push({ x:w.t, y:w.ybar, mode:'lines', line:{ color:TH.teal, width:1.6 }, name:'mean across reps' });
+      traces.push({ x:w.t, y:w.smoothed, mode:'lines', line:{ color:TH.amber, width:2.2 }, name:`Welch MA (w=${w.window})` });
+    }
+    const shapes = [], anns = [];
+    if (w.converged && w.cutoff_time>0) {
+      shapes.push({ type:'rect', xref:'x', yref:'paper', x0:0, x1:w.cutoff_time, y0:0, y1:1,
+        fillcolor:TH.amber, opacity:0.10, line:{ width:0 } });
+      anns.push({ x:w.cutoff_time, y:1, yref:'paper', text:`warm-up ≈ ${w.cutoff_time.toFixed(0)}`, showarrow:false,
+        font:{ color:TH.amber, size:11 }, xanchor:'left' });
+    }
+    plot(d, traces, layout('Flow over time (Welch initialization-bias view)',
+      { shapes, annotations:anns, xaxis:{ title:'simulation clock', gridcolor:TH.grid }, yaxis:{ title:metric, gridcolor:TH.grid } }), 420);
+    if (metric==='wip') {
+      msg.innerHTML = w.converged
+        ? `Welch warm-up estimate ≈ <b style="color:${TH.teal}">${w.cutoff_time.toFixed(0)}</b> time units (plateau ≈ ${fmt(w.plateau,1)}). Discard observations before this for steady-state stats.`
+        : `<b style="color:${TH.amber}">No clear plateau</b> — the WIP curve keeps drifting. The system may be near saturation (u→1) or non-stationary; steady-state means are unreliable here.`;
+    } else msg.innerHTML = '';
+  }
+  metricSel.onchange = draw; slider.oninput = draw; draw();
+}
+
+function viewCycle(c) {
+  const cs = DS.cycleSamples();
+  if (!cs.length) { c.appendChild(el('div','empty','No cycle-time samples in this dataset.')); return; }
+  const parts = ['ALL', ...Array.from(new Set(cs.map(r=>r.part))).sort()];
+  const sel = el('select'); parts.forEach(p=>{ const o=el('option'); o.value=p; o.textContent=p; sel.appendChild(o); });
+  const lab = el('label','fld','Part'); lab.appendChild(sel); c.appendChild(lab);
+  const d = plotDiv(); c.appendChild(d);
+  const tbl = el('div'); c.appendChild(tbl);
+  c.appendChild(noteEl('SCV (c² = var/mean²) is the dimensionless variability the queueing formulas use: ≈1 is exponential, &lt;1 low-variability, &gt;1 bursty.'));
+  function draw() {
+    const data = sel.value==='ALL' ? cs : cs.filter(r=>r.part===sel.value);
+    const ct = data.map(r=>Number(r.ct));
+    const sorted = ct.slice().sort((a,b)=>a-b);
+    const qf = (q)=>{ const pos=q*(sorted.length-1); const lo=Math.floor(pos),hi=Math.ceil(pos); return lo===hi?sorted[lo]:sorted[lo]+(sorted[hi]-sorted[lo])*(pos-lo); };
+    const pcts = { p50:qf(.5), p90:qf(.9), p95:qf(.95) };
+    const shapes=[], anns=[]; const cols={p50:TH.ink,p90:TH.amber,p95:'#ff6b9d'};
+    Object.entries(pcts).forEach(([k,v])=>{ shapes.push({ type:'line', x0:v,x1:v,yref:'paper',y0:0,y1:1, line:{color:cols[k],dash:'dash',width:1} });
+      anns.push({ x:v, y:1, yref:'paper', text:`${k} ${v.toFixed(1)}`, showarrow:false, font:{color:cols[k],size:10}, xanchor:'left' }); });
+    plot(d, [{ type:'histogram', x:ct, nbinsx:50, marker:{ color:TH.teal, line:{color:TH.bg,width:0.5} }, opacity:0.85, name:'cycle time' }],
+      layout(`Cycle-time distribution — ${sel.value}`, { shapes, annotations:anns, xaxis:{title:'cycle time',gridcolor:TH.grid}, yaxis:{title:'count',gridcolor:TH.grid} }), 380);
+    const stats = M.cycleTimeStats(DS);
+    tbl.innerHTML = tableHTML(
+      [{key:'part',label:'part'},{key:'n',label:'n'},{key:'mean',label:'mean'},{key:'std',label:'std'},{key:'scv',label:'scv'},{key:'p50',label:'p50'},{key:'p90',label:'p90'},{key:'p95',label:'p95'}],
+      stats, { mean:(v)=>fmt(v), std:(v)=>fmt(v), scv:(v)=>fmt(v), p50:(v)=>fmt(v), p90:(v)=>fmt(v), p95:(v)=>fmt(v) });
+  }
+  sel.onchange = draw; draw();
+}
+
+function viewResources(c) {
+  const u = M.utilizationSummary(DS);
+  if (!u.length) { c.appendChild(el('div','empty','No resource data.')); return; }
+  const bn = M.bottleneck(DS);
+  if (DS.isAdvanced) {
+    const flow = M.routingFlow(DS);
+    if (flow) {
+      const d = plotDiv(); c.appendChild(d);
+      const ncolor = (n)=> (n==='Start'||n==='Purchased')?TH.faint : n==='Finished'?TH.blue : (n===bn.name?TH.amber:TH.teal);
+      plot(d, [{ type:'sankey', arrangement:'snap',
+        node:{ label:flow.nodes, pad:18, thickness:16, color:flow.nodes.map(ncolor), line:{color:TH.bg,width:1} },
+        link:{ source:flow.links.map(l=>l.source), target:flow.links.map(l=>l.target), value:flow.links.map(l=>l.value),
+          color:'rgba(54,224,200,0.22)' } }], layout('Material flow through the factory (arc width = parts/time)'), 360);
+      c.appendChild(noteEl('Where material moves and at what rate: components are made (Start → workcenter), feed the assembly that consumes them (BOM), and demand products exit to Finished. The bottleneck workcenter is <b style="color:'+TH.amber+'">amber</b>.'));
+    }
+  }
+  const sorted = u.slice().sort((a,b)=>a.utilization-b.utilization);
+  const colors = sorted.map(r=>r.name===bn.name?TH.amber:TH.teal);
+  const d2 = plotDiv(); c.appendChild(d2);
+  plot(d2, [{ type:'bar', orientation:'h', y:sorted.map(r=>r.name), x:sorted.map(r=>r.utilization),
+    marker:{ color:colors }, text:sorted.map(r=>`${(r.utilization*100).toFixed(0)}%`), textposition:'outside' }],
+    layout('Utilization by resource (bottleneck in amber)', { xaxis:{ title:'fraction of capacity', range:[0,1.08], gridcolor:TH.grid } }), 300);
+  c.appendChild(noteEl(`Bottleneck: <b style="color:${TH.amber}">${bn.name||'—'}</b> at u = ${fmt(bn.utilization,0,true)} (margin over next: ${fmt(bn.margin_over_next,0,true)}). Queueing time grows sharply as utilization approaches 100%.`));
+  c.appendChild(el('div').appendChild ? renderUtilTable(u) : el('div'));
+  if (DS.isAdvanced) {
+    const parts = groupParts();
+    if (parts.length) {
+      const h = el('div','note'); h.innerHTML='<b>Per-part summary (mean across replications)</b>'; c.appendChild(h);
+      c.appendChild(rawTable(
+        [{key:'name',label:'part'},{key:'created',label:'created'},{key:'completed',label:'completed'},{key:'scrapped',label:'scrapped'},{key:'wip',label:'wip'},{key:'avgCycleTime',label:'cycle time'}],
+        parts, { created:(v)=>fmt(v,1), completed:(v)=>fmt(v,1), scrapped:(v)=>fmt(v,1), wip:(v)=>fmt(v,1), avgCycleTime:(v)=>fmt(v) }));
+    }
+  }
+}
+function renderUtilTable(u){
+  const div=el('div');
+  div.innerHTML = tableHTML(
+    [{key:'name',label:'resource'},{key:'utilization',label:'util'},{key:'blocked',label:'blocked'},{key:'down',label:'down'},{key:'avg_queue',label:'avg queue'},{key:'throughput',label:'throughput'}],
+    u, { utilization:(v)=>fmt(v,0,true), blocked:(v)=>fmt(v,0,true), down:(v)=>fmt(v,0,true), avg_queue:(v)=>fmt(v), throughput:(v)=>fmt(v,3) });
+  return div;
+}
+function rawTable(cols, rows, fmts){ const d=el('div'); d.innerHTML=tableHTML(cols,rows,fmts); return d; }
+function groupParts(){
+  const rows = DS.parts(); if(!rows.length) return [];
+  const map=new Map();
+  for(const r of rows){ if(!map.has(r.id)) map.set(r.id,[]); map.get(r.id).push(r); }
+  const out=[];
+  for(const [id,rs] of map){ const m=(k)=>rs.reduce((a,x)=>a+(Number(x[k])||0),0)/rs.length;
+    out.push({ id, name:rs[0].name, created:m('created'), completed:m('completed'), scrapped:m('scrapped'), wip:m('wip'), avgCycleTime:m('avgCycleTime') }); }
+  return out;
+}
+
+function viewCongestion(c) {
+  const ff = M.flowFactor(DS), cg = M.congestionByResource(DS);
+  const kp = el('div','kpis'); kp.style.marginBottom='12px';
+  if (ff.raw_process_time!=null) {
+    kp.innerHTML = kpiCard('Flow factor', fmt(ff.flow_factor), 'cycle time ÷ process time','warn')
+      + kpiCard('Raw process time T₀', fmt(ff.raw_process_time), 'value-added time')
+      + kpiCard('Value-added', fmt(ff.value_added_fraction,0,true), 'of cycle time','accent')
+      + kpiCard('Waiting / blocking', fmt(ff.queue_fraction,0,true), 'of cycle time')
+      + kpiCard('Workcenters', String(cg.length), '');
+  } else {
+    kp.innerHTML = kpiCard('Avg cycle time', fmt(ff.cycle_time), 'all parts','accent')
+      + kpiCard('System T₀', '—', 'routings differ')
+      + kpiCard('Workcenters', String(cg.length), '')
+      + kpiCard('Bottleneck u', fmt(cg.length?Math.max(...cg.map(r=>r.utilization)):null,0,true), 'busiest','warn')
+      + kpiCard('Replications', String(DS.nReps), '');
+  }
+  c.appendChild(kp);
+  c.appendChild(noteEl('Flow factor (cycle-time efficiency) is how many times a job\'s raw process time it actually spends in the system — the rest is queueing and blocking. Closer to 1 is leaner.'));
+  if (!cg.length) return;
+  const grid = el('div','grid'); c.appendChild(grid);
+  const cc = cg.slice().sort((a,b)=>a.ct_station-b.ct_station);
+  const d1=plotDiv(); grid.appendChild(d1);
+  plot(d1, [
+    { type:'bar', orientation:'h', y:cc.map(r=>r.name), x:cc.map(r=>r.t_e), name:'process time', marker:{color:TH.teal}, text:cc.map(r=>fmt(r.t_e,1)), textposition:'inside' },
+    { type:'bar', orientation:'h', y:cc.map(r=>r.name), x:cc.map(r=>r.wq_measured), name:'waiting (queue)', marker:{color:TH.amber} },
+  ], layout('Where cycle time accrues, by resource', { barmode:'stack', xaxis:{title:'time per visit',gridcolor:TH.grid} }), 340);
+  const d2=plotDiv(); grid.appendChild(d2);
+  const ug=[]; for(let x=0;x<=0.97;x+=0.01) ug.push(x);
+  const norm = cg.map(r=>r.wq_measured/r.t_e);
+  plot(d2, [
+    { x:ug, y:ug.map(x=>x/(1-x)), mode:'lines', line:{color:TH.faint,dash:'dash'}, name:'M/M/1 (c²=1)' },
+    { x:cg.map(r=>r.utilization), y:norm, mode:'markers+text', text:cg.map(r=>r.name), textposition:'top center',
+      textfont:{size:9,color:TH.faint}, marker:{color:TH.teal,size:11,line:{color:TH.bg,width:1}}, name:'simulated' },
+  ], layout('Congestion vs utilization (VUT)', { xaxis:{title:'utilization u',range:[0,1],gridcolor:TH.grid}, yaxis:{title:'wait ÷ process time',range:[0,Math.max(6,Math.max(...norm)*1.2)],gridcolor:TH.grid} }), 340);
+  c.appendChild(noteEl('The dashed curve is the M/M/1 reference <code>u/(1−u)</code>: queueing explodes as u→1. A station <b>above</b> the curve has more variability than exponential; <b>below</b> means smoother flow.'));
+  c.appendChild(rawTable(
+    [{key:'name',label:'resource'},{key:'t_e',label:'t_e'},{key:'utilization',label:'u'},{key:'avg_queue',label:'avg queue'},{key:'wq_measured',label:'wait'},{key:'wq_mm1',label:'M/M/1 wait'},{key:'implied_v',label:'implied V'},{key:'ct_station',label:'CT here'}],
+    cg, { t_e:(v)=>fmt(v), utilization:(v)=>fmt(v,0,true), avg_queue:(v)=>fmt(v), wq_measured:(v)=>fmt(v), wq_mm1:(v)=>fmt(v), implied_v:(v)=>fmt(v), ct_station:(v)=>fmt(v) }));
+
+  const pf = M.partFlowFactor(DS);
+  if (pf.length) {
+    const h=el('div','note'); h.innerHTML='<b>Per-part flow factor</b>'; c.appendChild(h);
+    const pfd=plotDiv(); c.appendChild(pfd);
+    const ps = pf.slice().sort((a,b)=>a.flow_factor-b.flow_factor);
+    plot(pfd, [{ type:'bar', orientation:'h', y:ps.map(r=>r.name), x:ps.map(r=>r.flow_factor),
+      marker:{ color:ps.map(r=>r.flow_factor>=5?TH.amber:TH.teal) }, text:ps.map(r=>`${r.flow_factor.toFixed(1)}×`), textposition:'outside' }],
+      layout('Flow factor by part', { xaxis:{title:'flow factor (CT ÷ routing time)',gridcolor:TH.grid}, shapes:[{type:'line',x0:1,x1:1,yref:'paper',y0:0,y1:1,line:{color:TH.faint,dash:'dot'}}] }), 60+34*ps.length);
+  }
+
+  const vp = M.variabilityPropagation(DS);
+  if (vp.length) {
+    const h=el('div','note'); h.innerHTML='<b>Variability propagation along the line</b>'; c.appendChild(h);
+    const vpd=plotDiv(); c.appendChild(vpd);
+    const names=vp.map(r=>r.name);
+    plot(vpd, [
+      { type:'bar', x:names, y:vp.map(r=>r.ce2), name:'service c²ₑ', marker:{color:'#2f3b46'}, width:0.5 },
+      { x:names, y:vp.map(r=>r.ca2), mode:'lines+markers', name:'arrival c²ₐ', line:{color:TH.blue,width:2}, marker:{size:9} },
+      { x:names, y:vp.map(r=>r.cd2), mode:'lines+markers', name:'departure c²_d', line:{color:TH.teal,width:2.4}, marker:{size:9,symbol:'diamond'} },
+    ], layout('How variability flows station to station', { yaxis:{title:'squared CV',rangemode:'tozero',gridcolor:TH.grid}, shapes:[{type:'line',xref:'paper',x0:0,x1:1,y0:1,y1:1,line:{color:TH.amber,dash:'dot'}}] }), 340);
+    const trend = vp[vp.length-1].cd2 < vp[0].ca2 ? 'dampens' : 'amplifies';
+    c.appendChild(noteEl(`Each station's departures feed the next station's arrivals (linking equation <code>c²_d = 1 + (1−u²)(c²ₐ−1) + (u²/√m)(c²ₑ−1)</code>). Here the line <b>${trend}</b> variability overall.`));
+  }
+}
+
+function viewReplications(c) {
+  const summ = OA.summarizeReplications(DS.scalars());
+  const wanted = ['throughput','avgWIP','avgCycleTime','fillRate','yield'].filter(m=>summ.some(s=>s.metric===m));
+  const sub = summ.filter(s=>wanted.includes(s.metric));
+  const d=plotDiv(); c.appendChild(d);
+  plot(d, sub.map((row,i)=>({ x:[row.metric], y:[row.mean], type:'scatter', mode:'markers',
+    error_y:{ type:'data', array:[row.halfwidth], color:SERIES[i%SERIES.length], thickness:2, width:10 },
+    marker:{ color:SERIES[i%SERIES.length], size:12 }, name:row.metric, showlegend:false })),
+    layout(`Replication means with 95% confidence intervals (n=${DS.nReps})`, { yaxis:{title:'mean ± 95% CI',gridcolor:TH.grid} }), 340);
+  c.appendChild(rawTable(
+    [{key:'metric',label:'metric'},{key:'mean',label:'mean'},{key:'sd',label:'sd'},{key:'ci_low',label:'ci low'},{key:'ci_high',label:'ci high'},{key:'halfwidth',label:'± hw'},{key:'rel_halfwidth',label:'rel hw'}],
+    summ, { mean:(v)=>g4(v), sd:(v)=>g4(v), ci_low:(v)=>g4(v), ci_high:(v)=>g4(v), halfwidth:(v)=>g4(v), rel_halfwidth:(v)=>fmt(v,1,true) }));
+  c.appendChild(noteEl('Independent seeds make the replication means i.i.d., so a Student-t interval applies. A wide relative half-width means more replications (or longer runs) are needed for that metric.'));
+}
+
+function viewSteady(c) {
+  c.appendChild(noteEl('Browser exports from a single run are one replication, where the i.i.d. replication CI is degenerate. Batch means splits one post-warm-up run into ≈independent batches and builds a t-interval — the standard single-run method.'));
+  const reps = Array.from(new Set(DS.timeseries().map(r=>r.rep))).sort((a,b)=>a-b);
+  if (!reps.length) { c.appendChild(el('div','empty','No time series in this dataset.')); return; }
+  const bar=el('div','controls');
+  const repSel=el('select'); reps.forEach(r=>{ const o=el('option'); o.value=r; o.textContent='rep '+r; repSel.appendChild(o); });
+  const nb=el('input'); nb.type='range'; nb.min=5; nb.max=40; nb.value=20; const nbLab=el('span','badge');
+  bar.appendChild(el('label','fld','Replication')); bar.lastChild.appendChild(repSel);
+  const l2=el('label','fld','Number of batches'); l2.appendChild(nb); bar.appendChild(l2); bar.appendChild(nbLab);
+  c.appendChild(bar);
+  const kp=el('div','kpis'); kp.style.margin='10px 0'; c.appendChild(kp);
+  const d=plotDiv(); c.appendChild(d);
+  function draw(){
+    const rep=+repSel.value, nBatches=+nb.value; nbLab.textContent=`${nBatches} batches`;
+    const w=OA.welchWarmup(DS.timeseries(),'wip');
+    const sub=DS.timeseries().filter(r=>r.rep===rep).sort((a,b)=>a.t-b.t);
+    let cutoff = w.converged ? w.cutoff_time : 0;
+    let kept = sub.filter(r=>r.t>=cutoff).map(r=>Number(r.wip));
+    if (kept.length < nBatches*2) { kept = sub.map(r=>Number(r.wip)); cutoff=0; }
+    const bm=OA.batchMeans(kept,nBatches,0);
+    const ms=OA.mser5(sub.map(r=>Number(r.wip)));
+    kp.innerHTML = kpiCard('WIP estimate', fmt(bm.mean), 'post-warm-up mean','accent')
+      + kpiCard('95% CI half-width', fmt(bm.halfwidth,3), '± on the mean')
+      + kpiCard('Warm-up dropped', fmt(cutoff,0), 'Welch cutoff (time)')
+      + kpiCard('MSER-5 cutoff', fmt(ms.obs_index||0,0), 'alt. truncation (index)')
+      + kpiCard('Batches', `${bm.n_batches||'?'}×${bm.batch_size||'?'}`, 'count × size');
+    const shapes=[], anns=[];
+    if (cutoff>0){ shapes.push({type:'rect',xref:'x',yref:'paper',x0:0,x1:cutoff,y0:0,y1:1,fillcolor:TH.amber,opacity:0.10,line:{width:0}});
+      anns.push({x:cutoff,y:1,yref:'paper',text:'warm-up (dropped)',showarrow:false,font:{color:TH.amber,size:10},xanchor:'left'}); }
+    if (isFinite(bm.mean)) shapes.push({type:'line',xref:'paper',x0:0,x1:1,y0:bm.mean,y1:bm.mean,line:{color:TH.teal,width:1.5}});
+    if (isFinite(bm.halfwidth)) shapes.push({type:'rect',xref:'paper',x0:0,x1:1,y0:bm.mean-bm.halfwidth,y1:bm.mean+bm.halfwidth,fillcolor:TH.teal,opacity:0.12,line:{width:0}});
+    plot(d, [{ x:sub.map(r=>r.t), y:sub.map(r=>r.wip), mode:'lines', line:{color:TH.faint,width:0.8}, name:'WIP' }],
+      layout(`Replication ${rep}: WIP with batch-means 95% CI`, { shapes, annotations:anns, xaxis:{title:'simulation clock',gridcolor:TH.grid}, yaxis:{title:'WIP',gridcolor:TH.grid} }), 360);
+  }
+  repSel.onchange=draw; nb.oninput=draw; draw();
+}
+
+function viewExport(c) {
+  c.appendChild(noteEl('Download tidy, well-labeled CSV files of the analysis tables. Everything is generated in your browser.'));
+  const wrap=el('div','controls');
+  const exports = {
+    'summary_stats': () => OA.summarizeReplications(DS.scalars()),
+    'scalars': () => DS.scalars(),
+    'utilization': () => M.utilizationSummary(DS),
+    'littles_law': () => M.littlesLaw(DS),
+    'cycle_time_stats': () => M.cycleTimeStats(DS),
+    'congestion': () => M.congestionByResource(DS),
+    'variability_propagation': () => M.variabilityPropagation(DS),
+  };
+  if (DS.isAdvanced) { exports['part_flow_factor']=()=>M.partFlowFactor(DS); exports['parts']=()=>DS.parts(); }
+  for (const [name,fn] of Object.entries(exports)) {
+    const rows = fn(); if (!rows || !rows.length) continue;
+    const b=el('button',null,`⬇ ${name}.csv`); b.onclick=()=>downloadCSV(rows, `des_${DS.kind}__${name}.csv`); wrap.appendChild(b);
+  }
+  c.appendChild(wrap);
+  const h=el('div','note'); h.innerHTML='<b>One-page summary</b>'; c.appendChild(h);
+  c.appendChild(rawTable(
+    [{key:'metric',label:'metric'},{key:'mean',label:'mean'},{key:'ci_low',label:'ci low'},{key:'ci_high',label:'ci high'},{key:'halfwidth',label:'± hw'}],
+    OA.summarizeReplications(DS.scalars()), { mean:(v)=>g4(v), ci_low:(v)=>g4(v), ci_high:(v)=>g4(v), halfwidth:(v)=>g4(v) }));
+}
+
+function downloadCSV(rows, filename) {
+  const cols = Object.keys(rows[0]);
+  const esc=(v)=> v==null ? '' : (typeof v==='string' && /[",\n]/.test(v)) ? `"${v.replace(/"/g,'""')}"` : v;
+  const csv = [cols.join(','), ...rows.map(r=>cols.map(c=>esc(r[c])).join(','))].join('\n');
+  const blob=new Blob([csv],{type:'text/csv'}); const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=filename; a.click(); URL.revokeObjectURL(a.href);
+}
+
+// ---------------------------------------------------------------- sweep view
+function renderSweep(raw) {
+  $('kpipanel').classList.add('hidden');
+  $('tabpanel').classList.remove('hidden');
+  $('tabs').innerHTML=''; const view=$('view'); view.innerHTML='';
+  const cfg=raw.config||{}; const T0=cfg.T0, rb=cfg.rb, W0=cfg.W0;
+  $('srcmeta').textContent = `sweep · ${raw.reps} reps/level · bottleneck ${cfg.bottleneck}`;
+  const kp=el('div','kpis'); kp.style.marginBottom='12px';
+  kp.innerHTML = kpiCard('Raw process time T₀', fmt(T0), 'Σ mean op times','accent')
+    + kpiCard('Bottleneck rate r_b', fmt(rb,3), 'max sustainable TH')
+    + kpiCard('Critical WIP W₀', fmt(W0), '= r_b · T₀')
+    + kpiCard('Bottleneck', cfg.bottleneck||'—', 'highest utilization','warn')
+    + kpiCard('WIP levels', String(raw.wipMax||'—'), 'swept');
+  view.appendChild(kp);
+  const pts = CH.measuredPoints(raw);
+  const wmax = pts.length ? Math.max(...pts.map(p=>p.wip_cap)) : 16;
+  const ws=[]; for(let x=0.8;x<=wmax+1;x+=(wmax+0.2)/120) ws.push(x);
+  const ref = CH.referenceCurves(T0, rb, W0, ws);
+  const grid=el('div','grid'); view.appendChild(grid);
+  const mk=(yField,refBest,refPwc,refWorst,hwField,title,ytitle,extraShapes=[])=>{
+    const d=plotDiv(); grid.appendChild(d);
+    plot(d, [
+      { x:ref.map(r=>r.w), y:ref.map(r=>r[refWorst]), mode:'lines', name:'worst case', line:{color:TH.red,width:1.4,dash:'dot'} },
+      { x:ref.map(r=>r.w), y:ref.map(r=>r[refPwc]), mode:'lines', name:'practical worst case', line:{color:TH.amber,width:1.8,dash:'dash'} },
+      { x:ref.map(r=>r.w), y:ref.map(r=>r[refBest]), mode:'lines', name:'best case', line:{color:TH.blue,width:1.8} },
+      { x:pts.map(p=>p.wip_mean), y:pts.map(p=>p[yField]), mode:'markers', name:'simulated',
+        error_y:{ type:'data', array:pts.map(p=>p[hwField]), color:TH.teal, thickness:1.3, width:5 },
+        marker:{ color:TH.teal, size:9, line:{color:TH.bg,width:1} } },
+    ], layout(title, { shapes:[{type:'line',x0:W0,x1:W0,yref:'paper',y0:0,y1:1,line:{color:TH.faint,dash:'dot'}},...extraShapes],
+      xaxis:{title:'WIP (jobs)',gridcolor:TH.grid}, yaxis:{title:ytitle,gridcolor:TH.grid} }), 380);
+  };
+  mk('th_mean','best_th','pwc_th','worst_th','th_hw','Throughput vs WIP','throughput',
+    [{type:'line',xref:'paper',x0:0,x1:1,y0:rb,y1:rb,line:{color:TH.blue,dash:'dot'}}]);
+  mk('ct_mean','best_ct','pwc_ct','worst_ct','ct_hw','Cycle time vs WIP','cycle time');
+  view.appendChild(noteEl('A flow needs WIP to reach full throughput — TH climbs from <code>w/T₀</code> toward the bottleneck rate <code>r_b</code>, and cycle time grows past <code>T₀</code> once WIP exceeds the critical level <code>W₀</code>. The simulated line should sit <b>between best and worst case</b>; near or above the practical-worst-case line marks a well-behaved, low-variability line.'));
+}
+
+// ---------------------------------------------------------------- compare
+let cmpState = {};
+function renderCompare() {
+  $('kpipanel').classList.add('hidden');
+  const chosen = Object.entries(cmpState).filter(([,v])=>v).map(([k])=>k);
+  $('tabpanel').classList.remove('hidden'); $('tabs').innerHTML='';
+  const view=$('view'); view.innerHTML='';
+  if (chosen.length < 2) { view.appendChild(el('div','empty','Pick at least two scenarios above to compare.')); return; }
+  Promise.all(chosen.map(name=>fetchSample(name).then(raw=>({name, ds:loadResults(raw)})).catch(()=>null)))
+    .then(list=>{
+      const datasets = list.filter(Boolean).filter(x=>x.ds.kind!=='sweep');
+      if (datasets.length<2) { view.appendChild(el('div','empty','Selected files could not be compared (sweeps are excluded).')); return; }
+      const kdf = CMP.compareKpis(datasets);
+      const scen = datasets.map(d=>d.name);
+      const cmap={}; scen.forEach((s,i)=>cmap[s]=SERIES[i%SERIES.length]);
+      const badges=el('div'); badges.style.marginBottom='8px';
+      const present = CMP.KPIS.filter(([k])=>kdf.some(r=>r.metric===k));
+      badges.innerHTML = present.map(([k,lab])=>{ const w=CMP.bestScenario(kdf,k); return w?`<span class="badge">best ${lab}: <b>${w}</b></span>`:''; }).join('');
+      view.appendChild(badges);
+      const grid=el('div','grid'); view.appendChild(grid);
+      present.forEach(([k,lab])=>{
+        const sub=kdf.filter(r=>r.metric===k); const d=plotDiv(); grid.appendChild(d);
+        plot(d, [{ type:'bar', x:sub.map(r=>r.scenario), y:sub.map(r=>r.mean), marker:{color:sub.map(r=>cmap[r.scenario])},
+          error_y:{ type:'data', array:sub.map(r=>r.halfwidth), color:TH.faint, thickness:1.5, width:8 },
+          text:sub.map(r=>g4(r.mean)), textposition:'outside' }],
+          layout(`${lab} (${sub[0].higher_is_better?'higher':'lower'} is better)`, { yaxis:{rangemode:'tozero',gridcolor:TH.grid} }), 300);
+      });
+      const udf=CMP.compareUtilization(datasets);
+      if (udf.length) {
+        const d=plotDiv(); view.appendChild(d);
+        const traces = scen.map(s=>({ type:'bar', name:s, marker:{color:cmap[s]},
+          x:udf.filter(r=>r.scenario===s).map(r=>r.resource), y:udf.filter(r=>r.scenario===s).map(r=>r.utilization) }));
+        plot(d, traces, layout('Utilization by resource', { barmode:'group', yaxis:{title:'utilization',range:[0,1.05],tickformat:'.0%',gridcolor:TH.grid} }), 340);
+      }
+      const ff=CMP.compareFlowFactor(datasets).filter(r=>isFinite(r.flow_factor));
+      if (ff.length) {
+        const d=plotDiv(); view.appendChild(d);
+        plot(d, [{ type:'bar', x:ff.map(r=>r.scenario), y:ff.map(r=>r.flow_factor), marker:{color:ff.map(r=>cmap[r.scenario])},
+          text:ff.map(r=>`${r.flow_factor.toFixed(2)}×`), textposition:'outside' }],
+          layout('Flow factor (lower is leaner)', { yaxis:{rangemode:'tozero',gridcolor:TH.grid}, shapes:[{type:'line',xref:'paper',x0:0,x1:1,y0:1,y1:1,line:{color:TH.faint,dash:'dot'}}] }), 300);
+      }
+    });
+}
+
+// ---------------------------------------------------------------- shell
+function renderTabs() {
+  const tabsEl=$('tabs'); tabsEl.innerHTML='';
+  try { location.hash = encodeURIComponent(activeTab); } catch(e){ /* ignore */ }
+  TABS.forEach(t=>{ const b=el('button','tab'+(t===activeTab?' on':''),t); b.onclick=()=>{ activeTab=t; renderTabs(); }; tabsEl.appendChild(b); });
+  const view=$('view'); view.innerHTML='';
+  const fn = { 'Overview':viewOverview, 'Flow over time':viewFlow, 'Cycle time':viewCycle, 'Resources':viewResources,
+    'Congestion':viewCongestion, 'Replications':viewReplications, 'Steady state':viewSteady, 'Export':viewExport }[activeTab];
+  try { fn(view); } catch(e){ view.appendChild(el('div','empty','Could not render this view: '+e.message)); console.error(e); }
+}
+
+function showDataset(raw) {
+  RAW = raw;
+  if (CH.isSweep(raw)) { renderSweep(raw); $('dsline').innerHTML=`<b>${raw.config?.summary||'CONWIP sweep'}</b> — characteristic curve.`; return; }
+  DS = loadResults(raw);
+  $('srcmeta').textContent = `${DS.generatedBy} · ${DS.kind} · ${DS.nReps} reps`;
+  $('dsline').innerHTML = `<b>${DS.summary}</b> — ${DS.nReps} replications. Switch tabs to explore; everything is computed in-browser.`;
+  $('kpipanel').classList.remove('hidden'); $('tabpanel').classList.remove('hidden');
+  const q=M.qualitySummary(DS), bn=M.bottleneck(DS);
+  $('kpis').innerHTML = kpiCard('Throughput', fmt(q.throughput,3), 'parts / time-unit','accent')
+    + kpiCard('Avg WIP', fmt(q.avg_wip,1), 'jobs in system')
+    + kpiCard('Avg cycle time', fmt(q.avg_cycle_time), 'release → exit')
+    + kpiCard('Fill rate', fmt(q.fill_rate,0,true), 'demand met from stock')
+    + kpiCard('Bottleneck', bn.name||'—', `u = ${fmt(bn.utilization,0,true)}`,'warn');
+  const hash = decodeURIComponent((location.hash||'').replace(/^#/,''));
+  if (TABS.includes(hash)) activeTab = hash;
+  else if (!TABS.includes(activeTab)) activeTab='Overview';
+  renderTabs();
+}
+
+// ---- data acquisition ----
+async function fetchSample(name) {
+  const res = await fetch(`analysis/sample_data/${name}.json`);
+  if (!res.ok) throw new Error(`sample ${name} not found (run the harness or host the site)`);
+  return res.json();
+}
+
+function fillSamples() {
+  const sel=$('sample'); sel.innerHTML='';
+  const ph=el('option'); ph.value=''; ph.textContent='— choose —'; sel.appendChild(ph);
+  SAMPLES.forEach(n=>{ const o=el('option'); o.value=n; o.textContent=n; sel.appendChild(o); });
+  sel.onchange=()=>{ if(!sel.value) return; $('cmpToggle').checked=false; toggleCompare(false);
+    fetchSample(sel.value).then(showDataset).catch(e=>alert(e.message)); };
+  // compare picker
+  const pick=$('cmpPick'); pick.innerHTML='';
+  SAMPLES.filter(n=>n!=='sweep_line').forEach(n=>{
+    const lab=el('label','check'); const cb=el('input'); cb.type='checkbox'; cb.checked=false;
+    cb.onchange=()=>{ cmpState[n]=cb.checked; renderCompare(); }; lab.appendChild(cb); lab.appendChild(document.createTextNode(' '+n)); pick.appendChild(lab);
+  });
+}
+
+function toggleCompare(on) {
+  $('cmpPick').classList.toggle('hidden', !on);
+  if (on) { $('kpipanel').classList.add('hidden'); renderCompare(); }
+  else { if (RAW) showDataset(RAW); }
+}
+$('cmpToggle').onchange = (e)=>toggleCompare(e.target.checked);
+
+$('file').onchange = (e)=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader();
+  r.onload=()=>{ try{ showDataset(JSON.parse(r.result)); }catch(err){ alert('Could not parse JSON: '+err.message); } }; r.readAsText(f); };
+
+// ---- boot: handoff from the simulator, else first sample ----
+fillSamples();
+(function boot(){
+  try {
+    const handoff = sessionStorage.getItem('des-analysis-data');
+    if (handoff) { sessionStorage.removeItem('des-analysis-data'); showDataset(JSON.parse(handoff)); return; }
+  } catch(e){ /* ignore */ }
+  // ?sample=NAME deep-link, else a default sample; file:// hosting blocks fetch.
+  const params = new URLSearchParams(location.search);
+  const want = params.get('sample');
+  const initial = (want && SAMPLES.includes(want)) ? want : 'advanced_factory';
+  fetchSample(initial).then((r)=>{ $('sample').value=initial; showDataset(r); })
+    .catch(()=>{ $('dsline').innerHTML='Load a JSON via <b>Upload</b>, or use <b>Analyze this run</b> from the simulator. (Bundled samples need the site to be served over http — they don\'t load from a local file:// path.)'; });
+})();
+</script>
+</body>
+</html>
