@@ -34,6 +34,9 @@ def _frames(ds: Dataset, alpha: float) -> dict[str, pd.DataFrame]:
         frames["parts"] = ds.parts
         frames["demand"] = ds.demand
         frames["part_flow_factor"] = metrics.part_flow_factor(ds)
+        flow = metrics.routing_flow(ds)
+        if flow:
+            frames["process_flow"] = pd.DataFrame(flow["links"])[["source_name", "target_name", "value"]]
     return {k: v for k, v in frames.items() if v is not None and not v.empty}
 
 

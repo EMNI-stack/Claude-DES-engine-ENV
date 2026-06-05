@@ -225,12 +225,42 @@ def view_cycle(ds: Dataset):
                "≈1 is exponential, <1 is low-variability, >1 is bursty.")
 
 
+def _flow_sankey(ds: Dataset, bottleneck_name: str | None):
+    flow = metrics.routing_flow(ds)
+    if not flow:
+        return
+    nodes = flow["nodes"]
+    def ncolor(n):
+        if n in ("Start", "Purchased"):
+            return FAINT
+        if n == "Finished":
+            return "#7aa2ff"
+        return AMBER if n == bottleneck_name else TEAL
+    fig = go.Figure(go.Sankey(
+        arrangement="snap",
+        node=dict(label=nodes, pad=18, thickness=16,
+                  color=[ncolor(n) for n in nodes],
+                  line=dict(color=BG, width=1)),
+        link=dict(source=[l["source"] for l in flow["links"]],
+                  target=[l["target"] for l in flow["links"]],
+                  value=[l["value"] for l in flow["links"]],
+                  color="rgba(54,224,200,0.22)",
+                  hovertemplate="%{source.label} → %{target.label}<br>flow %{value:.3f}/time<extra></extra>")))
+    st.plotly_chart(plotly_layout(fig, 360, "Material flow through the factory (arc width = parts/time)"),
+                    use_container_width=True)
+    st.caption("Where material moves and at what rate: components are made (Start → workcenter), feed the "
+               "assembly that consumes them (BOM), and demand products exit to Finished. The "
+               "bottleneck workcenter is amber — it caps how fast the whole flow can run.")
+
+
 def view_resources(ds: Dataset):
     u = metrics.utilization_summary(ds)
     if u.empty:
         st.info("No resource data.")
         return
     bn = metrics.bottleneck(ds)
+    if ds.is_advanced:
+        _flow_sankey(ds, bn.get("name"))
     u = u.sort_values("utilization")
     colors = [AMBER if n == bn.get("name") else TEAL for n in u["name"]]
     fig = go.Figure()

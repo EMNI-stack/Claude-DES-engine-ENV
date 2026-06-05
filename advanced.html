@@ -1014,7 +1014,7 @@ $('adljson').onclick=()=>{
       demandMode:config.demandMode==='stream'?'stream':'instant',
       summary:`${config.resources.length} workcenters · ${config.parts.length} parts (browser export)`,
       resources:config.resources.map(rc=>({id:rc.id,name:rc.name,capacity:Math.max(1,rc.capacity|0),serviceMean:jround(distMean(rc.service)),serviceScv:jround(distScv(rc.service)),scrap:0,brk:!!rc.brk})),
-      parts:config.parts.map(p=>({id:p.id,name:p.name,type:p.type,bom:(p.bom||[]).map(b=>({partId:b.partId,qty:b.qty})),routingMean:jround((p.routing||[]).reduce((a,s)=>a+distMean(s.service),0)),isDemand:inDemand(p.id)}))},
+      parts:config.parts.map(p=>({id:p.id,name:p.name,type:p.type,bom:(p.bom||[]).map(b=>({partId:b.partId,qty:b.qty})),route:(p.routing||[]).map(s=>s.resourceId),routingMean:jround((p.routing||[]).reduce((a,s)=>a+distMean(s.service),0)),isDemand:inDemand(p.id)}))},
     runLength:jround(asim.now,1),warmupHint:null,replications:[rep]};
   downloadJSON(data,'des-advanced-data.json');
 };

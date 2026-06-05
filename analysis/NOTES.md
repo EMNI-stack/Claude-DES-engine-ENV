@@ -40,7 +40,7 @@ Top level:
   "demandMode": "instant"|"stream", "summary": "<one-line>",
   "arrivalScv": <n|null>,          # simple only: entry interarrival SCV (null under limitless supply)
   "resources": [ { "id","name","capacity","serviceMean","serviceScv","scrap","brk" } ],   # workcenters/stations
-  "parts": [ { "id","name","type","bom":[{partId,qty}],"routingMean":<n>,"isDemand":bool } ]  # advanced only
+  "parts": [ { "id","name","type","bom":[{partId,qty}],"route":[resourceId,...],"routingMean":<n>,"isDemand":bool } ]  # advanced only
 }
 ```
 
@@ -119,7 +119,11 @@ Notes:
       samples; `compare.py` (compare_kpis / compare_utilization / compare_flow_factor /
       best_scenario); dashboard grouped CI bars per KPI, winner badges, grouped
       utilization, flow-factor bars, KPI table. test_compare.py + compare-mode smoke.
-- [ ] Sankey / flow map of the advanced factory routings + throughput per arc.
+- [x] Sankey / flow map: BOM-aware material flow. Schema gains per-part `route`
+      (ordered workcenter ids; harness + browser). `metrics.routing_flow` builds a
+      conserving Start→workcenter→(BOM feed)→Assembly→Finished graph weighted by
+      part rates; Sankey in the Resources tab (bottleneck node amber); arcs also in
+      the tidy export (`process_flow` sheet). test_routing_flow.py.
 - [ ] "Teaching captions" pass: one-glance takeaway per chart, plain-language.
 
 ## Decisions (continued)
@@ -153,3 +157,6 @@ Notes:
 - 2026-06-05 — Iterate-3: tidy export now carries the flow-factor/congestion/
   per-part/propagation tables; README refreshed. Scenario-comparison feature
   (compare.py + sidebar toggle + grouped-CI view). 56 Python tests green.
+- 2026-06-05 — Iterate-3 material-flow Sankey: per-part `route` added to the
+  schema (harness + browser); BOM-aware routing_flow graph + Resources-tab Sankey
+  + process_flow export sheet. 60 Python tests green; 32 npm tests green.

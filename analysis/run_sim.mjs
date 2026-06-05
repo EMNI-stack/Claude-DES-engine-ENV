@@ -192,6 +192,7 @@ function advancedConfigSummary(cfg) {
     parts: cfg.parts.map((p) => ({
       id: p.id, name: p.name, type: p.type,
       bom: (p.bom || []).map((b) => ({ partId: b.partId, qty: b.qty })),
+      route: (p.routing || []).map((s) => s.resourceId),   // ordered workcenter visits (process-flow arcs)
       routingMean: r((p.routing || []).reduce((a, s) => a + distMean(s.service), 0)),
       isDemand: (cfg.demand || []).some((d) => d.partId === p.id),
     })),

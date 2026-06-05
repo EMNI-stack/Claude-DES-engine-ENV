@@ -180,6 +180,81 @@ def congestion_by_resource(ds: Dataset) -> pd.DataFrame:
     return u.reset_index(drop=True)
 
 
+# ---------------------------------------------------------------- process-flow map (routing Sankey)
+def routing_flow(ds: Dataset):
+    """Build a BOM-aware material-flow graph for the advanced factory.
+
+    Each part is processed along its routing (config ``route`` = ordered
+    resource ids) at its production rate (mean completions ÷ run length).
+    Components then feed the workcenter where their parent is assembled — the
+    BOM links a component's *last* workcenter to its parent's *first*
+    workcenter, weighted by qty × parent rate (the consumption rate). Raw
+    produced parts enter from ``Start``; purchased parts enter from
+    ``Purchased``; demand products exit to ``Finished``. Arcs are summed.
+
+    Returns ``{"nodes": [labels], "links": [{source, target, value,
+    source_name, target_name}]}`` or ``None`` if routing/throughput is missing.
+    """
+    parts_cfg = ds.config.get("parts", [])
+    res_cfg = ds.config.get("resources", [])
+    if not ds.is_advanced or not parts_cfg or not res_cfg or ds.parts.empty:
+        return None
+    if not any(p.get("route") for p in parts_cfg):
+        return None
+    T = ds.run_length or 0.0
+    if T <= 0:
+        return None
+    name_by_id = {r["id"]: r["name"] for r in res_cfg}
+    by_id = {p["id"]: p for p in parts_cfg}
+    rate = (ds.parts.groupby("id")["completed"].mean() / T).to_dict()
+    demand_ids = {p["id"] for p in parts_cfg if p.get("isDemand")}
+
+    def route_names(p):
+        return [name_by_id[rid] for rid in (p.get("route") or []) if rid in name_by_id]
+
+    agg: dict[tuple, float] = {}
+
+    def add(a, b, v):
+        if v > 0:
+            agg[(a, b)] = agg.get((a, b), 0.0) + v
+
+    for p in parts_cfg:
+        route = route_names(p)
+        rp = float(rate.get(p["id"], 0.0))
+        bom = p.get("bom") or []
+        # internal workcenter-to-workcenter arcs
+        for a, b in zip(route[:-1], route[1:]):
+            add(a, b, rp)
+        # entry: raw produced parts (no BOM) from Start; purchased handled by parent below
+        if route and not bom and p.get("type") != "purchased":
+            add("Start", route[0], rp)
+        # exit: demand products leave to Finished
+        if route and p["id"] in demand_ids:
+            add(route[-1], "Finished", rp)
+        # feed each component into this part's first workcenter
+        first = route[0] if route else "Finished"
+        for b in bom:
+            comp = by_id.get(b["partId"])
+            if comp is None:
+                continue
+            consume = float(b.get("qty", 1)) * rp
+            comp_route = route_names(comp)
+            src = comp_route[-1] if comp_route else "Purchased"
+            add(src, first, consume)
+
+    if not agg:
+        return None
+    # order nodes: Start, resources (config order), Purchased, Finished — used only
+    order = ["Start"] + [r["name"] for r in res_cfg] + ["Purchased", "Finished"]
+    used = {n for arc in agg for n in arc}
+    labels = [n for n in order if n in used]
+    idx = {lab: i for i, lab in enumerate(labels)}
+    links = [{"source": idx[a], "target": idx[b], "value": round(v, 4),
+              "source_name": a, "target_name": b}
+             for (a, b), v in agg.items()]
+    return {"nodes": labels, "links": links}
+
+
 # ---------------------------------------------------------------- variability propagation (linking equations)
 def variability_propagation(ds: Dataset) -> pd.DataFrame:
     """Propagate squared-CV variability down a serial line (linking equations).
