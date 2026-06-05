@@ -256,8 +256,8 @@
         <button class="vchip on" data-t="pCyc">Cycle-time histogram</button>
         <button class="vchip" data-t="pFel">Future Event List</button>
         <button class="vchip" data-t="pLog">Event log</button>
-        <button id="dljson" style="margin-left:auto" title="Export this run as a des-analysis/v1 JSON file for the Python dashboard">⬇ Download data (JSON)</button>
-        <button id="opendash" title="Open the local Python analysis dashboard (must be running: streamlit run analysis/dashboard.py)">📊 Analysis dashboard</button>
+        <button id="dljson" style="margin-left:auto" title="Export this run as a des-analysis/v1 JSON file">⬇ Download data (JSON)</button>
+        <button id="opendash" class="primary" title="Open the in-browser analysis dashboard with this run's data (no server needed)">📊 Analyze this run</button>
       </div>
       <div class="grid" style="margin-top:12px">
         <div>
@@ -816,7 +816,7 @@ function downloadJSON(obj,name){
   const blob=new Blob([JSON.stringify(obj)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href);
 }
-$('dljson').onclick=()=>{
+function buildData(){
   const T=sim.now||1e-9, fin=sim.completed+sim.scrapped;
   const resources=sim.stations.map((st,k)=>{const M=st.machines.length;return{
     id:`s${k}`,name:st.cfg.name,capacity:M,
@@ -836,23 +836,24 @@ $('dljson').onclick=()=>{
     cycleSamples:sim.cycles.map(ct=>({part:'unit',ct:jround(ct,4)})),
     timeseries:{t:samples.map(s=>jround(s.t,3)),wip:samples.map(s=>s.w),fg:samples.map(s=>s.fg),completed:[]},
   };
-  const data={schema:'des-analysis/v1',kind:'simple',generatedBy:'browser',generatedAt:new Date().toISOString(),
+  return {schema:'des-analysis/v1',kind:'simple',generatedBy:'browser',generatedAt:new Date().toISOString(),
     config:{control:config.control==='pull'?'pull':'push',supply:config.supply==='limitless'?'limitless':'stream',
       demandMode:(config.demand&&config.demand.mode==='stream')?'stream':'instant',
       summary:`${config.stations.length}-station line (browser export)`,
       arrivalScv:config.supply==='limitless'?null:(config.source?jround(distScv(config.source)):null),
       resources:config.stations.map((s,k)=>({id:`s${k}`,name:s.name,capacity:s.machines,serviceMean:jround(distMean(s.service)),serviceScv:jround(distScv(s.service)),scrap:s.scrap||0,brk:!!s.brk}))},
     runLength:jround(sim.now,1),warmupHint:null,replications:[rep]};
-  downloadJSON(data,'des-simple-data.json');
-};
+}
+$('dljson').onclick=()=>downloadJSON(buildData(),'des-simple-data.json');
 
-/* ---- open the local Python analysis dashboard in a popup. It is a LOCAL
-   companion (Streamlit) and must be running: `streamlit run analysis/dashboard.py`.
-   Workflow: Download data (JSON) here → upload it in the dashboard. ---- */
+/* ---- hand this run off to the in-browser analysis dashboard (analysis.html).
+   Runs fully client-side; no server needed. Falls back to a new tab if the
+   simulation hasn't produced output yet. ---- */
 $('opendash').onclick=()=>{
-  const url='http://localhost:8501';
-  const w=window.open(url,'desDashboard','width=1320,height=900,menubar=no,toolbar=no');
-  if(!w)alert('Popup blocked. Allow popups, or open '+url+' manually.\n\nThe dashboard is a local tool — start it with:\n  streamlit run analysis/dashboard.py');
+  if(!sim||!sim.events){ if(!confirm('No run yet — open the dashboard with sample data instead?')) return;
+    window.open('analysis.html','desDashboard'); return; }
+  try{ sessionStorage.setItem('des-analysis-data', JSON.stringify(buildData())); }catch(e){ /* quota */ }
+  window.open('analysis.html','desDashboard');
 };
 
 /* views */

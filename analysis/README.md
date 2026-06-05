@@ -1,9 +1,20 @@
-# DES factory — analysis & visualization companion
+# DES factory — analysis & visualization
 
-A **local, offline** Python companion for the DES factory simulator. It ingests
-simulation output, computes Factory-Physics and simulation-output-analysis
-metrics, and renders an interactive dashboard. It is **not** part of the
-GitHub Pages deployment — the browser app stays fully static and backend-free.
+There are **two** analysis dashboards over the same `des-analysis/v1` data:
+
+1. **In-browser dashboard (`analysis.html`)** — the primary, zero-setup option.
+   It runs entirely client-side (native ES modules + a vendored `plotly.min.js`),
+   so it ships with the static GitHub Pages site and needs **no server and no
+   Python**. From the simulator, click **📊 Analyze this run** and it opens with
+   your run's data; you can also upload a JSON or pick a bundled sample. The
+   analysis math lives in `src/analysis/*.js` and is unit-tested for parity with
+   the Python package (`npm test`).
+
+2. **Python companion (this folder)** — an optional power-user tool (Streamlit +
+   pandas/scipy) for batch/offline work. Same metrics, same schema.
+
+The rest of this README covers the Python companion. For the in-browser
+dashboard there is nothing to install — just open the site.
 
 ```
  browser app  ──Download data (JSON)──┐

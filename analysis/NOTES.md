@@ -126,6 +126,25 @@ Notes:
       the tidy export (`process_flow` sheet). test_routing_flow.py.
 - [ ] "Teaching captions" pass: one-glance takeaway per chart, plain-language.
 
+## In-browser dashboard (2026-06-05)
+
+- **Why.** The Streamlit dashboard needed a local Python server (`localhost:8501`),
+  which confused the deploy story ("connection refused" when not running). The
+  simulator already runs in the browser, so the analysis was reimplemented as a
+  static, client-side page — no server, ships with GitHub Pages.
+- **Plotly** vendored at `vendor/plotly.min.js` (v2.35.2, MIT, full bundle for
+  Sankey + gauge). One ~4.5 MB cached asset, no CDN, no build step.
+- **`src/analysis/*.js`** is a faithful ES-module port of `des_analysis`
+  (stats/ingest/output_analysis/metrics/characteristic/compare). The Student-t
+  quantile is implemented via the regularized incomplete beta + bisection
+  (matches scipy `t.ppf`). `tests/analysis-*.test.js` cross-check the JS output
+  against Python on every committed sample, so the two dashboards can't drift.
+- **`analysis.html`** mirrors the Streamlit views (Overview/Flow/Cycle/Resources/
+  Congestion/Replications/Steady state/Export + sweep + compare). Data sources:
+  sessionStorage handoff ("Analyze this run"), file upload, bundled samples.
+  Deep-linkable via `#tab` and `?sample=`. Both simulator pages now hand the live
+  run off to it instead of opening the Python server.
+
 ## Decisions (continued)
 
 - **Warm-up detector.** Primary cutoff = Welch moving-average flattening within a
