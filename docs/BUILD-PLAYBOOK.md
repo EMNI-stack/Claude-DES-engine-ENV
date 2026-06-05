@@ -6,7 +6,8 @@
 > Companion to the per-decision `memory/` notes and the running `analysis/NOTES.md`.
 > For the deep technical treatment of the DES engine internals, the factory-dynamics theory,
 > how the code realizes/validates each principle, and how to design a *simulation-modeling*
-> teaching app, see **`docs/DES-ENGINE-AND-FACTORY-DYNAMICS.md`**.
+> teaching app, see **`docs/DES-ENGINE-AND-FACTORY-DYNAMICS.md`** (deep) and
+> **`docs/ENGINE-CODE-TOUR.md`** (quick concept↔code map + kanban walkthrough).
 
 Last updated: 2026-06-05.
 

@@ -10,6 +10,8 @@
 > Theory is paraphrased from `Reference/theory-notes.md` (the user's distillation of
 > *Factory Physics for Managers* + the classic *Factory Physics*) and standard DES texts.
 > Code references are `file:line` against the committed source.
+> For a faster skim — a concept↔code map, short annotated walkthroughs, and a step-by-step on how
+> kanban/CONWIP stock works in the code — see **`docs/ENGINE-CODE-TOUR.md`**.
 
 ---
 
