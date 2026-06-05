@@ -103,6 +103,83 @@ def cycle_time_stats(ds: Dataset, quantiles=(0.5, 0.9, 0.95)) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# ---------------------------------------------------------------- flow factor / congestion (VUT)
+def raw_process_time(ds: Dataset):
+    """System raw process time T0 = Σ mean service time along a job's routing.
+
+    Simple line: every job visits every station once, so T0 = Σ serviceMean.
+    Advanced factory: routings differ by part, so a single system T0 is
+    ill-defined → returns None (use :func:`part_flow_factor` instead).
+    """
+    res = ds.config.get("resources", [])
+    if ds.kind == "simple" and res:
+        vals = [r.get("serviceMean") for r in res if r.get("serviceMean")]
+        return float(sum(vals)) if vals else None
+    return None
+
+
+def flow_factor(ds: Dataset) -> dict:
+    """Flow factor (a.k.a. cycle-time efficiency) FF = CT / T0.
+
+    FF = 1 is perfect flow (no waiting); FF = k means a job spends k× its raw
+    process time in the system, the excess being queueing/blocking. The
+    value-added fraction is 1/FF and the waiting fraction is 1 − 1/FF.
+    """
+    t0 = raw_process_time(ds)
+    ct_series = ds.scalars["avgCycleTime"].dropna() if "avgCycleTime" in ds.scalars else pd.Series(dtype=float)
+    ct = float(ct_series.mean()) if not ct_series.empty else float("nan")
+    ff = ct / t0 if (t0 and np.isfinite(ct)) else float("nan")
+    return {
+        "raw_process_time": t0,
+        "cycle_time": ct,
+        "flow_factor": ff,
+        "value_added_fraction": (1.0 / ff) if np.isfinite(ff) and ff > 0 else float("nan"),
+        "queue_fraction": (1.0 - 1.0 / ff) if np.isfinite(ff) and ff > 0 else float("nan"),
+    }
+
+
+def part_flow_factor(ds: Dataset) -> pd.DataFrame:
+    """Per-part flow factor (advanced only): part CT ÷ its routing process time.
+
+    Purchased / zero-routing parts (no processing of their own) are dropped.
+    """
+    if not ds.is_advanced or ds.parts.empty:
+        return pd.DataFrame()
+    routing = {p["id"]: p.get("routingMean") for p in ds.config.get("parts", [])}
+    g = (ds.parts.groupby(["id", "name"], sort=False)
+         .agg(avg_cycle_time=("avgCycleTime", "mean")).reset_index())
+    g["process_time"] = g["id"].map(routing).astype(float)
+    g = g[g["process_time"].fillna(0) > 0].copy()
+    g["flow_factor"] = g["avg_cycle_time"] / g["process_time"]
+    return g.reset_index(drop=True)
+
+
+def congestion_by_resource(ds: Dataset) -> pd.DataFrame:
+    """Decompose each resource's contribution to cycle time (VUT view).
+
+    Uses Little's Law at the queue (Wq = Lq / λ, with Lq = avgQueue and λ the
+    measured throughput) for the *measured* wait, and the M/M/1 reference
+    Wq = u/(1−u)·t_e (variability c²=1 at both arrival and service) as a
+    yardstick. Measured well above the reference signals high variability;
+    below it signals smoothing (low-variability arrivals/service).
+    """
+    u = utilization_summary(ds)
+    if u.empty:
+        return u
+    te = {r["id"]: r.get("serviceMean") for r in ds.config.get("resources", [])}
+    u = u.copy()
+    u["t_e"] = u["id"].map(te).astype(float)
+    lam = u["throughput"].where(u["throughput"] > 0, np.nan)
+    u["wq_measured"] = u["avg_queue"] / lam
+    rho = u["utilization"].clip(upper=0.999)
+    u["congestion_mult"] = rho / (1.0 - rho)        # the U-factor of VUT
+    u["wq_mm1"] = u["congestion_mult"] * u["t_e"]   # M/M/1 reference wait
+    u["ct_station"] = u["t_e"] + u["wq_measured"]   # process + wait at this resource
+    # implied (c_a²+c_e²)/2 from measured vs M/M/1 — the V-factor read-out
+    u["implied_v"] = u["wq_measured"] / u["wq_mm1"].where(u["wq_mm1"] > 0, np.nan)
+    return u.reset_index(drop=True)
+
+
 # ---------------------------------------------------------------- yield / fill rate
 def quality_summary(ds: Dataset) -> dict:
     """Mean yield and fill rate across replications (ignoring missing values)."""

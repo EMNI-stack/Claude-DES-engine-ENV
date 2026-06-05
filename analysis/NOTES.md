@@ -101,7 +101,11 @@ Notes:
       Driven by `--sweep` in the harness via a single-product CONWIP-cap line (clean total-WIP knob);
       `sweep-v1` schema, `characteristic.py` reference curves, dashboard `render_sweep` view,
       `sweep_line.json` sample, and `test_characteristic.py` (Little's-Law invariant on each curve).
-- [ ] Iterate-2: VUT / flow-factor (CT ÷ raw-process-time) annotation tying util+SCV to congestion.
+- [x] Iterate-2: VUT / flow-factor. `metrics.flow_factor` (CT÷T0, value-added vs waiting split),
+      `congestion_by_resource` (Little's-Law wait Wq=Lq/λ, M/M/1 reference u/(1−u)·t_e, implied
+      variability V), `part_flow_factor` (advanced). New dashboard "Congestion" tab: where-cycle-time-
+      accrues stacked bar, VUT congestion-vs-utilization curve, per-part flow-factor bar. Tests in
+      test_congestion.py.
 - [ ] Iterate-2: per-resource interdeparture-CV propagation view (theory-notes §9), if exportable.
 
 ## Decisions (continued)
@@ -125,3 +129,6 @@ Notes:
   (`main()` referenced an undefined `resolve_dataset`; now resolves a raw dict,
   routes `sweep-v1` files to `render_sweep`, else wraps in `Dataset`). Added
   `test_characteristic.py`. 37 Python tests green; 32 npm tests green.
+- 2026-06-05 — Iterate-2 flow factor / VUT: added flow-factor + congestion
+  metrics and a "Congestion" dashboard tab (where-cycle-time-accrues bar, VUT
+  curve vs M/M/1, per-part flow factor). 41 Python tests green.

@@ -259,6 +259,75 @@ def view_resources(ds: Dataset):
         st.dataframe(pp.style.format(precision=2), use_container_width=True, hide_index=True)
 
 
+def view_congestion(ds: Dataset):
+    ff = metrics.flow_factor(ds)
+    c = metrics.congestion_by_resource(ds)
+    cols = st.columns(4)
+    if ff["raw_process_time"] is not None:
+        kpi(cols[0], "Flow factor", fmt(ff["flow_factor"], 2), "cycle time ÷ process time", "warn")
+        kpi(cols[1], "Raw process time T₀", fmt(ff["raw_process_time"], 2), "value-added time")
+        kpi(cols[2], "Value-added", fmt(ff.get("value_added_fraction"), pct=True), "of cycle time", "accent")
+        kpi(cols[3], "Waiting / blocking", fmt(ff.get("queue_fraction"), pct=True), "of cycle time")
+    else:
+        kpi(cols[0], "Avg cycle time", fmt(ff["cycle_time"], 2), "across all parts", "accent")
+        kpi(cols[1], "System T₀", "—", "routings differ — see per-part")
+        kpi(cols[2], "Workcenters", str(len(c)) if not c.empty else "—", "")
+        kpi(cols[3], "Bottleneck u", fmt(c["utilization"].max() if not c.empty else None, pct=True), "busiest resource", "warn")
+    st.caption("Flow factor (cycle-time efficiency) is how many times a job's raw process time it actually "
+               "spends in the system — the rest is queueing and blocking. Closer to 1 is leaner flow.")
+    if c.empty:
+        return
+
+    c1, c2 = st.columns(2)
+    # (1) where cycle time accrues: process vs wait, stacked per resource
+    with c1:
+        cc = c.sort_values("ct_station")
+        fig = go.Figure()
+        fig.add_trace(go.Bar(y=cc["name"], x=cc["t_e"], orientation="h", name="process time",
+                             marker=dict(color=TEAL), text=[f"{v:.1f}" for v in cc["t_e"]], textposition="inside"))
+        fig.add_trace(go.Bar(y=cc["name"], x=cc["wq_measured"], orientation="h", name="waiting (queue)",
+                             marker=dict(color=AMBER)))
+        fig.update_layout(barmode="stack")
+        fig.update_xaxes(title="time per visit (process + wait)")
+        st.plotly_chart(plotly_layout(fig, 360, "Where cycle time accrues, by resource"), use_container_width=True)
+    # (2) VUT congestion curve: u/(1-u) blow-up with measured stations overlaid
+    with c2:
+        ug = np.linspace(0.0, 0.97, 120)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=ug, y=ug / (1 - ug), mode="lines",
+                                 line=dict(color=FAINT, dash="dash"),
+                                 name="M/M/1 (c²=1)"))
+        norm = c["wq_measured"] / c["t_e"].where(c["t_e"] > 0, np.nan)
+        fig.add_trace(go.Scatter(x=c["utilization"], y=norm, mode="markers+text",
+                                 marker=dict(color=TEAL, size=11, line=dict(color=BG, width=1)),
+                                 text=c["name"], textposition="top center", textfont=dict(size=9, color=FAINT),
+                                 name="simulated"))
+        fig.update_xaxes(title="utilization u", range=[0, 1.0])
+        fig.update_yaxes(title="wait ÷ process time (queue factor)", range=[0, float(np.nanmax([norm.max() * 1.2, 6]))])
+        st.plotly_chart(plotly_layout(fig, 360, "Congestion vs utilization (VUT)"), use_container_width=True)
+    st.caption("The dashed curve is the M/M/1 reference u/(1−u): queueing explodes as utilization → 1. "
+               "A station **above** the curve has more variability than exponential (bursty arrivals or service); "
+               "**below** it means smoother, lower-variability flow. `implied V` in the table is measured ÷ reference.")
+    show = c[["name", "t_e", "utilization", "avg_queue", "wq_measured", "wq_mm1", "implied_v", "ct_station"]]
+    st.dataframe(show.style.format({"t_e": "{:.2f}", "utilization": "{:.1%}", "avg_queue": "{:.2f}",
+                                    "wq_measured": "{:.2f}", "wq_mm1": "{:.2f}", "implied_v": "{:.2f}",
+                                    "ct_station": "{:.2f}"}),
+                 use_container_width=True, hide_index=True)
+
+    pf = metrics.part_flow_factor(ds)
+    if not pf.empty:
+        st.markdown("##### Per-part flow factor")
+        pf = pf.sort_values("flow_factor", ascending=True)
+        fig = go.Figure(go.Bar(y=pf["name"], x=pf["flow_factor"], orientation="h",
+                               marker=dict(color=[AMBER if v >= 5 else TEAL for v in pf["flow_factor"]]),
+                               text=[f"{v:.1f}×" for v in pf["flow_factor"]], textposition="outside"))
+        fig.add_vline(x=1, line=dict(color=FAINT, dash="dot"), annotation_text="ideal (1×)", annotation_font_color=FAINT)
+        fig.update_xaxes(title="flow factor (CT ÷ routing process time)")
+        st.plotly_chart(plotly_layout(fig, 60 + 38 * len(pf), "Flow factor by part"), use_container_width=True)
+        st.caption("Parts routed through congested resources carry a high flow factor — a direct pointer to which "
+                   "product the bottleneck is hurting most.")
+
+
 def view_replications(ds: Dataset):
     summ = oa.summarize_replications(ds.scalars)
     show = st.multiselect("Metrics", summ["metric"].tolist(),
@@ -425,14 +494,15 @@ def main():
     st.write("")
 
     tabs = st.tabs(["Overview", "Flow over time", "Cycle time", "Resources",
-                    "Replications", "Steady state", "Export"])
+                    "Congestion", "Replications", "Steady state", "Export"])
     with tabs[0]: view_overview(ds)
     with tabs[1]: view_flow(ds)
     with tabs[2]: view_cycle(ds)
     with tabs[3]: view_resources(ds)
-    with tabs[4]: view_replications(ds)
-    with tabs[5]: view_steady_state(ds)
-    with tabs[6]: view_export(ds)
+    with tabs[4]: view_congestion(ds)
+    with tabs[5]: view_replications(ds)
+    with tabs[6]: view_steady_state(ds)
+    with tabs[7]: view_export(ds)
 
 
 if __name__ == "__main__":
