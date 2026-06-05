@@ -4,6 +4,9 @@
 > and how to do it faster and better next time. Written as a reusable reference for
 > building **client-side, teaching-oriented simulation/visualization apps**.
 > Companion to the per-decision `memory/` notes and the running `analysis/NOTES.md`.
+> For the deep technical treatment of the DES engine internals, the factory-dynamics theory,
+> how the code realizes/validates each principle, and how to design a *simulation-modeling*
+> teaching app, see **`docs/DES-ENGINE-AND-FACTORY-DYNAMICS.md`**.
 
 Last updated: 2026-06-05.
 
