@@ -180,6 +180,48 @@ def congestion_by_resource(ds: Dataset) -> pd.DataFrame:
     return u.reset_index(drop=True)
 
 
+# ---------------------------------------------------------------- variability propagation (linking equations)
+def variability_propagation(ds: Dataset) -> pd.DataFrame:
+    """Propagate squared-CV variability down a serial line (linking equations).
+
+    Only meaningful for the simple line (a single serial route). For each
+    single-/multi-machine station the departure SCV is (Factory-Physics /
+    Sakasegawa):
+
+        c_d² = 1 + (1 − u²)(c_a² − 1) + (u²/√m)(c_e² − 1)
+
+    and that c_d² becomes the next station's arrival SCV c_a². The entry c_a²
+    is the external interarrival SCV (config ``arrivalScv``); under limitless
+    supply station 0 is never starved, so we seed it with its own service SCV
+    and flag the row as ``entry_assumed``.
+
+    Columns: idx, id, name, capacity, utilization, ca2, ce2, cd2, entry_assumed.
+    Empty DataFrame if the file predates ``serviceScv`` or is not a simple line.
+    """
+    if ds.kind != "simple":
+        return pd.DataFrame()
+    res = ds.config.get("resources", [])
+    if not res or any(r.get("serviceScv") is None for r in res):
+        return pd.DataFrame()
+    u_by_id = {row["id"]: float(row["utilization"]) for _, row in utilization_summary(ds).iterrows()}
+    arrival = ds.config.get("arrivalScv")
+    entry_assumed = arrival is None
+    ca2 = float(arrival) if arrival is not None else float(res[0]["serviceScv"])
+    rows = []
+    for k, r in enumerate(res):
+        ce2 = float(r["serviceScv"])
+        m = max(1, int(r.get("capacity", 1)))
+        u = u_by_id.get(r["id"], float("nan"))
+        u = min(u, 0.999) if np.isfinite(u) else 0.0
+        cd2 = 1.0 + (1.0 - u * u) * (ca2 - 1.0) + (u * u / np.sqrt(m)) * (ce2 - 1.0)
+        cd2 = max(0.0, cd2)
+        rows.append({"idx": k, "id": r["id"], "name": r["name"], "capacity": m,
+                     "utilization": u, "ca2": ca2, "ce2": ce2, "cd2": cd2,
+                     "entry_assumed": entry_assumed and k == 0})
+        ca2 = cd2  # departures of this station are arrivals to the next
+    return pd.DataFrame(rows)
+
+
 # ---------------------------------------------------------------- yield / fill rate
 def quality_summary(ds: Dataset) -> dict:
     """Mean yield and fill rate across replications (ignoring missing values)."""

@@ -38,7 +38,8 @@ Top level:
 ```
 { "control": "push"|"pull", "supply": "limitless"|"stream",
   "demandMode": "instant"|"stream", "summary": "<one-line>",
-  "resources": [ { "id","name","capacity","serviceMean","scrap","brk" } ],   # workcenters/stations
+  "arrivalScv": <n|null>,          # simple only: entry interarrival SCV (null under limitless supply)
+  "resources": [ { "id","name","capacity","serviceMean","serviceScv","scrap","brk" } ],   # workcenters/stations
   "parts": [ { "id","name","type","bom":[{partId,qty}],"routingMean":<n>,"isDemand":bool } ]  # advanced only
 }
 ```
@@ -106,7 +107,11 @@ Notes:
       variability V), `part_flow_factor` (advanced). New dashboard "Congestion" tab: where-cycle-time-
       accrues stacked bar, VUT congestion-vs-utilization curve, per-part flow-factor bar. Tests in
       test_congestion.py.
-- [ ] Iterate-2: per-resource interdeparture-CV propagation view (theory-notes §9), if exportable.
+- [x] Iterate-2: variability propagation view (theory-notes §9). Analytic `distVar`/`distScv` added to
+      distributions.js (no behavioural change); harness + browser export per-resource `serviceScv` and
+      simple-line entry `arrivalScv`. `metrics.variability_propagation` applies the multi-machine linking
+      equation c²_d = 1 + (1−u²)(c²ₐ−1) + (u²/√m)(c²ₑ−1) down the serial line; dashboard Congestion tab
+      charts c²ₐ/c²ₑ/c²_d per station. New `stream_line` sample (external arrivals). test_propagation.py.
 
 ## Decisions (continued)
 
@@ -132,3 +137,7 @@ Notes:
 - 2026-06-05 — Iterate-2 flow factor / VUT: added flow-factor + congestion
   metrics and a "Congestion" dashboard tab (where-cycle-time-accrues bar, VUT
   curve vs M/M/1, per-part flow factor). 41 Python tests green.
+- 2026-06-05 — Iterate-2 variability propagation (§9): analytic distVar/distScv;
+  serviceScv + arrivalScv now in the schema (harness + both browser exports);
+  linking-equation propagation metric + Congestion-tab chart; new stream_line
+  sample. 48 Python tests green; 32 npm tests green. Iterate-2 backlog cleared.

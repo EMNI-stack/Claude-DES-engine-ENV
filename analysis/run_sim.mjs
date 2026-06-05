@@ -19,7 +19,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 
 import { Sim, defaultConfig } from '../src/engine.js';
 import { AdvancedSim, normalizeFactory } from '../src/advanced-engine.js';
-import { newDist, distMean } from '../src/distributions.js';
+import { newDist, distMean, distScv } from '../src/distributions.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -135,9 +135,13 @@ function simpleConfigSummary(cfg) {
     supply: cfg.supply === 'limitless' ? 'limitless' : 'stream',
     demandMode: (cfg.demand && cfg.demand.mode === 'stream') ? 'stream' : 'instant',
     summary: `${cfg.stations.length}-station line, ${cfg.control || 'push'} / ${cfg.supply || 'stream'} supply`,
+    // entry interarrival variability for the linking-equation propagation view;
+    // null under limitless supply (station 0 is never starved → no external stream).
+    arrivalScv: cfg.supply === 'limitless' ? null : (cfg.source ? r(distScv(cfg.source)) : null),
     resources: cfg.stations.map((s, k) => ({
       id: `s${k}`, name: s.name, capacity: s.machines,
-      serviceMean: r(distMean(s.service)), scrap: s.scrap || 0, brk: !!s.brk,
+      serviceMean: r(distMean(s.service)), serviceScv: r(distScv(s.service)),
+      scrap: s.scrap || 0, brk: !!s.brk,
     })),
   };
 }
@@ -183,7 +187,7 @@ function advancedConfigSummary(cfg) {
     summary: `${cfg.resources.length} workcenters · ${cfg.parts.length} parts · ${cfg.controlMode || 'push'}`,
     resources: cfg.resources.map((rc) => ({
       id: rc.id, name: rc.name, capacity: Math.max(1, rc.capacity | 0),
-      serviceMean: r(distMean(rc.service)), scrap: 0, brk: !!rc.brk,
+      serviceMean: r(distMean(rc.service)), serviceScv: r(distScv(rc.service)), scrap: 0, brk: !!rc.brk,
     })),
     parts: cfg.parts.map((p) => ({
       id: p.id, name: p.name, type: p.type,

@@ -327,6 +327,33 @@ def view_congestion(ds: Dataset):
         st.caption("Parts routed through congested resources carry a high flow factor — a direct pointer to which "
                    "product the bottleneck is hurting most.")
 
+    vp = metrics.variability_propagation(ds)
+    if not vp.empty:
+        st.markdown("##### Variability propagation along the line")
+        names = list(vp["name"])
+        fig = go.Figure()
+        # each station's own service variability
+        fig.add_trace(go.Bar(x=names, y=vp["ce2"], name="service c²ₑ",
+                             marker=dict(color="#2f3b46"), width=0.5))
+        # the propagating flow variability: arrival into each station, departure out
+        fig.add_trace(go.Scatter(x=names, y=vp["ca2"], mode="lines+markers", name="arrival c²ₐ",
+                                 line=dict(color="#7aa2ff", width=2), marker=dict(size=9)))
+        fig.add_trace(go.Scatter(x=names, y=vp["cd2"], mode="lines+markers", name="departure c²_d",
+                                 line=dict(color=TEAL, width=2.4), marker=dict(size=9, symbol="diamond")))
+        fig.add_hline(y=1.0, line=dict(color=AMBER, dash="dot"),
+                      annotation_text="exponential (c²=1)", annotation_font_color=AMBER)
+        fig.update_yaxes(title="squared CV (variability)", rangemode="tozero")
+        st.plotly_chart(plotly_layout(fig, 360, "How variability flows station to station"), use_container_width=True)
+        entry = "service SCV of stage 1 (saturated source under limitless supply)" if bool(vp.iloc[0]["entry_assumed"]) \
+            else f"external arrivals (c²ₐ = {vp.iloc[0]['ca2']:.2f})"
+        trend = "dampens" if vp.iloc[-1]["cd2"] < vp.iloc[0]["ca2"] else "amplifies"
+        st.caption(
+            f"Each station's departures feed the next station's arrivals (linking equation "
+            f"c²_d = 1 + (1−u²)(c²ₐ−1) + (u²/√m)(c²ₑ−1)). The chain starts from {entry}. "
+            f"Here the line **{trend}** variability overall. Low-variability stations far from saturation "
+            "smooth flow; a heavily-loaded station passes its arrival variability straight through, so taming "
+            "the entry/bottleneck variability is what calms the whole line.")
+
 
 def view_replications(ds: Dataset):
     summ = oa.summarize_replications(ds.scalars)

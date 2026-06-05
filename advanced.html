@@ -285,7 +285,7 @@
 
 <script type="module">
 import { AdvancedSim, normalizeFactory } from './src/advanced-engine.js';
-import { DISTS, newDist, sample, distMean, mulberry32 } from './src/distributions.js';
+import { DISTS, newDist, sample, distMean, distScv, mulberry32 } from './src/distributions.js';
 
 const $=id=>document.getElementById(id);
 const cloneDist=d=>({type:d.type,params:Object.assign({},d.params),variability:d.variability||0});
@@ -1013,7 +1013,7 @@ $('adljson').onclick=()=>{
     config:{control:config.controlMode==='pull'?'pull':'push',supply:config.supplyMode==='stream'?'stream':'limitless',
       demandMode:config.demandMode==='stream'?'stream':'instant',
       summary:`${config.resources.length} workcenters · ${config.parts.length} parts (browser export)`,
-      resources:config.resources.map(rc=>({id:rc.id,name:rc.name,capacity:Math.max(1,rc.capacity|0),serviceMean:jround(distMean(rc.service)),scrap:0,brk:!!rc.brk})),
+      resources:config.resources.map(rc=>({id:rc.id,name:rc.name,capacity:Math.max(1,rc.capacity|0),serviceMean:jround(distMean(rc.service)),serviceScv:jround(distScv(rc.service)),scrap:0,brk:!!rc.brk})),
       parts:config.parts.map(p=>({id:p.id,name:p.name,type:p.type,bom:(p.bom||[]).map(b=>({partId:b.partId,qty:b.qty})),routingMean:jround((p.routing||[]).reduce((a,s)=>a+distMean(s.service),0)),isDemand:inDemand(p.id)}))},
     runLength:jround(asim.now,1),warmupHint:null,replications:[rep]};
   downloadJSON(data,'des-advanced-data.json');

@@ -366,7 +366,7 @@
 
 <script type="module">
 import { Sim, station, defaultConfig } from './src/engine.js';
-import { DISTS, newDist, sample, distMean, mulberry32 } from './src/distributions.js';
+import { DISTS, newDist, sample, distMean, distScv, mulberry32 } from './src/distributions.js';
 
 /* ===================================================================
    UI: builder
@@ -840,7 +840,8 @@ $('dljson').onclick=()=>{
     config:{control:config.control==='pull'?'pull':'push',supply:config.supply==='limitless'?'limitless':'stream',
       demandMode:(config.demand&&config.demand.mode==='stream')?'stream':'instant',
       summary:`${config.stations.length}-station line (browser export)`,
-      resources:config.stations.map((s,k)=>({id:`s${k}`,name:s.name,capacity:s.machines,serviceMean:jround(distMean(s.service)),scrap:s.scrap||0,brk:!!s.brk}))},
+      arrivalScv:config.supply==='limitless'?null:(config.source?jround(distScv(config.source)):null),
+      resources:config.stations.map((s,k)=>({id:`s${k}`,name:s.name,capacity:s.machines,serviceMean:jround(distMean(s.service)),serviceScv:jround(distScv(s.service)),scrap:s.scrap||0,brk:!!s.brk}))},
     runLength:jround(sim.now,1),warmupHint:null,replications:[rep]};
   downloadJSON(data,'des-simple-data.json');
 };

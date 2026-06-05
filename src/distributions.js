@@ -78,3 +78,39 @@ export function distMean(d) {
     default:           return 1;
   }
 }
+
+// Analytic variance of the base distribution (before any multiplicative
+// `variability` jitter). Used to report service-time SCV for the
+// variability-propagation (linking-equation) analysis.
+export function distVar(d) {
+  const p = d.params;
+  switch (d.type) {
+    case 'const':      return 0;
+    case 'exp':        return p.mean * p.mean;                 // SCV = 1
+    case 'uniform':    return (p.max - p.min) ** 2 / 12;
+    case 'normal':     return p.sd * p.sd;
+    case 'triangular': {
+      const { min: a, mode: c, max: b } = p;
+      return (a * a + b * b + c * c - a * b - a * c - b * c) / 18;
+    }
+    case 'weibull': {
+      const g1 = gammaFn(1 + 1 / p.shape), g2 = gammaFn(1 + 2 / p.shape);
+      return p.scale * p.scale * (g2 - g1 * g1);
+    }
+    case 'lognormal':  return p.sd * p.sd;                     // parameterised by real-space mean/sd
+    default:           return 0;
+  }
+}
+
+// Squared coefficient of variation c² = Var/Mean² (dimensionless variability).
+// Includes the multiplicative `variability` jitter when present: a factor with
+// mean 1 and sd = variability multiplies the base sample, so by the product
+// rule for independent factors  c²_total = c²_base + c²_jitter + c²_base·c²_jitter.
+export function distScv(d) {
+  const m = distMean(d);
+  if (!(m > 0)) return NaN;
+  let scv = distVar(d) / (m * m);
+  const j = d.variability || 0;
+  if (j > 0) scv = scv + j * j + scv * j * j;
+  return scv;
+}
