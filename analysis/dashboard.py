@@ -403,16 +403,22 @@ def main():
 
     st.markdown("# 🏭 DES factory — analysis dashboard")
 
-    ds = None
+    raw = None
     if args.path:
         p = Path(args.path)
         if p.exists():
-            ds = Dataset(_load_path(str(p), p.stat().st_mtime))
-    if ds is None:
-        ds = resolve_dataset()
-    if ds is None:
+            raw = _load_path(str(p), p.stat().st_mtime)
+    if raw is None:
+        raw = resolve_raw()
+    if raw is None:
         return
 
+    # CONWIP characteristic-curve sweeps use a different schema and a dedicated view.
+    if ch.is_sweep(raw):
+        render_sweep(raw)
+        return
+
+    ds = Dataset(raw)
     st.markdown(f"#### {ds.summary}")
     st.caption(f"source: {ds.generated_by} · kind: {ds.kind} · {ds.n_reps} replications")
     kpi_header(ds)

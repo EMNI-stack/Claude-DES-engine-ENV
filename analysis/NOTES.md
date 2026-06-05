@@ -97,8 +97,10 @@ Notes:
 - [x] Iterate-1: harness scenario flags (--control/--demand/--supply/--conwip/--scenario);
       Welch window slider; Steady-state (batch-means) tab for single-replication browser exports;
       pull-mode sample dataset; smoke test now covers every committed sample.
-- [ ] Iterate-2: TH/CT-vs-WIP characteristic curve (best / practical-worst / worst envelope, §6) —
-      needs a clean single-WIP-cap knob; investigate driving it via the harness.
+- [x] Iterate-2: TH/CT-vs-WIP characteristic curve (best / practical-worst / worst envelope, §6).
+      Driven by `--sweep` in the harness via a single-product CONWIP-cap line (clean total-WIP knob);
+      `sweep-v1` schema, `characteristic.py` reference curves, dashboard `render_sweep` view,
+      `sweep_line.json` sample, and `test_characteristic.py` (Little's-Law invariant on each curve).
 - [ ] Iterate-2: VUT / flow-factor (CT ÷ raw-process-time) annotation tying util+SCV to congestion.
 - [ ] Iterate-2: per-resource interdeparture-CV propagation view (theory-notes §9), if exportable.
 
@@ -119,3 +121,7 @@ Notes:
   (math + ingest + exporters + headless dashboard render of every sample).
 - Iterate-1 complete: scenario flags, batch-means tab, Welch window slider,
   pull sample; parametrized dashboard smoke test passes for all 3 samples.
+- 2026-06-05 — Iterate-2 characteristic curve: fixed a dashboard regression
+  (`main()` referenced an undefined `resolve_dataset`; now resolves a raw dict,
+  routes `sweep-v1` files to `render_sweep`, else wraps in `Dataset`). Added
+  `test_characteristic.py`. 37 Python tests green; 32 npm tests green.
