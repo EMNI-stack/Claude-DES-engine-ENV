@@ -139,6 +139,40 @@ function conveyorFloor({ cap = 1, convSpeed = 10, dist = 50, sA = 0.5, sB = 5, b
   };
 }
 
+/* ---- scrap & breakdowns (ported from the original engine) -------------- */
+// Single saturated resource: source -> A -> sink, fast arrivals so A is busy.
+function oneResource({ service = 1, scrap = 0, brk = null, interarrival = 0.5 } = {}) {
+  const A = { kind: 'resource', id: 'A', x: 5, y: 0, machines: 1, service: newDist('exp', { mean: service }), bufferCap: Infinity, scrap };
+  if (brk) A.brk = brk;
+  return {
+    schema: 'des-floor/v1', units: { time: 'min', distance: 'm', speed: 'm/min' },
+    transport: { default: 'instant', speed: 100 },
+    nodes: [{ kind: 'source', id: 'src', x: 0, y: 0 }, A, { kind: 'sink', id: 'snk', x: 10, y: 0 }],
+    parts: [{ id: 'p', kind: 'product', routing: ['src', 'A', 'snk'], demand: newDist('exp', { mean: interarrival }) }],
+  };
+}
+
+test('scrap: yield approaches 1 - p and conservation includes scrap', () => {
+  const sim = new FloorSim(oneResource({ service: 1, scrap: 0.2, interarrival: 0.5 }), 7);
+  sim.run({ until: 20000 });
+  const r = sim.metrics();
+  assert.ok(r.scrapped > 50, `expected scrap, got ${r.scrapped}`);
+  assert.ok(Math.abs(r.yield - 0.8) < 0.03, `yield ${r.yield.toFixed(3)} should be ~0.80`);
+  assert.equal(r.entered, r.completed + r.scrapped + r.inSystem,
+    `conservation: ${r.entered} != ${r.completed} + ${r.scrapped} + ${r.inSystem}`);
+});
+
+test('breakdowns: availability lowers throughput and shows downtime (preempt-resume)', () => {
+  const brk = { on: true, ttf: newDist('exp', { mean: 20 }), ttr: newDist('exp', { mean: 5 }) }; // A = 20/25 = 0.8
+  const up = new FloorSim(oneResource({ service: 1, interarrival: 0.5 }), 5);
+  const dn = new FloorSim(oneResource({ service: 1, interarrival: 0.5, brk }), 5);
+  up.run({ until: 20000 }); dn.run({ until: 20000 });
+  const ru = up.metrics(), rd = dn.metrics();
+  assert.ok(rd.downFraction['A'] > 0.1 && rd.downFraction['A'] < 0.32, `down fraction ${rd.downFraction['A'].toFixed(3)} ~ 0.2`);
+  assert.ok(rd.throughput < ru.throughput, `breakdowns should cut throughput: up ${ru.throughput.toFixed(3)}, down ${rd.throughput.toFixed(3)}`);
+  assert.ok(Math.abs(rd.throughput - 0.8) < 0.12, `throughput with A=0.8 should be ~0.8, got ${rd.throughput.toFixed(3)}`);
+});
+
 test('conveyor capacity/blocking: a full downstream buffer blocks the conveyor and backs up upstream', () => {
   // B is slow (mean 5) with a 1-slot buffer; conveyor cap 1; arrivals fast (1).
   const sim = new FloorSim(conveyorFloor({ cap: 1, convSpeed: 10, dist: 50, sA: 0.5, sB: 5, bBuf: 1, interarrival: 1 }), 2);

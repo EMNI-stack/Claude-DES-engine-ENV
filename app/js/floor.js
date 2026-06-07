@@ -178,6 +178,18 @@ function inspectNode(n, body) {
     finChk.addEventListener('change', () => { n.buffer.finite = finChk.checked; persist(); renderInspector(); });
     body.append(H('label', { class: 'toggle-row' }, [finChk, 'Finite capacity (can block / back up)']));
     if (n.buffer.finite) body.append(field('Capacity', numInput(n.buffer.cap, 1, 1, (v) => { n.buffer.cap = Math.max(1, v | 0); persist(); })));
+    body.append(H('p', { class: 'subhead' }, 'Scrap'));
+    body.append(field('Scrap fraction (0–1)', numInput(n.scrap || 0, 0, 0.01, (v) => { n.scrap = Math.min(1, Math.max(0, v || 0)); persist(); })));
+    body.append(H('p', { class: 'subhead' }, 'Breakdowns'));
+    const brkChk = H('input', { type: 'checkbox' }); brkChk.checked = !!n.brk.on;
+    brkChk.addEventListener('change', () => { n.brk.on = brkChk.checked; persist(); render(); renderInspector(); });
+    body.append(H('label', { class: 'toggle-row' }, [brkChk, 'Machine can break down (preempt-resume)']));
+    if (n.brk.on) {
+      body.append(H('p', { class: 'subhead' }, 'Time to failure'));
+      body.append(distEditor(n.brk.ttf, persist));
+      body.append(H('p', { class: 'subhead' }, 'Time to repair'));
+      body.append(distEditor(n.brk.ttr, persist));
+    }
   } else if (n.kind === 'storage') {
     body.append(field('Capacity', numInput(n.cap, 1, 1, (v) => { n.cap = Math.max(1, v | 0); persist(); })));
   } else if (n.kind === 'source') {
@@ -231,7 +243,7 @@ function renderTable() {
   const rb = H('tbody', {});
   model.routeOrder.map(node).filter(Boolean).forEach((n) => {
     const tr = H('tr', { class: 'click' });
-    const svc = n.kind === 'resource' ? `${DISTS[n.service.type].label} · μ=${distMean(n.service).toFixed(2)}` : n.kind === 'storage' ? `cap ${n.cap}` : n.kind === 'source' ? `${DISTS[n.interarrival.type].label} · μ=${distMean(n.interarrival).toFixed(2)}` : '—';
+    const svc = n.kind === 'resource' ? `${DISTS[n.service.type].label} · μ=${distMean(n.service).toFixed(2)}${n.scrap ? ` · scrap ${(n.scrap * 100).toFixed(0)}%` : ''}${n.brk.on ? ' · brk' : ''}` : n.kind === 'storage' ? `cap ${n.cap}` : n.kind === 'source' ? `${DISTS[n.interarrival.type].label} · μ=${distMean(n.interarrival).toFixed(2)}` : '—';
     const buf = n.kind === 'resource' ? (n.buffer.finite ? String(n.buffer.cap) : '∞') : '—';
     tr.innerHTML = `<td></td><td>${n.kind}</td><td class="num">${n.kind === 'resource' ? (n.machines || 1) : '—'}</td><td class="sum"></td><td class="num">${buf}</td>`;
     tr.children[0].textContent = n.name || n.kind; tr.children[3].textContent = svc;
@@ -295,7 +307,7 @@ function ensureWorkerAssumption() {
 /* ---- run ---------------------------------------------------------------- */
 function buildRunModel() {
   const nodes = model.nodes.map((n) => n.kind === 'resource'
-    ? { kind: 'resource', id: n.id, name: n.name, x: n.x, y: n.y, machines: n.machines || 1, service: n.service, bufferCap: n.buffer.finite ? n.buffer.cap : Infinity }
+    ? { kind: 'resource', id: n.id, name: n.name, x: n.x, y: n.y, machines: n.machines || 1, service: n.service, bufferCap: n.buffer.finite ? n.buffer.cap : Infinity, scrap: n.scrap || 0, brk: n.brk }
     : { kind: n.kind, id: n.id, name: n.name, x: n.x, y: n.y, cap: n.cap });
   const src = model.nodes.find((n) => n.kind === 'source');
   const demand = src ? src.interarrival : newDist('exp', { mean: 3 });
@@ -314,10 +326,11 @@ function runModel() {
       <div class="kpi"><div class="kpi__label">Cycle time</div><div class="kpi__value num">${f(r.avgCycleTime)}<span class="kpi__unit">min</span></div></div>
       <div class="kpi"><div class="kpi__label">In transport</div><div class="kpi__value num">${f(r.avgTransitPerJob)}<span class="kpi__unit">min</span></div></div>
       <div class="kpi"><div class="kpi__label">Avg WIP</div><div class="kpi__value num">${f(r.avgWIP)}</div></div>
+      <div class="kpi"><div class="kpi__label">Yield</div><div class="kpi__value num">${(100 * r.yield).toFixed(1)}<span class="kpi__unit">%</span></div></div>
     </div>
-    <table class="table" style="margin-top:var(--s-4)"><thead><tr><th>Resource</th><th class="num">Utilisation</th></tr></thead><tbody id="utilBody"></tbody></table>`;
+    <table class="table" style="margin-top:var(--s-4)"><thead><tr><th>Resource</th><th class="num">Util</th><th class="num">Down</th><th class="num">Blocked</th></tr></thead><tbody id="utilBody"></tbody></table>`;
   const tb = $('utilBody');
-  model.nodes.filter((n) => n.kind === 'resource').forEach((n) => { const tr = H('tr', {}); tr.innerHTML = `<td></td><td class="num">${(100 * (r.utilisation[n.id] || 0)).toFixed(1)}%</td>`; tr.firstChild.textContent = n.name || 'Resource'; tb.append(tr); });
+  model.nodes.filter((n) => n.kind === 'resource').forEach((n) => { const tr = H('tr', {}); tr.innerHTML = `<td></td><td class="num">${(100 * (r.utilisation[n.id] || 0)).toFixed(1)}%</td><td class="num">${(100 * (r.downFraction[n.id] || 0)).toFixed(1)}%</td><td class="num">${(100 * (r.blockedFraction[n.id] || 0)).toFixed(1)}%</td>`; tr.firstChild.textContent = n.name || 'Resource'; tb.append(tr); });
   const tRows = [];
   if (r.workers) tRows.push(`<tr><td>Workers (${r.workers.count})</td><td class="num">${(100 * r.workers.utilisation).toFixed(1)}% util</td><td class="num">${r.workers.avgQueue.toFixed(2)} queued</td></tr>`);
   const conv = Object.values(r.conveyors || {}); if (conv.length) tRows.push(`<tr><td>Conveyor (busiest)</td><td class="num">${(100 * Math.max(...conv.map((c) => c.utilisation))).toFixed(1)}% full</td><td class="num">—</td></tr>`);

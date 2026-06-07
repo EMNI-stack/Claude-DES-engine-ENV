@@ -281,3 +281,26 @@ engine already supports, (B) port scrap + breakdowns, (C) port push/pull + suppl
 editor + inspector render, no console errors; screenshot reviewed — on-brand.
 
 **Next (this work):** stage B — port scrap + breakdowns into `floor-engine.js` with UI + tests.
+
+---
+
+## 2026-06-07 — Phase 3 (model richness), stage B: scrap + breakdowns
+
+Ported the two remaining per-station detractors from the original engine into `floor-engine.js`:
+- **Scrap**: Bernoulli fallout at service completion (`scrap` fraction); a scrapped job leaves the
+  system (counted, not completed). New `yield` and `scrapped` metrics; conservation is now
+  `entered = completed + scrapped + inSystem`.
+- **Breakdowns (preempt-resume)**: per-machine time-to-failure / time-to-repair distributions; a
+  failure preempts the in-progress service (remaining work saved, completion cancelled via a
+  version stamp), the machine goes down, and on repair the remainder resumes. New per-resource
+  `downFraction`. Service won't start on a down machine.
+- UI: resource inspector gains a **scrap fraction** and a **breakdowns** toggle with TTF/TTR
+  distribution editors; run results show a **Yield** tile and **Down/Blocked** columns; the table
+  overview flags scrap % and breakdowns.
+- 2 new tests: scrap yield ≈ 1−p (+ conservation with scrap); breakdowns at A=0.8 cut throughput to
+  ≈0.8 with ≈20% downtime.
+
+**Verification:** `npm test` → **72/72**. Headless render: scrap + breakdown fields present, no
+console errors.
+
+**Next (this work):** stage C — port push/pull + supply/demand control into `floor-engine.js`.

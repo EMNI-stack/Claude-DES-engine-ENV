@@ -35,7 +35,7 @@ export class FloorSim {
 
     this.wip = 0; this.inTransit = 0;
     this.areaWIP = 0; this.areaTransit = 0;
-    this.entered = 0; this.completed = 0;
+    this.entered = 0; this.completed = 0; this.scrapped = 0;
     this.sumCycle = 0; this.sumJobTransit = 0;
     this.pid = 0;
     this.arrivalBlocked = [];               // instant-delivered jobs awaiting a full buffer
@@ -48,10 +48,13 @@ export class FloorSim {
       if (n.kind === 'resource') {
         this.res[n.id] = {
           node: n,
-          machines: Array.from({ length: Math.max(1, n.machines || 1) }, () => ({ busy: false, blocked: false, job: null })),
+          machines: Array.from({ length: Math.max(1, n.machines || 1) }, () => ({
+            busy: false, blocked: false, down: false, preempted: false, job: null,
+            remaining: 0, depTime: 0, depSeq: 0, failSeq: 0,
+          })),
           queue: [],
           cap: (n.bufferCap == null ? Infinity : n.bufferCap),  // total holding (queue + in-machine)
-          aBusy: 0, aBlk: 0, aQ: 0, processed: 0,
+          aBusy: 0, aBlk: 0, aDown: 0, aQ: 0, processed: 0,
         };
       } else if (n.kind === 'source' || n.kind === 'storage') {
         this.hold[n.id] = { node: n, items: [], cap: (n.kind === 'source' ? Infinity : (n.cap == null ? Infinity : n.cap)), aOcc: 0 };
@@ -81,6 +84,12 @@ export class FloorSim {
           this.conv[key] = { key, cap, speed, items: [], aBusy: 0 };
         }
       }
+    }
+
+    // breakdown clocks for machines whose resource has breakdowns enabled
+    for (const id in this.res) {
+      const r = this.res[id];
+      if (r.node.brk && r.node.brk.on) r.machines.forEach((m, mi) => this.scheduleFail(id, mi));
     }
 
     // first arrival per part with a demand stream
@@ -121,8 +130,8 @@ export class FloorSim {
     const dt = t - this.lastT;
     if (dt > 0) {
       for (const id in this.res) { const r = this.res[id];
-        let b = 0, bl = 0; for (const m of r.machines) { if (m.busy) b++; if (m.blocked) bl++; }
-        r.aBusy += b * dt; r.aBlk += bl * dt; r.aQ += r.queue.length * dt; }
+        let b = 0, bl = 0, dn = 0; for (const m of r.machines) { if (m.busy) b++; if (m.blocked) bl++; if (m.down) dn++; }
+        r.aBusy += b * dt; r.aBlk += bl * dt; r.aDown += dn * dt; r.aQ += r.queue.length * dt; }
       for (const id in this.hold) this.hold[id].aOcc += this.hold[id].items.length * dt;
       for (const k in this.conv) this.conv[k].aBusy += this.conv[k].items.length * dt;
       if (this.workers) { this.workers.aBusy += this.workers.busy * dt; this.workers.aPending += this.workers.pending.length * dt; }
@@ -140,6 +149,8 @@ export class FloorSim {
     else if (ev.t === 'COMPLETE') this.onComplete(ev);
     else if (ev.t === 'CONVEYOR_END') this.onConveyorEnd(ev);
     else if (ev.t === 'MOVE_END') this.onMoveEnd(ev);
+    else if (ev.t === 'FAIL') this.onFail(ev);
+    else if (ev.t === 'REP') this.onRep(ev);
     this.settle();
     return true;
   }
@@ -179,9 +190,40 @@ export class FloorSim {
   }
 
   onComplete(ev) {
-    ev.m.busy = false; ev.m.blocked = true;       // hold finished job until it can move
-    this.res[ev.node].processed++;
-    // settle() (called by step) will try to board it and free the machine
+    if (ev.seq2 !== ev.m.depSeq) return;           // stale (a breakdown preempted this service)
+    const r = this.res[ev.node]; r.processed++;
+    if (r.node.scrap && this.rng() < r.node.scrap) {  // Bernoulli scrap fallout
+      ev.m.busy = false; ev.m.blocked = false; ev.m.job = null;
+      this.scrap(ev.job);
+    } else {
+      ev.m.busy = false; ev.m.blocked = true;      // hold finished job until it can move
+    }
+    // settle() (called by step) boards the job (if any) and frees the machine
+  }
+
+  /* ---- breakdowns (preempt-resume) ------------------------------------- */
+  scheduleFail(id, mi) {
+    const r = this.res[id], m = r.machines[mi];
+    m.failSeq++;
+    this.schedule(sample(r.node.brk.ttf, this.rng), { t: 'FAIL', node: id, mi, fseq: m.failSeq });
+  }
+  onFail(ev) {
+    const m = this.res[ev.node].machines[ev.mi];
+    if (ev.fseq !== m.failSeq) return;
+    if (m.busy) {                                  // preempt the in-progress service
+      m.depSeq++; m.remaining = Math.max(0, m.depTime - this.now); m.busy = false; m.preempted = true;
+    }
+    m.down = true;
+    this.schedule(sample(this.res[ev.node].node.brk.ttr, this.rng), { t: 'REP', node: ev.node, mi: ev.mi });
+  }
+  onRep(ev) {
+    const m = this.res[ev.node].machines[ev.mi];
+    m.down = false;
+    if (m.preempted) {                             // resume the saved remainder
+      m.preempted = false; m.busy = true; m.depSeq++; m.depTime = this.now + m.remaining;
+      this.schedule(m.remaining, { t: 'COMPLETE', node: ev.node, m, job: m.job, seq2: m.depSeq });
+    }
+    this.scheduleFail(ev.node, ev.mi);             // next time-to-failure clock
   }
 
   onConveyorEnd(ev) { ev.item.arrived = true; /* settle() tries to deposit */ }
@@ -246,10 +288,11 @@ export class FloorSim {
       // 5. resources: board finished (blocked) jobs, then start new services
       for (const id in this.res) { const r = this.res[id];
         for (const m of r.machines) { if (m.blocked && m.job) { if (this.board(m.job)) { m.blocked = false; m.job = null; changed = true; } } }
-        for (const m of r.machines) { if (!m.busy && !m.blocked && r.queue.length) {
+        for (const m of r.machines) { if (!m.busy && !m.blocked && !m.down && r.queue.length) {
           const job = r.queue.shift(); m.busy = true; m.job = job;
           const st = Math.max(0, sample(r.node.service, this.rng));
-          this.schedule(st, { t: 'COMPLETE', node: id, m, job }); changed = true; } } }
+          m.depSeq++; m.depTime = this.now + st;
+          this.schedule(st, { t: 'COMPLETE', node: id, m, job, seq2: m.depSeq }); changed = true; } } }
       // 6. holding nodes (source/storage): push head jobs onward
       for (const id in this.hold) { const h = this.hold[id];
         while (h.items.length) { const job = h.items[0]; if (this.board(job)) { h.items.shift(); changed = true; } else break; } }
@@ -257,24 +300,27 @@ export class FloorSim {
   }
 
   exit(job) { this.wip--; this.completed++; this.sumCycle += this.now - job.entry; this.sumJobTransit += job.transit; }
+  scrap(job) { this.wip--; this.scrapped++; }     // job leaves the system as scrap (not completed)
 
   /* ---- metrics ---------------------------------------------------------- */
   metrics() {
     const T = this.now || 1;
-    const util = {}, blocked = {};
+    const util = {}, blocked = {}, down = {};
     for (const id in this.res) { const m = this.res[id].machines.length;
-      util[id] = this.res[id].aBusy / (m * T); blocked[id] = this.res[id].aBlk / (m * T); }
+      util[id] = this.res[id].aBusy / (m * T); blocked[id] = this.res[id].aBlk / (m * T); down[id] = this.res[id].aDown / (m * T); }
     const conveyors = {};
     for (const k in this.conv) conveyors[k] = { utilisation: this.conv[k].aBusy / ((this.conv[k].cap === Infinity ? 1 : this.conv[k].cap) * T) };
     return {
-      time: this.now, entered: this.entered, completed: this.completed, inSystem: this.wip,
+      time: this.now, entered: this.entered, completed: this.completed, scrapped: this.scrapped, inSystem: this.wip,
       throughput: this.completed / T,
+      yield: (this.completed + this.scrapped) ? this.completed / (this.completed + this.scrapped) : 1,
       avgWIP: this.areaWIP / T,
       avgCycleTime: this.completed ? this.sumCycle / this.completed : 0,
       avgTransitPerJob: this.completed ? this.sumJobTransit / this.completed : 0,
       avgInTransit: this.areaTransit / T,
       utilisation: util,
       blockedFraction: blocked,
+      downFraction: down,
       conveyors,
       workers: this.workers ? {
         count: this.workers.count,
