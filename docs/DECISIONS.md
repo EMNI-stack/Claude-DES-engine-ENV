@@ -218,3 +218,41 @@ Entry format:
   conflates pedagogy with our roadmap).
 - Governing principle / source: Stakeholder direction (2026-06-07); Charter §8 (calm, legible),
   §1 (clarity for a learner wins).
+
+## [2026-06-07] — Phase 3 transport/floor data model (PROPOSED — pending review)
+- Decision: A 2D floor attaches to the project at `model` as `des-floor/v1`: placed `nodes`
+  (`kind:"resource"` with machines/service/bufferCap, or `kind:"storage"` with cap), a `source`, a
+  `sink`, an ordered `routing` of node ids, and a `transport` block (default mover + per-edge
+  overrides keyed `"from>to"` + a shared `workers` pool). Nodes carry stable ids so conceptual
+  experimental factors can bind to them. A single linear routing in v1 (no branching/BOM); storage
+  is an explicit placeable buffer in addition to each resource's input buffer.
+- Rationale: Mirrors the validated engine's station+buffer mechanics while making *placement* a
+  first-class, bindable part of the study; the simplest structure that makes layout affect flow.
+- Alternatives considered: branching/multi-product routing (rejected for v1 — Charter §6 simplicity);
+  storage only as resource input-buffers with no placeable WIP nodes (rejected — students must place
+  storage per Charter §6).
+- Governing principle / source: Charter §6, §4; `Reference/theory-notes.md` §5; design note
+  `docs/PHASE-3-DESIGN.md`. **Pending stakeholder review before implementation.**
+
+## [2026-06-07] — Phase 3 units convention (PROPOSED — pending review)
+- Decision: One labelled time unit — **minutes** — for the whole study; floor distance in **metres**;
+  mover **speed in m/min**; **travel time = distance ÷ speed** (minutes), so it adds cleanly to
+  service/cycle time. Canvas `scale` (px/m, default 10) is display-only and never affects the sim.
+  Distances are **Euclidean** straight-line between node centres (no pathfinding).
+- Rationale: theory-notes §1 requires fixing one time unit and enforcing it everywhere; metres +
+  m/min + minutes keeps travel time dimensionally consistent with service time.
+- Alternatives considered: hours (rejected — minutes reads better for a teaching line); Manhattan
+  distance (flagged as a review option — more aisle-like, equally simple).
+- Governing principle / source: `Reference/theory-notes.md` §1, §5; design note. **Pending review.**
+
+## [2026-06-07] — Worker empty-return ignored (PROPOSED v1 SIMPLIFICATION — pending review)
+- Decision: The worker pool models **one-way loaded trips only**; a worker is free at the drop-off
+  the instant it delivers, with no empty repositioning travel. When the floor uses workers, this is
+  **auto-added to the study's assumptions log**, typed SIMPLIFICATION, with rationale and a
+  sensitivity-test flag.
+- Rationale: Charter §6 explicitly excludes empty-travel modelling; ignoring it keeps the worker
+  model trivial. It is conservative-ish in direction (real empty travel would only raise worker
+  utilisation), and logging it teaches the assumptions/simplifications discipline (Phase 2).
+- Alternatives considered: modelling return-to-base or nearest-pickup travel (rejected — Charter §6
+  NOT-list; adds dispatch logic we explicitly avoid).
+- Governing principle / source: Charter §6; Phase 2 assumptions-log principle; design note. **Pending review.**

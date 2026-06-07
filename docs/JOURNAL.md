@@ -157,3 +157,21 @@ correctly identified that our internal build roadmap had leaked into the student
 
 **Verification:** headless re-render of home + methodology — nav shows "available"/"soon", diagram
 reads Activity 01–04, no console errors. `npm test` unaffected (no engine change).
+
+---
+
+## 2026-06-07 — Phase 3, Milestone 0: design note (2D floor & transport)
+
+Wrote `docs/PHASE-3-DESIGN.md` proposing the 2D-floor data model (`des-floor/v1` on `project.model`),
+the routing→leg distance mapping, the three movers (instant / conveyor / worker pool), event-loop
+integration in a **new** `src/floor-engine.js` (reusing patterns + `distributions.js`, not touching
+the validated engines), the stats/Little's-Law treatment, the file plan, and the test plan. Fixed the
+**units convention** (minutes · metres · m/min · travel = distance/speed; Euclidean; display-only
+scale). Summarised the three key choices into `docs/DECISIONS.md` (data model, units, worker
+empty-return simplification), each marked **PROPOSED — pending review**. Listed open review choices
+(distance metric, default mover, single-linear-routing, storage-vs-input-buffer).
+
+**No engine code written.** Per the task's review gate, paused here to show the design note before
+implementing. `npm test` untouched (62/62, no code change).
+
+**Next (after approval):** Milestone 1 — 2D placement with distance-based (instant) transport delay.
