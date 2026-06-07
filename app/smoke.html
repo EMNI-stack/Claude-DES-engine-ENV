@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Engine check — DES Simulation Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles/design-system.css">
+</head>
+<body data-page="">
+
+<main class="container page stack-lg">
+
+  <section class="reveal">
+    <p class="section-label eyebrow">Foundation check</p>
+    <h1 class="display">Engine check</h1>
+    <p class="lead measure" style="margin-top: var(--s-4);">
+      A wiring test, not a feature. This page imports the existing, unmodified discrete-event
+      engine (<span class="mono">src/engine.js</span>) and runs a small two-station line headlessly
+      to confirm the new application can drive it. The simulation UI proper arrives in later phases.
+    </p>
+    <p id="status" class="small">running…</p>
+  </section>
+
+  <section class="reveal">
+    <div class="kpi-grid">
+      <div class="kpi">
+        <div class="kpi__label">Throughput</div>
+        <div class="kpi__value"><span id="k-th" class="num">—</span> <span class="kpi__unit">jobs / unit</span></div>
+        <div class="kpi__foot">good parts completed ÷ time</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__label">Avg WIP</div>
+        <div class="kpi__value"><span id="k-wip" class="num">—</span> <span class="kpi__unit">jobs</span></div>
+        <div class="kpi__foot">time-average, area method</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi__label">Avg cycle time</div>
+        <div class="kpi__value"><span id="k-ct" class="num">—</span> <span class="kpi__unit">units</span></div>
+        <div class="kpi__foot">sample mean over completions</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="reveal grid-2">
+    <div class="panel">
+      <div class="panel__head">
+        <p class="section-label">Per-station utilisation</p>
+        <h2 class="panel__title">Resources</h2>
+      </div>
+      <table class="table">
+        <thead><tr><th>Station</th><th class="num">Utilisation</th></tr></thead>
+        <tbody id="util-body"><tr><td class="faint">—</td><td class="num">—</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <div class="panel__head">
+        <p class="section-label">Run detail</p>
+        <h2 class="panel__title">Reproducibility &amp; consistency</h2>
+      </div>
+      <table class="table">
+        <tbody>
+          <tr><td>Seed</td><td class="num" id="m-seed">—</td></tr>
+          <tr><td>Simulated time</td><td class="num" id="m-time">—</td></tr>
+          <tr><td>Events processed</td><td class="num" id="m-events">—</td></tr>
+          <tr><td>Entered / completed</td><td class="num"><span id="m-entered">—</span> / <span id="m-completed">—</span></td></tr>
+          <tr><td>Little's Law — WIP</td><td class="num" id="m-little-lhs">—</td></tr>
+          <tr><td>Little's Law — TH × CT</td><td class="num" id="m-little-rhs">—</td></tr>
+        </tbody>
+      </table>
+      <p class="small faint" style="margin-top: var(--s-3);">WIP and TH × CT are computed independently, so their agreement is a genuine consistency check.</p>
+    </div>
+  </section>
+
+</main>
+
+<script type="module" src="js/nav.js"></script>
+<script type="module" src="js/smoke.js"></script>
+</body>
+</html>

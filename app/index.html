@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DES Simulation Studio — Simulering og produktionslayout</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles/design-system.css">
+</head>
+<body data-page="home">
+
+<main class="container page stack-lg">
+
+  <section class="reveal" style="padding-top: var(--s-4);">
+    <p class="section-label eyebrow">Discrete-event simulation · teaching tool</p>
+    <h1 class="display measure">Learn to model, run, and judge a factory&nbsp;line — not just watch one.</h1>
+    <p class="lead" style="margin-top: var(--s-4);">
+      A browser-based environment for the course <em>Simulering og produktionslayout</em>.
+      The factory floor is the worked domain; the real subject is the
+      <strong>discipline of simulation</strong> — stating assumptions, modelling inputs,
+      verifying and validating, and reading results with the uncertainty kept in view.
+    </p>
+    <div class="row" style="margin-top: var(--s-5);">
+      <a class="btn btn-primary" href="methodology.html">Start with the method <svg class="icon" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></a>
+      <a class="btn btn-ghost" href="gallery.html">View the design system</a>
+    </div>
+  </section>
+
+  <hr class="muted-rule">
+
+  <section class="reveal stack">
+    <p class="section-label">What this tool is</p>
+    <div class="grid-3" style="margin-top: var(--s-2);">
+      <div class="panel">
+        <h3>A method, made visible</h3>
+        <p class="small">The simulation study process is the backbone of the interface, following Robinson — conceptual model, assumptions, input data, V&amp;V, and output analysis are steps you move through, not afterthoughts.</p>
+      </div>
+      <div class="panel">
+        <h3>Layout meets flow</h3>
+        <p class="small">Place resources on a 2D floor; distance sets transport delay, so where things sit changes how the line performs. Simple by design — placement, distance, limited movers.</p>
+      </div>
+      <div class="panel">
+        <h3>Theory you can test against</h3>
+        <p class="small">Compare simulated output to Factory Physics references — Little's Law, the VUT curve, best/worst/practical-worst-case — to see where the formulas hold and where simulation earns its keep.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="reveal stack">
+    <p class="section-label">The workflow</p>
+    <div class="grid-2" style="margin-top: var(--s-2);">
+
+      <a class="panel" href="methodology.html" style="text-decoration:none;">
+        <div class="row" style="justify-content:space-between;">
+          <p class="section-label">Step 01</p><span class="nav__tag">Phase 2</span>
+        </div>
+        <h3 style="font-family:var(--serif);font-size:var(--fs-h2);font-weight:500;margin:var(--s-2) 0;">Methodology</h3>
+        <p class="small">Frame the study: objectives, experimental factors, responses, and the assumptions-vs-simplifications log.</p>
+      </a>
+
+      <a class="panel" href="floor.html" style="text-decoration:none;">
+        <div class="row" style="justify-content:space-between;">
+          <p class="section-label">Step 02</p><span class="nav__tag">Phase 3</span>
+        </div>
+        <h3 style="font-family:var(--serif);font-size:var(--fs-h2);font-weight:500;margin:var(--s-2) 0;">Model &amp; Floor</h3>
+        <p class="small">Build the line and lay it out in 2D. Resources, buffers, and distance-based transport on a quiet diagrammatic canvas.</p>
+      </a>
+
+      <a class="panel" href="analyse.html" style="text-decoration:none;">
+        <div class="row" style="justify-content:space-between;">
+          <p class="section-label">Step 03</p><span class="nav__tag">Phase 4</span>
+        </div>
+        <h3 style="font-family:var(--serif);font-size:var(--fs-h2);font-weight:500;margin:var(--s-2) 0;">Run &amp; Analyse</h3>
+        <p class="small">Warm-up, replications, and confidence — never a single run as "the answer". Output analysis framed in Robinson's terms.</p>
+      </a>
+
+      <a class="panel" href="physics.html" style="text-decoration:none;">
+        <div class="row" style="justify-content:space-between;">
+          <p class="section-label">Step 04</p><span class="nav__tag">Phase 5</span>
+        </div>
+        <h3 style="font-family:var(--serif);font-size:var(--fs-h2);font-weight:500;margin:var(--s-2) 0;">Factory Physics</h3>
+        <p class="small">Overlay closed-form theory on simulated output and interpret it with the buffer / efficiency / flexibility lens.</p>
+      </a>
+
+    </div>
+    <p class="small faint">Only the Home, design-system, and engine-check pages are live in this phase. The four workflow sections are placeholders until their phase is built.</p>
+  </section>
+
+  <section class="reveal panel panel--quiet">
+    <p class="section-label">Foundation</p>
+    <h2 style="margin:var(--s-2) 0;">Built on a validated engine</h2>
+    <p class="small measure">This application reuses the existing, test-covered discrete-event engine (event loop, blocking, breakdowns, scrap, push/pull, BOM/routing) rather than re-implementing it. The
+      <a href="smoke.html">engine check</a> page drives that engine from this new app to prove the wiring. The original prototype remains available as reference:
+      <a href="../index.html">production line</a> · <a href="../advanced.html">factory builder</a>.</p>
+  </section>
+
+</main>
+
+<script type="module" src="js/nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design system — DES Simulation Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles/design-system.css">
+</head>
+<body data-page="">
+
+<main class="container page stack-lg">
+
+  <section class="reveal">
+    <p class="section-label eyebrow">Reference</p>
+    <h1 class="display">Design system</h1>
+    <p class="lead measure" style="margin-top: var(--s-4);">
+      Every token and base component, shown in use, so the aesthetic can be reviewed in one place
+      before features are built on it. Light, hairline-based, IBM&nbsp;Plex — no neon, no glow, no
+      pills, no emoji.
+    </p>
+  </section>
+
+  <!-- COLOUR -->
+  <section class="reveal panel">
+    <div class="panel__head"><p class="section-label">Tokens</p><h2 class="panel__title">Colour</h2></div>
+    <div class="swatches">
+      <div class="swatch"><div class="swatch__chip" style="background:var(--paper)"></div><div class="swatch__meta"><b>paper</b>#F6F5F1</div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--surface);border-bottom:1px solid var(--line)"></div><div class="swatch__meta"><b>surface</b>#FFFFFF</div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--surface-2)"></div><div class="swatch__meta"><b>surface-2</b>#FBFAF7</div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--ink)"></div><div class="swatch__meta"><b>ink</b>#1B1D1A</div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--ink-2)"></div><div class="swatch__meta"><b>ink-2</b>#585C57</div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--faint)"></div><div class="swatch__meta"><b>faint</b>#8B8F89</div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--line-strong)"></div><div class="swatch__meta"><b>line-strong</b>#CFCCC3</div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--primary)"></div><div class="swatch__meta"><b>primary</b>#0F5F57</div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--primary-600)"></div><div class="swatch__meta"><b>primary-600</b>#0B4A44</div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--accent)"></div><div class="swatch__meta"><b>accent</b>#B8852A</div></div>
+    </div>
+    <p class="section-label" style="margin:var(--s-5) 0 var(--s-3)">Semantic states</p>
+    <div class="swatches">
+      <div class="swatch"><div class="swatch__chip" style="background:var(--busy)"></div><div class="swatch__meta"><b>busy</b>#2E7D6B</div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--idle)"></div><div class="swatch__meta"><b>idle</b>#B7B4AC</div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--blocked)"></div><div class="swatch__meta"><b>blocked</b>#C2762E</div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--down)"></div><div class="swatch__meta"><b>down</b>#B5462F</div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--scrap)"></div><div class="swatch__meta"><b>scrap</b>#8E2F22</div></div>
+    </div>
+    <p class="section-label" style="margin:var(--s-5) 0 var(--s-3)">Chart palette</p>
+    <div class="swatches">
+      <div class="swatch"><div class="swatch__chip" style="background:var(--c1)"></div><div class="swatch__meta"><b>c1</b></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--c2)"></div><div class="swatch__meta"><b>c2</b></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--c3)"></div><div class="swatch__meta"><b>c3</b></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--c4)"></div><div class="swatch__meta"><b>c4</b></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--c5)"></div><div class="swatch__meta"><b>c5</b></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--c6)"></div><div class="swatch__meta"><b>c6</b></div></div>
+    </div>
+  </section>
+
+  <!-- TYPE -->
+  <section class="reveal panel">
+    <div class="panel__head"><p class="section-label">Tokens</p><h2 class="panel__title">Typography</h2></div>
+    <div class="stack">
+      <div class="display">Display · IBM Plex Serif 36</div>
+      <h1>Heading 1 · serif 28</h1>
+      <h2>Heading 2 · serif 20</h2>
+      <p class="section-label">Section label · mono 12 uppercase tracked</p>
+      <p class="measure">Body · IBM Plex Sans 15. The quiet brown fox jumps over the lazy dog while a press cycles, a buffer fills, and an inspector clears the queue at a steady, legible pace.</p>
+      <p class="small">Small · 13, secondary ink.</p>
+      <p class="num" style="font-size:14px">Data · IBM Plex Mono 14 — 0123456789 · 87.4% · 1,284 · 3.27</p>
+    </div>
+  </section>
+
+  <!-- BUTTONS + SEGMENTED -->
+  <section class="reveal grid-2">
+    <div class="panel">
+      <div class="panel__head"><p class="section-label">Components</p><h2 class="panel__title">Buttons</h2></div>
+      <div class="row">
+        <button class="btn btn-primary">Run model <svg class="icon" viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4"/></svg></button>
+        <button class="btn btn-ghost">Secondary</button>
+        <button class="btn btn-ghost" disabled>Disabled</button>
+      </div>
+      <p class="small faint" style="margin-top:var(--s-4)">Primary solid petrol · ghost hairline · small radius · no glow.</p>
+    </div>
+    <div class="panel">
+      <div class="panel__head"><p class="section-label">Components</p><h2 class="panel__title">Segmented control</h2></div>
+      <div class="segmented" role="group" aria-label="Control policy" data-segmented>
+        <button aria-pressed="true">Push</button>
+        <button aria-pressed="false">Pull</button>
+        <button aria-pressed="false">CONWIP</button>
+      </div>
+      <p class="small faint" style="margin-top:var(--s-4)">Flat; selected segment filled with surface-2 + primary underline. Not a pill, not neon.</p>
+    </div>
+  </section>
+
+  <!-- INPUTS -->
+  <section class="reveal panel">
+    <div class="panel__head"><p class="section-label">Components</p><h2 class="panel__title">Inputs &amp; selects</h2></div>
+    <div class="grid-3">
+      <div class="field"><label for="g1">Station name</label><input id="g1" class="input" type="text" placeholder="e.g. Press"></div>
+      <div class="field"><label for="g2">Mean service time</label><input id="g2" class="input num" type="number" value="1.20" step="0.05"></div>
+      <div class="field"><label for="g3">Distribution</label>
+        <select id="g3" class="select"><option>Exponential</option><option>Normal</option><option>Lognormal</option><option>Triangular</option><option>Weibull</option></select>
+      </div>
+    </div>
+    <p class="small faint" style="margin-top:var(--s-4)">Hairline border · 4px radius · numeric fields in mono · focus = primary border + faint ring.</p>
+  </section>
+
+  <!-- PANEL PATTERN -->
+  <section class="reveal panel panel--quiet">
+    <div class="panel__head">
+      <p class="section-label">Conceptual model</p>
+      <h2 class="panel__title">The editorial-engineering panel</h2>
+      <p class="panel__sub">Tracked uppercase mono label above a serif title — the signature header pattern, on a quiet nested surface.</p>
+    </div>
+    <p class="small measure">Panels are the primary container: white (or surface-2) fill, 1px hairline border, 8px radius, flat by default. Structure comes from hairlines and white space, not shadow.</p>
+  </section>
+
+  <!-- KPI -->
+  <section class="reveal">
+    <p class="section-label" style="margin-bottom:var(--s-3)">Components · KPI tiles</p>
+    <div class="kpi-grid">
+      <div class="kpi"><div class="kpi__label">Throughput</div><div class="kpi__value num">0.61 <span class="kpi__unit">/unit</span></div><div class="kpi__foot">good parts ÷ time</div></div>
+      <div class="kpi"><div class="kpi__label">Avg WIP</div><div class="kpi__value num">3.42</div><div class="kpi__foot">area method</div></div>
+      <div class="kpi"><div class="kpi__label">Utilisation</div><div class="kpi__value num">74.8<span class="kpi__unit">%</span></div><div class="kpi__foot">bottleneck station</div></div>
+      <div class="kpi"><div class="kpi__label">Cycle time</div><div class="kpi__value num">5.60 <span class="kpi__unit">u</span></div><div class="kpi__foot">sample mean</div></div>
+    </div>
+  </section>
+
+  <!-- TABLE + BADGES -->
+  <section class="reveal grid-2">
+    <div class="panel">
+      <div class="panel__head"><p class="section-label">Components</p><h2 class="panel__title">Table</h2></div>
+      <table class="table">
+        <thead><tr><th>Station</th><th class="num">Util</th><th class="num">Queue</th><th class="num">Scrap</th></tr></thead>
+        <tbody>
+          <tr><td>Cutting</td><td class="num">68.2%</td><td class="num">1.4</td><td class="num">2.0%</td></tr>
+          <tr><td>Welding</td><td class="num">81.5%</td><td class="num">3.1</td><td class="num">5.0%</td></tr>
+          <tr><td>Inspection</td><td class="num">59.0%</td><td class="num">0.8</td><td class="num">0.0%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="panel">
+      <div class="panel__head"><p class="section-label">Components</p><h2 class="panel__title">State badges</h2></div>
+      <div class="row">
+        <span class="badge badge--busy">busy</span>
+        <span class="badge badge--idle">idle</span>
+        <span class="badge badge--blocked">blocked</span>
+        <span class="badge badge--down">down</span>
+        <span class="badge badge--scrap">scrap</span>
+      </div>
+      <p class="section-label" style="margin:var(--s-5) 0 var(--s-3)">Tags &amp; icons</p>
+      <div class="row">
+        <span class="tag">Phase 3</span>
+        <span class="nav__tag">P4</span>
+        <svg class="icon" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/></svg>
+        <svg class="icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 14 3-3 3 3 5-6"/></svg>
+        <svg class="icon" viewBox="0 0 24 24"><path d="M9 3h6"/><path d="M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/><path d="M7 15h10"/></svg>
+      </div>
+      <p class="small faint" style="margin-top:var(--s-4)">Line icons at 1.5px stroke. No emoji anywhere in the chrome.</p>
+    </div>
+  </section>
+
+  <!-- PLACEHOLDER -->
+  <section class="reveal">
+    <p class="section-label" style="margin-bottom:var(--s-3)">Pattern · later-phase placeholder</p>
+    <div class="placeholder">
+      <p class="section-label">Coming in Phase N</p>
+      <h2>Section not yet built</h2>
+      <p class="small measure">How unbuilt sections present: present in the navigation, clearly labelled, calmly out of the way.</p>
+    </div>
+  </section>
+
+</main>
+
+<script type="module" src="js/nav.js"></script>
+<script>
+  // Minimal segmented-control behaviour (demonstration only).
+  document.querySelectorAll('[data-segmented]').forEach((grp) => {
+    grp.addEventListener('click', (e) => {
+      const btn = e.target.closest('button'); if (!btn) return;
+      grp.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+    });
+  });
+</script>
+</body>
+</html>

@@ -121,3 +121,36 @@ Entry format:
 - Alternatives considered: Swapping to do layout/transport first for early visual momentum —
   rejected by the stakeholder.
 - Governing principle / source: Stakeholder direction (2026-06-07); Charter §10.
+
+## [2026-06-07] — Ratify the design language ("editorial engineering")
+- Decision: Adopt `docs/DESIGN-LANGUAGE.md` as the ratified visual system and implement it in a
+  shared stylesheet. Specifics locked: an **IBM Plex** type system (Serif headings, Sans UI/body,
+  Mono for every numeric/label), a **light, paper-like, hairline-based** look with generous white
+  space, a **deep-petrol primary (#0F5F57)** plus a **muted-ochre signal accent (#B8852A)**, muted
+  functional state colours, 4px control / 8px card radii (no pills), barely-there shadows, and a
+  single restrained page-load reveal. Explicitly retired: neon, glow/halos, dark cyber grids,
+  pulsing animation, emoji in chrome, system-font default look.
+- Rationale: Charter §8 calls for "McKinsey-meets-engineering" — calm, precise, authoritative,
+  data-forward. IBM Plex carries engineering pedigree, is free on Google Fonts, and is distinctive
+  without being trendy; one disciplined primary + one signal accent keeps colour doing real work.
+- Alternatives considered: Keeping/refreshing the demo's bright "cyber" aesthetic (rejected,
+  Charter §8); a neutral system-font UI (rejected — the spec explicitly wants editorial serif +
+  mono numerics as a signature).
+- Governing principle / source: `docs/DESIGN-LANGUAGE.md` (v0.1); Charter §8; DECISIONS
+  2026-06-05 "Aesthetic: retire the demo look".
+
+## [2026-06-07] — New application folder structure (`app/`)
+- Decision: All new application code lives in a flat **`app/`** folder, separate from the legacy
+  demo: `app/index.html` (home) + one page per workflow section (`methodology`, `floor`, `analyse`,
+  `physics`), plus `app/gallery.html` (design-system reference) and `app/smoke.html` (engine check);
+  shared assets in `app/styles/design-system.css` and `app/js/` (`nav.js` chrome, `smoke.js`). The
+  app **imports** the existing engine via relative path (`../../src/engine.js`) and never modifies
+  it or the demo pages.
+- Rationale: A flat `app/` keeps relative paths simple and correct on GitHub Pages (no build step,
+  native ES modules), cleanly separates new work from the legacy prototype, and satisfies Charter
+  §4.2 ("build on the existing engine; new files & pages — not a rewrite, not edits in place").
+- Alternatives considered: Editing the demo pages in place (rejected, Charter §4.2); a nested
+  `app/pages/` tree (rejected for now — adds path depth with no benefit at this size); a JS build
+  step/bundler (rejected — violates the no-build / GitHub-Pages constraint).
+- Governing principle / source: Charter §4 (architecture), §9 (non-goals); DECISIONS 2026-06-05
+  "Build on the existing engine, as entirely new files & pages".
