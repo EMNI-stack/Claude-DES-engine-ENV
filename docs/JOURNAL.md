@@ -191,3 +191,34 @@ default mover, dual storage model) stand as proposed defaults. `npm test` untouc
 
 **Next:** Milestone 1 — implement the linear path on the graph-capable model (placement + instant
 transport delay), with tests.
+
+---
+
+## 2026-06-07 — Phase 3.1: 2D placement with distance-based transport delay
+
+**Done**
+- **`src/floor-engine.js`** — new transport-aware next-event engine (heap FEL, area-method stats,
+  seeded RNG via `distributions.js`); does NOT touch the existing engines. Implements the linear path
+  on the graph-capable model: jobs arrive at a source, flow through a routing of placed nodes, and
+  each leg adds `Euclidean distance ÷ speed` as **instant (uncapacitated)** transport. A job in
+  transit is counted in WIP and its transit time is part of cycle time. `legDistance()` isolates the
+  metric (one-line swap to Manhattan if ever wanted). Exposes `metrics()` (throughput, WIP, cycle
+  time, transit/job, per-resource utilisation).
+- **`tests/floor-engine.test.js`** (6 tests) + wired into `npm test`: leg distance is Euclidean;
+  a known leg adds exactly distance/speed; **placement matters** (farther node → more transport &
+  cycle time); conservation with transit counted; **Little's Law holds with transport**; transport
+  time is part of cycle time.
+- **`app/floor.html` + `app/js/floor.js` + `app/styles/floor.css`** — replaces the placeholder with
+  an SVG floor builder (DESIGN-LANGUAGE §7): faint dotted grid, rounded resource rects, bracketed
+  storage, circular source/sink, thin legs labelled distance·time. Place nodes by tool+click, drag to
+  move, edit a route order, set speed & arrival mean, Run to read throughput/cycle time/transport
+  share/utilisation. Persists into the shared study project at `project.model` (des-floor/v1). An
+  `#example` link auto-loads a sample line.
+
+**Verification:** `npm test` → **68/68** (62 existing + 6 new), existing suites green. Headless
+render of `floor.html#example`: 5 nodes + 4 legs, no console errors; screenshot reviewed — on-brand.
+
+**Scope:** linear path + instant transport only, as planned. No mover limits/blocking (M2), no
+branching/assembly (M2b) yet. Engine/demo untouched.
+
+**Next:** Milestone 2 — conveyor and worker-pool transport as constrained resources (queue/delay/block).

@@ -8,35 +8,75 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles/design-system.css">
+<link rel="stylesheet" href="styles/floor.css">
 </head>
 <body data-page="floor">
 
-<main class="container page stack-lg">
+<main class="container page stack">
+
   <section class="reveal">
     <p class="section-label eyebrow">Step 02 · the worked domain</p>
     <h1 class="display">Model &amp; Floor</h1>
-    <p class="lead" style="margin-top: var(--s-4);">
-      Build the production line and lay it out in two dimensions — where things sit changes how
-      the line performs.
+    <p class="lead measure" style="margin-top: var(--s-4);">
+      Place resources and storage on the floor and connect them into a route. Travel time comes from
+      the distance between placed nodes, so <strong>where things sit changes how the line performs</strong>.
+      Move a node, re-run, and watch the cycle time change.
     </p>
+    <p class="floor-hint">Early build: a single linear route with instant (uncapacitated) transport. Limited movers (conveyor, worker pool) and assembly come next.</p>
   </section>
 
-  <section class="reveal placeholder">
-    <p class="section-label">Coming soon</p>
-    <h2>2D layout &amp; transport canvas</h2>
-    <p class="small measure">
-      A quiet, diagrammatic canvas to drag-place resources and storage, with transport derived from
-      2D distance: <strong>placement sets distances; distances set transport delays; movers are
-      limited resources</strong> (a conveyor on a fixed path, and people/worker movers with a count
-      and speed). Deliberately simple — no pathfinding, AGV dispatch, collisions, or auto-layout —
-      so the link between layout and flow stays legible.
-    </p>
-    <div class="row" style="justify-content:center; margin-top: var(--s-4);">
-      <a class="btn btn-ghost" href="index.html">Back to overview</a>
+  <section class="reveal">
+    <div class="floor-toolbar">
+      <div class="segmented" role="group" aria-label="Tool" id="palette">
+        <button data-tool="move" aria-pressed="true">Move</button>
+        <button data-tool="source" aria-pressed="false">Source</button>
+        <button data-tool="resource" aria-pressed="false">Resource</button>
+        <button data-tool="storage" aria-pressed="false">Storage</button>
+        <button data-tool="sink" aria-pressed="false">Sink</button>
+      </div>
+      <div class="field" style="flex-direction:row;align-items:center;gap:var(--s-2)">
+        <label for="speed" class="small" style="white-space:nowrap">Speed (m/min)</label>
+        <input id="speed" class="input num" type="number" value="40" min="1" step="5" style="width:90px">
+      </div>
+      <div class="field" style="flex-direction:row;align-items:center;gap:var(--s-2)">
+        <label for="arr" class="small" style="white-space:nowrap">Arrival mean (min)</label>
+        <input id="arr" class="input num" type="number" value="3" min="0.1" step="0.5" style="width:90px">
+      </div>
+      <span class="spacer"></span>
+      <button id="btnRun" class="btn btn-primary">Run</button>
+      <button id="btnSeed" class="btn btn-ghost" title="Load a small example floor">Example</button>
+      <button id="btnClear" class="btn btn-ghost">Clear</button>
+    </div>
+
+    <div class="floor-wrap">
+      <div class="panel canvas-card">
+        <svg class="floor" id="svg" viewBox="0 0 820 520" aria-label="Factory floor"></svg>
+        <p class="floor-hint" style="margin-top:var(--s-3)">Pick a tool, then click the canvas to place a node. In <em>Move</em>, drag a node to reposition it; click to select and edit. The route follows the order nodes are added (edit it on the right).</p>
+      </div>
+
+      <div class="stack">
+        <div class="panel">
+          <div class="panel__head"><p class="section-label">Route</p><h2 class="panel__title">Flow order</h2></div>
+          <ul class="route-list" id="routeList"></ul>
+          <p class="floor-hint" id="routeHint">No nodes yet.</p>
+        </div>
+
+        <div class="panel" id="propPanel" hidden>
+          <div class="panel__head"><p class="section-label">Selected</p><h2 class="panel__title" id="propTitle">Node</h2></div>
+          <div class="prop-grid" id="propGrid"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel__head"><p class="section-label">Results</p><h2 class="panel__title">Run summary</h2></div>
+          <div id="results"><p class="results-empty">Run the model to see throughput, cycle time, transport time and utilisation.</p></div>
+        </div>
+      </div>
     </div>
   </section>
+
 </main>
 
 <script type="module" src="js/nav.js"></script>
+<script type="module" src="js/floor.js"></script>
 </body>
 </html>

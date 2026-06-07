@@ -98,3 +98,7 @@
 - **Placement sets distances; distances set transport delays; movers are limited
   resources.** Transport is non-value-adding time ("the best flow is no flow"), so layout
   affects flow. — [FPD]/[HS] (theory-notes §5; Charter §6)
+
+> Phase 3 realises these: the floor engine (`src/floor-engine.js`) computes transport time
+> from Euclidean distance ÷ speed, counts a job in transit as in-system (so layout shows up in
+> cycle time and WIP), and lets students compare layouts by re-running the simulation.

@@ -1,0 +1,53 @@
+/* 2D floor builder — layout only, built on design-system tokens (DESIGN-LANGUAGE §7).
+   Quiet, diagrammatic: light canvas, faint dotted grid, hairline shapes, thin legs.
+   No glow, no neon, no animation in this milestone. */
+
+.floor-wrap { display: grid; grid-template-columns: 1fr 340px; gap: var(--s-5); align-items: start; }
+@media (max-width: 900px) { .floor-wrap { grid-template-columns: 1fr; } }
+
+.floor-toolbar { display: flex; gap: var(--s-3); align-items: center; flex-wrap: wrap; margin-bottom: var(--s-4); }
+.floor-toolbar .spacer { margin-left: auto; }
+.floor-hint { font-size: var(--fs-small); color: var(--faint); }
+
+/* canvas */
+.canvas-card { padding: var(--s-3); }
+svg.floor { width: 100%; height: auto; display: block; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--r-card); touch-action: none; }
+svg.floor .grid-dot { fill: var(--line); }
+
+/* nodes */
+svg.floor .node { cursor: grab; }
+svg.floor .node.dragging { cursor: grabbing; }
+svg.floor .node-rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; }
+svg.floor .node.sel .node-rect { stroke: var(--primary); stroke-width: 1.5; }
+svg.floor .node.sel .bracket { stroke: var(--primary); }
+svg.floor .node-label { font-family: var(--sans); font-size: 11px; fill: var(--ink); }
+svg.floor .node-kind { font-family: var(--mono); font-size: 9px; letter-spacing: .08em;
+  text-transform: uppercase; fill: var(--faint); }
+svg.floor .bracket { stroke: var(--line-strong); stroke-width: 1.5; fill: none; }
+svg.floor .endpoint { fill: var(--surface-2); stroke: var(--line-strong); stroke-width: 1; }
+svg.floor .endpoint-dot { fill: var(--primary); }
+
+/* transport legs */
+svg.floor .leg { stroke: var(--line-strong); stroke-width: 1.25; fill: none; }
+svg.floor .leg-arrow { fill: var(--line-strong); }
+svg.floor .leg-label { font-family: var(--mono); font-size: 9px; fill: var(--faint); }
+
+/* route list */
+.route-list { list-style: none; margin: 0; padding: 0; }
+.route-list li { display: flex; align-items: center; gap: var(--s-2); padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: var(--r-control); margin-bottom: 6px; background: var(--surface); }
+.route-list li.sel { border-color: var(--primary); background: var(--primary-tint); }
+.route-list .rn { font-family: var(--mono); font-size: 11px; color: var(--faint); width: 16px; }
+.route-list .rname { flex: 1; font-size: var(--fs-small); }
+.route-list .rk { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--faint); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+.mini { appearance: none; background: transparent; border: 1px solid var(--line); border-radius: 3px;
+  cursor: pointer; color: var(--ink-2); font-size: 12px; line-height: 1; padding: 2px 6px; }
+.mini:hover { border-color: var(--ink-2); color: var(--ink); }
+
+.prop-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
+.prop-grid .full { grid-column: 1 / -1; }
+
+.results-empty { color: var(--faint); font-size: var(--fs-small); border: 1px dashed var(--line-strong);
+  border-radius: var(--r-control); padding: var(--s-4); text-align: center; }
