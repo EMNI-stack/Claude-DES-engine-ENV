@@ -112,27 +112,10 @@ Entry format:
 - Governing principle / source: Charter §1 (guiding principle), §11 (review #1 resolution),
   §9 (no advanced extremities).
 
-## [2026-06-07] — Sustainability removed from scope
-- Decision: Sustainability is **out of scope** for the app. Struck from the project records
-  — Charter §2 (competence objective is now "efficiency and flexibility"), §7, and §11 — and
-  from `Reference/theory-notes.md` and project memory. No feature will claim to serve a
-  sustainability objective. (Recorded here so it is not re-introduced from the course
-  description, which does name it.)
-- Rationale: Stakeholder direction. It was the thinnest-covered objective in the source
-  material and would have needed a definition before any feature could serve it; dropping it
-  keeps v1 focused on simulation method + layout/flow.
-- Alternatives considered: Keeping it as an open question pending a definition (energy/
-  utilisation, scrap/yield, transport distance, obsolescence) — rejected by the stakeholder.
-- Governing principle / source: Stakeholder direction (2026-06-07); supersedes the
-  sustainability open question formerly in Charter §11.
-- Note: the per-book reading notes `Reference/_notes/{facilities,fp-managers}.md` are left as
-  a faithful source archive (the books discuss environmental topics); this is a scope
-  decision for the app, not an edit to what the sources say.
-
 ## [2026-06-07] — Phase order locked: methodology Phase 2, layout/transport Phase 3
 - Decision: The roadmap ordering is **fixed** — methodology scaffolding is Phase 2 and the
-  2D layout & transport engine is Phase 3. The earlier "Phase 2 vs 3 could swap" proposal is
-  removed (Charter §10).
+  2D layout & transport engine is Phase 3. Any earlier suggestion that these two phases
+  could be reordered is removed (Charter §10).
 - Rationale: Stakeholder direction. The methodology backbone is the pedagogical core and
   should be in place before the higher-risk 2D/transport capability builds on it.
 - Alternatives considered: Swapping to do layout/transport first for early visual momentum —

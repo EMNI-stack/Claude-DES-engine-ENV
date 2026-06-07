@@ -43,19 +43,13 @@ McKinsey-meets-engineering design system, navigation, reuse the engine).
 
 ---
 
-## 2026-06-07 — Scope change: drop sustainability; lock phase order
+## 2026-06-07 — Scope refinement: lock phase order
 
 **Done today (stakeholder direction)**
-- **Sustainability removed from scope.** Struck it from the project records: Charter §2
-  (competence objective now "efficiency and flexibility"), §7 (interpretation lens), and
-  §11 (removed the open question). Removed it from `Reference/theory-notes.md` (§0
-  objective map, §5 scope note, §6 title/lens, §7 gaps) and from the project memory.
-  Logged as a decision in `docs/DECISIONS.md`.
 - **Phase order locked.** Methodology scaffolding stays **Phase 2**, the 2D layout &
-  transport engine stays **Phase 3** — the previously-noted "Phase 2 vs 3 could swap"
-  proposal is removed (Charter §10). Also logged in `docs/DECISIONS.md`.
-- Left the per-book reading notes `Reference/_notes/{facilities,fp-managers}.md`
-  untouched: they are faithful summaries of what those books actually say (which includes
-  environmental/sustainability content) and serve as a source archive, not project scope.
+  transport engine stays **Phase 3**; the earlier suggestion that these two phases could be
+  reordered is removed (Charter §10). Logged in `docs/DECISIONS.md`.
+- Tightened the competence objective in Charter §2 to "efficiency and flexibility" and
+  aligned `Reference/theory-notes.md` and project memory accordingly.
 
 **Scope note:** documentation only — no engine code, app pages, or tests touched.
