@@ -304,3 +304,32 @@ Ported the two remaining per-station detractors from the original engine into `f
 console errors.
 
 **Next (this work):** stage C — port push/pull + supply/demand control into `floor-engine.js`.
+
+---
+
+## 2026-06-07 — Phase 3 (model richness), stage C: control & demand
+
+Ported line-level control into `floor-engine.js` (placed in the Model, per the agreed decision —
+Run & Analyse stays for experimentation):
+- **Release control: push | CONWIP(cap)** — CONWIP caps the WIP *in the line* (jobs from release to
+  the sink) and releases a new job as one leaves; push releases as supplied. Tracks `maxLineWip`.
+- **Supply: stream | limitless** — stream uses the Source node's interarrival distribution;
+  limitless feeds just-in-time (gated so it can't pile up at the source; pair with CONWIP or a finite
+  first buffer).
+- **Demand: instant | stream** — instant consumes at the sink; stream accumulates finished-goods
+  inventory consumed by demand arrivals, with **fill rate** and **stockouts**; FG counts as in-system
+  so conservation (`entered = completed + scrapped + inSystem`) still holds.
+- UI: a **Control & demand** panel (push/CONWIP + cap, stream/limitless supply, instant/demand-stream
+  with its own distribution editor); run results gain a control summary (control, max line WIP,
+  supply, and — under demand stream — fill rate, stockouts, avg FG).
+- 3 new tests: CONWIP caps WIP (push doesn't); demand conservation + fill rate; CONWIP+limitless
+  holds the line full at the cap.
+
+**Verification:** `npm test` → **75/75** (62 existing + 13 floor). Headless render: Control & demand
+panel + full resource inspector present, no console errors; screenshot reviewed.
+
+This completes the requested parameter-richness work (A distributions/buffers/per-leg + table,
+B scrap/breakdowns, C control/demand). The floor now matches the old engine's modelling depth, with
+per-element click-to-edit and a table overview. **Still pending (paused):** branching + assembly
+(Milestone 2b) and the broader Phase 3 integration polish (binding floor params to conceptual
+experimental factors).

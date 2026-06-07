@@ -26,6 +26,8 @@ function ensureModel(m) {
     defaultMover: 'instant', defaultSpeed: 40,
     conveyor: { cap: 3, speed: 30 }, workers: { count: 2, speed: 40 },
     legs: {},
+    control: 'push', conwipCap: 10, supply: 'stream',
+    demand: { mode: 'instant', dist: newDist('exp', { mean: 2 }) },
   };
   if (!m || m.schema !== 'des-floor/v1') return base;
   m.nodes = m.nodes || []; m.routeOrder = m.routeOrder || [];
@@ -33,6 +35,8 @@ function ensureModel(m) {
   m.defaultSpeed = m.defaultSpeed || (m.params && m.params.speed) || 40;
   m.conveyor = m.conveyor || base.conveyor; m.workers = m.workers || base.workers;
   m.legs = m.legs || {};
+  m.control = m.control || 'push'; m.conwipCap = m.conwipCap || 10; m.supply = m.supply || 'stream';
+  m.demand = m.demand || base.demand; if (!m.demand.dist) m.demand.dist = newDist('exp', { mean: 2 });
   const arr = (m.params && m.params.arrivalMean) || 3;
   for (const n of m.nodes) {
     if (n.kind === 'resource') {
@@ -233,6 +237,27 @@ function renderTransport() {
   b.append(field('Speed (m/min)', numInput(model.conveyor.speed, 1, 5, (v) => { model.conveyor.speed = Math.max(1, v); persist(); render(); })));
 }
 
+/* ---- control & demand panel -------------------------------------------- */
+function renderControl() {
+  const b = $('controlBody'); b.innerHTML = '';
+  b.append(field('Release control', segmented(
+    [{ value: 'push', label: 'Push' }, { value: 'conwip', label: 'CONWIP (pull)' }],
+    model.control, (v) => { model.control = v; persist(); renderControl(); }, 'Control')));
+  if (model.control === 'conwip') b.append(field('WIP cap (cards)', numInput(model.conwipCap, 1, 1, (v) => { model.conwipCap = Math.max(1, v | 0); persist(); })));
+  b.append(field('Raw supply', segmented(
+    [{ value: 'stream', label: 'Arrival stream' }, { value: 'limitless', label: 'Limitless' }],
+    model.supply, (v) => { model.supply = v; persist(); renderControl(); }, 'Supply')));
+  b.append(H('p', { class: 'floor-hint', style: 'margin:0' }, model.supply === 'stream'
+    ? 'Raw arrives per the Source node’s interarrival distribution.'
+    : 'Raw is always available — release is limited by capacity (and the WIP cap, if CONWIP).'));
+  b.append(H('p', { class: 'subhead' }, 'Customer demand'));
+  b.append(field('Consumption', segmented(
+    [{ value: 'instant', label: 'Instant' }, { value: 'stream', label: 'Demand stream' }],
+    model.demand.mode, (v) => { model.demand.mode = v; persist(); renderControl(); }, 'Demand')));
+  if (model.demand.mode === 'stream') { b.append(H('p', { class: 'subhead' }, 'Interdemand time')); b.append(distEditor(model.demand.dist, persist)); }
+  else b.append(H('p', { class: 'floor-hint', style: 'margin:0' }, 'Every finished unit is consumed immediately (push to sink).'));
+}
+
 /* ---- table overview ----------------------------------------------------- */
 function renderTable() {
   const host = $('tableHost'); host.innerHTML = '';
@@ -313,7 +338,9 @@ function buildRunModel() {
   const demand = src ? src.interarrival : newDist('exp', { mean: 3 });
   const transport = { default: model.defaultMover, speed: model.defaultSpeed, conveyor: model.conveyor, workers: model.workers, legs: model.legs };
   return { schema: 'des-floor/v1', scale: S, units: model.units, nodes,
-    parts: [{ id: 'p', kind: 'product', routing: model.routeOrder.slice(), demand }], transport };
+    parts: [{ id: 'p', kind: 'product', routing: model.routeOrder.slice(), demand }], transport,
+    control: model.control, conwipCap: model.conwipCap, supply: model.supply,
+    demand: model.demand.mode === 'stream' ? { mode: 'stream', dist: model.demand.dist } : { mode: 'instant' } };
 }
 function runModel() {
   const results = $('results');
@@ -336,6 +363,13 @@ function runModel() {
   const conv = Object.values(r.conveyors || {}); if (conv.length) tRows.push(`<tr><td>Conveyor (busiest)</td><td class="num">${(100 * Math.max(...conv.map((c) => c.utilisation))).toFixed(1)}% full</td><td class="num">—</td></tr>`);
   const blk = Math.max(0, ...Object.values(r.blockedFraction || {})); if (blk > 0.001) tRows.push(`<tr><td>Most-blocked resource</td><td class="num">${(100 * blk).toFixed(1)}% blocked</td><td class="num">—</td></tr>`);
   if (tRows.length) results.append(H('div', { html: `<p class="section-label" style="margin:var(--s-4) 0 var(--s-2)">Transport</p><table class="table"><tbody>${tRows.join('')}</tbody></table>` }));
+  // control & demand summary
+  const cRows = [`<tr><td>Control</td><td class="num">${r.control === 'conwip' ? `CONWIP (cap ${r.conwipCap})` : 'push'}</td></tr>`,
+    `<tr><td>Max line WIP</td><td class="num">${r.maxLineWip}</td></tr>`,
+    `<tr><td>Raw supply</td><td class="num">${r.supply}</td></tr>`];
+  if (r.demand === 'stream') cRows.push(`<tr><td>Fill rate</td><td class="num">${(100 * r.fillRate).toFixed(1)}%</td></tr>`,
+    `<tr><td>Stockouts / avg FG</td><td class="num">${r.stockouts} / ${r.avgFG.toFixed(2)}</td></tr>`);
+  results.append(H('div', { html: `<p class="section-label" style="margin:var(--s-4) 0 var(--s-2)">Control &amp; demand</p><table class="table"><tbody>${cRows.join('')}</tbody></table>` }));
 }
 
 /* ---- example + clear ---------------------------------------------------- */
@@ -378,7 +412,7 @@ function init() {
 
   if (location.hash === '#example' && model.nodes.length === 0) { loadExample(); const r = model.nodes.find((n) => n.kind === 'resource'); if (r) selected = { kind: 'node', id: r.id }; }
   if (model.defaultMover === 'worker' || Object.values(model.legs).some((l) => l.mover === 'worker')) ensureWorkerAssumption();
-  render(); renderRoute(); renderInspector(); renderTransport();
+  render(); renderRoute(); renderInspector(); renderTransport(); renderControl();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
 else init();

@@ -92,11 +92,29 @@ export class FloorSim {
       if (r.node.brk && r.node.brk.on) r.machines.forEach((m, mi) => this.scheduleFail(id, mi));
     }
 
-    // first arrival per part with a demand stream
+    // control / supply / demand — ported from the original engine, adapted to the floor.
+    // control: 'push' (release whenever supplied) | 'conwip' (cap the WIP in the line).
+    // supply:  'stream' (arrivals per interarrival dist) | 'limitless' (raw always available).
+    // demand:  'instant' (consume at the sink) | 'stream' (finished goods + demand arrivals).
+    this.control = model.control === 'conwip' ? 'conwip' : 'push';
+    this.conwipCap = Math.max(1, model.conwipCap || 10);
+    this.supply = model.supply === 'limitless' ? 'limitless' : 'stream';
+    this.demandCfg = (model.demand && model.demand.mode === 'stream' && model.demand.dist)
+      ? { mode: 'stream', dist: model.demand.dist } : { mode: 'instant' };
+    this.mainPart = (model.parts && model.parts[0]) || null;
+    this.lineWip = 0; this.maxLineWip = 0; this.rawBacklog = 0;
+    this.fg = 0; this.fgQueue = []; this.aFG = 0;
+    this.demanded = 0; this.fulfilled = 0; this.stockouts = 0;
+
+    // arrivals: stream supply schedules them; limitless seeds one FEED to kick settle()
     for (const p of (model.parts || [])) {
-      if (p.demand) this.schedule(sample(p.demand, this.rng), { t: 'ARRIVE', part: p.id });
-      else this.schedule(0, { t: 'ARRIVE', part: p.id, once: true });
+      if (this.supply === 'stream') {
+        if (p.demand) this.schedule(sample(p.demand, this.rng), { t: 'ARRIVE', part: p.id });
+        else this.schedule(0, { t: 'ARRIVE', part: p.id, once: true });
+      }
     }
+    if (this.supply === 'limitless') this.schedule(0, { t: 'FEED' });
+    if (this.demandCfg.mode === 'stream') this.schedule(sample(this.demandCfg.dist, this.rng), { t: 'DEM' });
   }
 
   /* ---- heap FEL --------------------------------------------------------- */
@@ -135,7 +153,7 @@ export class FloorSim {
       for (const id in this.hold) this.hold[id].aOcc += this.hold[id].items.length * dt;
       for (const k in this.conv) this.conv[k].aBusy += this.conv[k].items.length * dt;
       if (this.workers) { this.workers.aBusy += this.workers.busy * dt; this.workers.aPending += this.workers.pending.length * dt; }
-      this.areaWIP += this.wip * dt; this.areaTransit += this.inTransit * dt;
+      this.areaWIP += this.wip * dt; this.areaTransit += this.inTransit * dt; this.aFG += this.fg * dt;
     }
     this.lastT = t;
   }
@@ -151,6 +169,8 @@ export class FloorSim {
     else if (ev.t === 'MOVE_END') this.onMoveEnd(ev);
     else if (ev.t === 'FAIL') this.onFail(ev);
     else if (ev.t === 'REP') this.onRep(ev);
+    else if (ev.t === 'DEM') this.onDemand(ev);
+    else if (ev.t === 'FEED') { /* limitless seed: settle() does the release */ }
     this.settle();
     return true;
   }
@@ -162,16 +182,51 @@ export class FloorSim {
 
   onArrive(ev) {
     const p = this.partOf(ev.part); if (!p) return;
-    const job = { id: ++this.pid, part: p.id, routing: p.routing, step: 0, entry: this.now, transit: 0 };
-    this.entered++; this.wip++;
     if (p.demand && !ev.once) this.schedule(sample(p.demand, this.rng), { t: 'ARRIVE', part: p.id });
-    this.admit(job, 0);                       // place at routing[0] (source/resource)
+    this.rawBacklog++;                         // a raw unit is waiting; tryRelease() (in settle) admits it
+  }
+
+  /* ---- release control (push / CONWIP, stream / limitless supply) ------- */
+  tryRelease() {
+    let guard = 0;
+    while (guard++ < 100000) {
+      if (this.control === 'conwip' && this.lineWip >= this.conwipCap) break;
+      if (this.supply === 'stream') { if (this.rawBacklog <= 0) break; }
+      else if (!this.firstCanAccept()) break;  // limitless: feed only while the first node has room
+      if (this.supply === 'stream') this.rawBacklog--;
+      this.releaseJob();
+    }
+  }
+  firstCanAccept() {
+    const r = this.mainPart && this.mainPart.routing; if (!r) return false;
+    const srcHold = this.hold[r[0]];
+    if (srcHold && srcHold.items.length > 0) return false;     // one in flight from the source at a time
+    for (const id of r) if (this.res[id]) return this.occ(id) < this.res[id].cap;
+    return false;
+  }
+  releaseJob() {
+    const p = this.mainPart; if (!p) return;
+    const job = { id: ++this.pid, part: p.id, routing: p.routing, step: 0, entry: this.now, transit: 0 };
+    this.entered++; this.wip++; this.lineWip++;
+    if (this.lineWip > this.maxLineWip) this.maxLineWip = this.lineWip;
+    this.admit(job, 0);
+  }
+  onDemand() {
+    this.schedule(sample(this.demandCfg.dist, this.rng), { t: 'DEM' });
+    this.demanded++;
+    if (this.fg > 0) { this.fg--; this.fulfilled++; const job = this.fgQueue.shift(); if (job) this.exit(job); }
+    else this.stockouts++;
+  }
+  onSinkArrival(job) {
+    this.lineWip = Math.max(0, this.lineWip - 1);   // the job has left the production line
+    if (this.demandCfg.mode === 'instant') this.exit(job);
+    else { this.fg++; this.fgQueue.push(job); }      // becomes finished-goods inventory
   }
 
   /* admit a job to the node at routing[toStep]; returns true if accepted */
   admit(job, toStep) {
     const id = job.routing[toStep]; const node = this.nodes[id];
-    if (!node || node.kind === 'sink') { this.exit(job); return true; }   // exit at sink (or off the end)
+    if (!node || node.kind === 'sink') { this.onSinkArrival(job); return true; }  // reach the sink
     if (node.kind === 'resource') {
       const r = this.res[id];
       if (this.occ(id) >= r.cap) return false;
@@ -262,6 +317,7 @@ export class FloorSim {
 
   /* ---- settle: resolve all moves that can happen at this instant -------- */
   settle() {
+    this.tryRelease();                          // release new jobs per control + supply
     let changed = true, guard = 0;
     while (changed && guard++ < 100000) {
       changed = false;
@@ -327,6 +383,10 @@ export class FloorSim {
         utilisation: this.workers.aBusy / (this.workers.count * T),
         avgQueue: this.workers.aPending / T,
       } : null,
+      control: this.control, conwipCap: this.conwipCap, supply: this.supply,
+      maxLineWip: this.maxLineWip, avgFG: this.aFG / T,
+      demand: this.demandCfg.mode, demanded: this.demanded, fulfilled: this.fulfilled, stockouts: this.stockouts,
+      fillRate: this.demanded ? this.fulfilled / this.demanded : 1,
     };
   }
 }

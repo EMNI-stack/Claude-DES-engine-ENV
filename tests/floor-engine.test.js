@@ -139,6 +139,53 @@ function conveyorFloor({ cap = 1, convSpeed = 10, dist = 50, sA = 0.5, sB = 5, b
   };
 }
 
+/* ---- control: push / CONWIP, supply, demand ---------------------------- */
+function controlFloor({ control = 'push', conwipCap = 5, supply = 'stream', demand = null, sA = 1, sB = 1, interarrival = 0.6 } = {}) {
+  const m = {
+    schema: 'des-floor/v1', units: { time: 'min', distance: 'm', speed: 'm/min' },
+    transport: { default: 'instant', speed: 100 },
+    control, conwipCap, supply, demand,
+    nodes: [
+      { kind: 'source', id: 'src', x: 0, y: 0 },
+      { kind: 'resource', id: 'A', x: 10, y: 0, machines: 1, service: newDist('exp', { mean: sA }), bufferCap: Infinity },
+      { kind: 'resource', id: 'B', x: 20, y: 0, machines: 1, service: newDist('exp', { mean: sB }), bufferCap: Infinity },
+      { kind: 'sink', id: 'snk', x: 30, y: 0 },
+    ],
+    parts: [{ id: 'p', kind: 'product', routing: ['src', 'A', 'B', 'snk'], demand: newDist('exp', { mean: interarrival }) }],
+  };
+  return m;
+}
+
+test('CONWIP caps work-in-process; push does not', () => {
+  // arrivals (mean 0.6) faster than the bottleneck (mean 1) → push WIP grows unbounded.
+  const push = new FloorSim(controlFloor({ control: 'push', interarrival: 0.6 }), 8);
+  const cw = new FloorSim(controlFloor({ control: 'conwip', conwipCap: 5, interarrival: 0.6 }), 8);
+  push.run({ until: 6000 }); cw.run({ until: 6000 });
+  const rp = push.metrics(), rc = cw.metrics();
+  assert.ok(rc.maxLineWip <= 5, `CONWIP line WIP ${rc.maxLineWip} must never exceed cap 5`);
+  assert.ok(rp.avgWIP > rc.avgWIP + 2, `push WIP ${rp.avgWIP.toFixed(1)} should far exceed CONWIP ${rc.avgWIP.toFixed(1)}`);
+  assert.ok(rc.avgCycleTime < rp.avgCycleTime, 'CONWIP should hold cycle time below runaway push');
+});
+
+test('demand stream: demanded = fulfilled + stockouts, fill rate in [0,1]', () => {
+  const sim = new FloorSim(controlFloor({ control: 'conwip', conwipCap: 6, supply: 'limitless',
+    demand: { mode: 'stream', dist: newDist('exp', { mean: 1.2 }) }, sA: 1, sB: 1 }), 3);
+  sim.run({ until: 8000 });
+  const r = sim.metrics();
+  assert.ok(r.demanded > 100, `expected demand events, got ${r.demanded}`);
+  assert.equal(r.demanded, r.fulfilled + r.stockouts, 'demand conservation');
+  assert.ok(r.fillRate >= 0 && r.fillRate <= 1, `fill rate ${r.fillRate}`);
+  assert.equal(r.entered, r.completed + r.scrapped + r.inSystem, 'conservation incl. finished-goods inventory');
+});
+
+test('CONWIP + limitless holds the line full at the cap', () => {
+  const sim = new FloorSim(controlFloor({ control: 'conwip', conwipCap: 4, supply: 'limitless', sA: 1, sB: 1 }), 6);
+  sim.run({ until: 6000 });
+  const r = sim.metrics();
+  assert.ok(r.maxLineWip <= 4, `line WIP ${r.maxLineWip} must not exceed cap 4`);
+  assert.ok(r.avgWIP > 2.5, `limitless CONWIP should keep the line near full, avgWIP ${r.avgWIP.toFixed(2)}`);
+});
+
 /* ---- scrap & breakdowns (ported from the original engine) -------------- */
 // Single saturated resource: source -> A -> sink, fast arrivals so A is busy.
 function oneResource({ service = 1, scrap = 0, brk = null, interarrival = 0.5 } = {}) {
