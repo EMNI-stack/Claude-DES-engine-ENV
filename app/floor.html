@@ -18,11 +18,9 @@
     <p class="section-label eyebrow">Step 02 · the worked domain</p>
     <h1 class="display">Model &amp; Floor</h1>
     <p class="lead measure" style="margin-top: var(--s-4);">
-      Place resources and storage on the floor and connect them into a route. Travel time comes from
-      the distance between placed nodes, so <strong>where things sit changes how the line performs</strong>.
-      Click any node or any transport leg to set its parameters.
+      Place resources and storage, connect them into a route, then <strong>watch the line run</strong>.
+      Click any node or transport leg to set its parameters in the panel.
     </p>
-    <p class="floor-hint">Single linear route for now. Each station takes a full service-time distribution; each transport leg can be set independently. Branching and assembly come later.</p>
   </section>
 
   <section class="reveal">
@@ -36,49 +34,66 @@
       </div>
       <span class="spacer"></span>
       <button id="btnTable" class="btn btn-ghost" aria-pressed="false">Table view</button>
-      <button id="btnRun" class="btn btn-primary">Run</button>
-      <button id="btnSeed" class="btn btn-ghost" title="Load a small example floor">Example</button>
+      <button id="btnExample" class="btn btn-ghost">Example</button>
       <button id="btnClear" class="btn btn-ghost">Clear</button>
     </div>
 
     <div class="floor-wrap">
       <div class="stack" style="min-width:0">
         <div class="panel canvas-card">
-          <svg class="floor" id="svg" viewBox="0 0 820 520" aria-label="Factory floor"></svg>
-          <p class="floor-hint" style="margin-top:var(--s-3)">Pick a tool, then click the canvas to place a node. In <em>Move</em>, drag a node to reposition; click a node or a leg to edit it on the right. The route follows the order nodes are added.</p>
+          <svg class="floor" id="svg" viewBox="0 0 820 480" aria-label="Factory floor"></svg>
+
+          <div class="playbar">
+            <button id="btnPlay" class="btn btn-primary" style="min-width:96px">▶ Play</button>
+            <button id="btnStep" class="btn btn-ghost">Step</button>
+            <button id="btnFF" class="btn btn-ghost">Run to end</button>
+            <button id="btnReset" class="btn btn-ghost">Reset</button>
+            <label class="spd">speed <input id="speed" type="range" min="0.5" max="60" step="0.5" value="6"><span id="spdV" class="num">6×</span></label>
+            <span class="spacer"></span>
+            <div class="clock">
+              <span><b class="num" id="clkTime">0.0</b> min</span>
+              <span><b class="num" id="clkWip">0</b> WIP</span>
+              <span><b class="num" id="clkOut">0</b> out</span>
+              <span class="faint num" id="clkEvents">0 events</span>
+            </div>
+          </div>
+          <p class="floor-hint" id="floorHint" style="margin-top:var(--s-3)">Pick a tool and click to place a node. In <em>Move</em>, drag to reposition; click a node or leg to edit it. Press Play to watch jobs flow.</p>
         </div>
+
         <div class="panel" id="tablePanel" hidden>
           <div class="panel__head"><p class="section-label">Overview</p><h2 class="panel__title">All parameters</h2></div>
           <div id="tableHost"></div>
         </div>
       </div>
 
-      <div class="stack">
-        <div class="panel">
-          <div class="panel__head"><p class="section-label">Route</p><h2 class="panel__title">Flow order</h2></div>
-          <ul class="route-list" id="routeList"></ul>
-          <p class="floor-hint" id="routeHint">No nodes yet.</p>
+      <div class="panel tabpanel">
+        <div class="tabs" role="tablist">
+          <button class="tab" data-tab="inspect" aria-selected="false">Inspect</button>
+          <button class="tab" data-tab="model" aria-selected="true">Model</button>
+          <button class="tab" data-tab="results" aria-selected="false">Results</button>
         </div>
 
-        <div class="panel" id="propPanel" hidden>
-          <div class="panel__head"><p class="section-label" id="propKind">Selected</p><h2 class="panel__title" id="propTitle">Node</h2></div>
+        <div class="tabbody" id="tab-inspect" hidden>
+          <p class="section-label" id="propKind">Selected</p>
+          <h2 class="panel__title" id="propTitle" style="margin:2px 0 var(--s-4)">Nothing selected</h2>
           <div id="propBody" class="stack"></div>
         </div>
 
-        <div class="panel">
-          <div class="panel__head"><p class="section-label">Transport</p><h2 class="panel__title">Defaults</h2></div>
+        <div class="tabbody" id="tab-model">
+          <p class="section-label">Route</p>
+          <ul class="route-list" id="routeList"></ul>
+          <p class="floor-hint" id="routeHint">No nodes yet.</p>
+          <hr class="muted-rule">
+          <p class="section-label">Transport defaults</p>
           <div id="transportBody" class="stack"></div>
-          <p class="floor-hint" style="margin-top:var(--s-3)">These apply to legs you haven't set individually. Click a leg on the floor to override it.</p>
-        </div>
-
-        <div class="panel">
-          <div class="panel__head"><p class="section-label">Control &amp; demand</p><h2 class="panel__title">Operating policy</h2></div>
+          <p class="floor-hint" style="margin-top:var(--s-2)">Applies to legs you haven't set individually — click a leg to override.</p>
+          <hr class="muted-rule">
+          <p class="section-label">Control &amp; demand</p>
           <div id="controlBody" class="stack"></div>
         </div>
 
-        <div class="panel">
-          <div class="panel__head"><p class="section-label">Results</p><h2 class="panel__title">Run summary</h2></div>
-          <div id="results"><p class="results-empty">Run the model to see throughput, cycle time, transport time and utilisation.</p></div>
+        <div class="tabbody" id="tab-results" hidden>
+          <div id="results"><p class="results-empty">Press Play or “Run to end” to see throughput, cycle time, transport and utilisation.</p></div>
         </div>
       </div>
     </div>

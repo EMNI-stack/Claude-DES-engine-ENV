@@ -18,6 +18,10 @@ let tool = 'move';
 let selected = null;          // { kind:'node', id } | { kind:'leg', key } | null
 let drag = null;
 
+// playback + animation state
+let sim = null, simCursor = 0, playing = false, lastTs = 0, speed = 6, needsBuild = true, finished = false, raf = 0;
+let tokenEls = new Map(), tokenLayer = null;
+
 /* ---- model defaults + migration ---------------------------------------- */
 function ensureModel(m) {
   const base = {
@@ -52,7 +56,7 @@ function ensureModel(m) {
   }
   return m;
 }
-function persist() { project.model = model; save(project); }
+function persist() { project.model = model; save(project); needsBuild = true; finished = false; }
 
 /* ---- geometry ----------------------------------------------------------- */
 const px = (mm) => mm * S;
@@ -122,12 +126,60 @@ function render() {
   }
   svg.append(legG);
   for (const n of model.nodes) svg.append(nodeEl(n));
+  tokenLayer = E('g', {}); svg.append(tokenLayer); tokenEls = new Map();   // fresh token layer
+  if (sim && !needsBuild) renderFrame(simCursor);                           // repaint live state onto the rebuilt scene
+}
+
+/* ---- live frame render (tokens + station states + progress) ------------ */
+function renderFrame(cursor) {
+  if (!sim) return;
+  const svg = $('svg');
+  for (const n of model.nodes) {
+    if (n.kind !== 'resource') continue;
+    const g = svg.querySelector(`[data-node="${n.id}"]`); if (!g) continue;
+    const rect = g.querySelector('.node-rect'), prog = g.querySelector('.prog');
+    const r = sim.res[n.id]; let frac = 0, cls = 'node-rect';
+    if (r) {
+      const anyDown = r.machines.some((m) => m.down), anyBusy = r.machines.some((m) => m.busy), anyBlk = r.machines.some((m) => m.blocked);
+      cls += anyDown ? ' down' : anyBusy ? ' busy' : anyBlk ? ' blocked' : '';
+      for (const m of r.machines) if (m.busy && m.depTime > m.startTime) frac = Math.max(frac, Math.min(1, Math.max(0, (cursor - m.startTime) / (m.depTime - m.startTime))));
+    }
+    if (selected && selected.kind === 'node' && selected.id === n.id) cls += ' sel';
+    rect.setAttribute('class', cls);
+    if (prog) prog.setAttribute('width', (frac * 66).toFixed(1));
+  }
+  // tokens
+  const seen = new Set(), buckets = new Map();
+  for (const job of sim.jobs.values()) {
+    const p = jobPos(job, cursor, buckets); if (!p) continue;
+    seen.add(job.id);
+    let c = tokenEls.get(job.id);
+    if (!c) { c = E('circle', { class: 'tok' }); tokenLayer.append(c); tokenEls.set(job.id, c); }
+    c.setAttribute('cx', p.x.toFixed(1)); c.setAttribute('cy', p.y.toFixed(1)); c.setAttribute('r', p.r);
+    c.setAttribute('class', 'tok' + (p.q ? ' q' : ''));
+  }
+  for (const [id, c] of tokenEls) if (!seen.has(id)) { c.remove(); tokenEls.delete(id); }
+}
+function jobPos(job, cursor, buckets) {
+  const loc = job.loc; if (!loc) return null;
+  if (loc.k === 'transit') {
+    const f = node(loc.from), t = node(loc.to); if (!f || !t) return null;
+    const p = Math.min(1, Math.max(0, (cursor - loc.t0) / ((loc.t1 - loc.t0) || 1)));
+    return { x: px(f.x + (t.x - f.x) * p), y: px(f.y + (t.y - f.y) * p), r: 4, q: false };
+  }
+  const n = node(loc.node); if (!n) return null;
+  if (loc.k === 'service') return { x: px(n.x), y: px(n.y), r: 4, q: false };
+  const key = loc.node + loc.k, i = buckets.get(key) || 0; buckets.set(key, i + 1);
+  if (loc.k === 'fg') return { x: px(n.x) + 22 + i * 9, y: px(n.y), r: 3.4, q: true };
+  if (loc.k === 'hold') return { x: px(n.x) - i * 9, y: px(n.y) - 22, r: 3.4, q: true };
+  return { x: px(n.x) - 26 - i * 9, y: px(n.y), r: 3.4, q: true };   // queue / pending: stack to the left
 }
 function nodeEl(n) {
   const sel = selected && selected.kind === 'node' && selected.id === n.id;
   const g = E('g', { class: 'node' + (sel ? ' sel' : ''), 'data-node': n.id, transform: `translate(${px(n.x)},${px(n.y)})` });
   if (n.kind === 'resource') {
     g.append(E('rect', { class: 'node-rect', x: -34, y: -22, width: 68, height: 44, rx: 6 }));
+    g.append(E('rect', { class: 'prog', x: -33, y: 18, width: 0, height: 3, rx: 1 }));
     g.append(E('text', { class: 'node-kind', x: 0, y: -8, 'text-anchor': 'middle' }, `RESOURCE · ${n.machines || 1}m`));
     g.append(E('text', { class: 'node-label', x: 0, y: 9, 'text-anchor': 'middle' }, n.name || 'Resource'));
   } else if (n.kind === 'storage') {
@@ -162,14 +214,17 @@ function mini(label, on) { const b = H('button', { class: 'mini' }, label); b.ad
 
 /* ---- inspector (node OR leg) ------------------------------------------- */
 function renderInspector() {
-  const panel = $('propPanel'), body = $('propBody');
-  if (!selected) { panel.hidden = true; return; }
-  panel.hidden = false; body.innerHTML = '';
+  const body = $('propBody'); body.innerHTML = '';
+  if (!selected) {
+    $('propKind').textContent = 'Selected'; $('propTitle').textContent = 'Nothing selected';
+    body.append(H('p', { class: 'small faint' }, 'Click a node or a transport leg on the floor to edit it.'));
+    return;
+  }
   if (selected.kind === 'node') inspectNode(node(selected.id), body);
   else inspectLeg(selected.key, body);
 }
 function inspectNode(n, body) {
-  if (!n) { $('propPanel').hidden = true; return; }
+  if (!n) { selected = null; renderInspector(); return; }
   $('propKind').textContent = n.kind;
   $('propTitle').textContent = n.name || n.kind[0].toUpperCase() + n.kind.slice(1);
   body.append(field('Name', textInput(n.name || '', (v) => { n.name = v; persist(); render(); renderRoute(); })));
@@ -296,9 +351,13 @@ function renderTable() {
 }
 
 /* ---- selection + mutations --------------------------------------------- */
-function selectNode(id) { selected = { kind: 'node', id }; refreshAll(); }
-function selectLeg(key) { selected = { kind: 'leg', key }; refreshAll(); }
+function selectNode(id) { selected = { kind: 'node', id }; activateTab('inspect'); refreshAll(); }
+function selectLeg(key) { selected = { kind: 'leg', key }; activateTab('inspect'); refreshAll(); }
 function refreshAll() { render(); renderRoute(); renderInspector(); if (!$('tablePanel').hidden) renderTable(); }
+function activateTab(name) {
+  document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+  document.querySelectorAll('.tabbody').forEach((b) => { b.hidden = (b.id !== 'tab-' + name); });
+}
 
 function addNode(kind, x, y) {
   const idp = { resource: 'res', storage: 'sto', source: 'src', sink: 'snk' }[kind] || 'n';
@@ -307,7 +366,7 @@ function addNode(kind, x, y) {
   if (kind === 'storage') n.cap = 10;
   if (kind === 'source') n.interarrival = newDist('exp', { mean: 3 });
   model.nodes.push(n); model.routeOrder.push(n.id);
-  selected = { kind: 'node', id: n.id }; persist(); refreshAll();
+  selected = { kind: 'node', id: n.id }; activateTab('inspect'); persist(); refreshAll();
 }
 function removeNode(id) {
   model.nodes = model.nodes.filter((n) => n.id !== id);
@@ -342,10 +401,47 @@ function buildRunModel() {
     control: model.control, conwipCap: model.conwipCap, supply: model.supply,
     demand: model.demand.mode === 'stream' ? { mode: 'stream', dist: model.demand.dist } : { mode: 'instant' } };
 }
-function runModel() {
+/* ---- playback ----------------------------------------------------------- */
+function buildSim() {
+  if (model.routeOrder.length < 2) { sim = null; needsBuild = true; return false; }
+  sim = new FloorSim(buildRunModel(), 1);
+  simCursor = 0; needsBuild = false; finished = false;
+  render(); updateClock();
+  return true;
+}
+function setPlayLabel() { $('btnPlay').textContent = playing ? 'Pause' : (finished ? 'Replay' : 'Play'); }
+function updateClock() {
+  $('clkTime').textContent = sim ? sim.now.toFixed(1) : '0.0';
+  $('clkWip').textContent = sim ? sim.wip : 0;
+  $('clkOut').textContent = sim ? sim.completed : 0;
+  $('clkEvents').textContent = (sim ? sim.events : 0).toLocaleString('en-US') + ' events';
+}
+function loop(ts) {
+  if (!playing) return;
+  let dt = (ts - lastTs) / 1000; lastTs = ts; if (!(dt > 0)) dt = 0; if (dt > 0.25) dt = 0.25;
+  simCursor += dt * speed;
+  let guard = 0;
+  while (sim.fel.length && sim.fel[0].time <= simCursor && guard++ < 200000) sim.step();
+  if (!sim.fel.length) { playing = false; finished = true; setPlayLabel(); showResults(); }
+  renderFrame(simCursor); updateClock();
+  if (playing) raf = requestAnimationFrame(loop);
+}
+function play() {
+  if (needsBuild || !sim || finished || !sim.fel.length) {
+    if (!buildSim()) { $('floorHint').textContent = 'Add at least a source, a resource and a sink, then press Play.'; setPlayLabel(); return; }
+  }
+  playing = true; finished = false; setPlayLabel(); lastTs = performance.now(); cancelAnimationFrame(raf); raf = requestAnimationFrame(loop);
+}
+function pause() { playing = false; cancelAnimationFrame(raf); setPlayLabel(); }
+function togglePlay() { playing ? pause() : play(); }
+function stepOne() { pause(); if (needsBuild || !sim) buildSim(); if (!sim) return; if (sim.fel.length) { simCursor = sim.fel[0].time; sim.step(); } renderFrame(simCursor); updateClock(); }
+function runToEnd() { pause(); if (needsBuild || !sim || finished || !sim.fel.length) buildSim(); if (!sim) return; sim.run({ until: Infinity }); simCursor = sim.now; finished = true; setPlayLabel(); render(); updateClock(); showResults(); activateTab('results'); }
+function resetSim() { playing = false; cancelAnimationFrame(raf); buildSim(); setPlayLabel(); }
+
+/* ---- results (read the live sim) --------------------------------------- */
+function showResults() {
   const results = $('results');
-  if (model.routeOrder.length < 2) { results.innerHTML = '<p class="results-empty">Add at least two nodes and a route to run.</p>'; return; }
-  const sim = new FloorSim(buildRunModel(), 1); sim.run({ until: 8000 });
+  if (!sim) { results.innerHTML = '<p class="results-empty">Press Play or “Run to end” to see results.</p>'; return; }
   const r = sim.metrics(); const f = (x, d = 2) => Number.isFinite(x) ? x.toFixed(d) : '—';
   results.innerHTML = `
     <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">
@@ -382,12 +478,16 @@ function loadExample() {
     mk('resource', 'Inspect', 62, { machines: 1, service: newDist('triangular', { min: 0.8, mode: 1.2, max: 2 }), buffer: { finite: false, cap: 10, init: 0, target: 8 }, scrap: 0, brk: { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) } }),
     mk('sink', 'Ship', 78),
   ];
-  model.routeOrder = model.nodes.map((n) => n.id); model.legs = {}; selected = null; persist(); refreshAll();
+  model.routeOrder = model.nodes.map((n) => n.id); model.legs = {}; selected = null; sim = null;
+  persist(); refreshAll(); updateClock(); setPlayLabel();
 }
-function clearFloor() { model.nodes = []; model.routeOrder = []; model.legs = {}; selected = null; persist(); refreshAll(); $('results').innerHTML = '<p class="results-empty">Run the model to see throughput, cycle time, transport time and utilisation.</p>'; }
+function clearFloor() { model.nodes = []; model.routeOrder = []; model.legs = {}; selected = null; sim = null;
+  persist(); refreshAll(); updateClock(); setPlayLabel();
+  $('results').innerHTML = '<p class="results-empty">Press Play or “Run to end” to see results.</p>'; }
 
 /* ---- pointer interaction ------------------------------------------------ */
 function onPointerDown(e) {
+  if (playing) return;          // pause to edit the floor
   const svg = $('svg'); const grp = e.target.closest('[data-node]'); const legHit = e.target.closest('[data-leg]'); const p = svgPoint(e);
   if (tool === 'move') {
     if (grp) { const id = grp.getAttribute('data-node'); selectNode(id); drag = { id, moved: false }; svg.setPointerCapture(e.pointerId); }
@@ -405,14 +505,26 @@ function init() {
   svg.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
   $('palette').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; tool = b.dataset.tool; $('palette').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); });
-  $('btnRun').addEventListener('click', runModel);
-  $('btnSeed').addEventListener('click', loadExample);
+  $('btnExample').addEventListener('click', loadExample);
   $('btnClear').addEventListener('click', clearFloor);
   $('btnTable').addEventListener('click', () => { const p = $('tablePanel'); p.hidden = !p.hidden; $('btnTable').setAttribute('aria-pressed', String(!p.hidden)); if (!p.hidden) renderTable(); });
 
-  if (location.hash === '#example' && model.nodes.length === 0) { loadExample(); const r = model.nodes.find((n) => n.kind === 'resource'); if (r) selected = { kind: 'node', id: r.id }; }
+  // playback controls
+  $('btnPlay').addEventListener('click', togglePlay);
+  $('btnStep').addEventListener('click', stepOne);
+  $('btnFF').addEventListener('click', runToEnd);
+  $('btnReset').addEventListener('click', resetSim);
+  const sp = $('speed'); speed = parseFloat(sp.value) || 6; $('spdV').textContent = speed + '×';
+  sp.addEventListener('input', () => { speed = parseFloat(sp.value) || 6; $('spdV').textContent = speed + '×'; });
+  // tabs
+  document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => activateTab(b.dataset.tab)));
+
+  let startTab = 'model';
+  if (location.hash === '#example' && model.nodes.length === 0) { loadExample(); const r = model.nodes.find((n) => n.kind === 'resource'); if (r) { selected = { kind: 'node', id: r.id }; startTab = 'inspect'; } }
   if (model.defaultMover === 'worker' || Object.values(model.legs).some((l) => l.mover === 'worker')) ensureWorkerAssumption();
   render(); renderRoute(); renderInspector(); renderTransport(); renderControl();
+  activateTab(startTab); setPlayLabel(); updateClock();
+  if (location.hash === '#play') { if (model.routeOrder.length < 2) loadExample(); play(); }  // deep-link: open running
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
 else init();

@@ -37,7 +37,8 @@ export class FloorSim {
     this.areaWIP = 0; this.areaTransit = 0;
     this.entered = 0; this.completed = 0; this.scrapped = 0;
     this.sumCycle = 0; this.sumJobTransit = 0;
-    this.pid = 0;
+    this.pid = 0; this.events = 0;
+    this.jobs = new Map();                  // live jobs in system, for animation
     this.arrivalBlocked = [];               // instant-delivered jobs awaiting a full buffer
 
     // node index + runtime state
@@ -161,6 +162,7 @@ export class FloorSim {
   /* ---- event loop ------------------------------------------------------- */
   step() {
     const ev = this._pop(); if (!ev) return false;
+    this.events++;
     this.accumulate(ev.time); this.now = ev.time;
     if (ev.t === 'ARRIVE') this.onArrive(ev);
     else if (ev.t === 'ARRIVE_NODE') this.onArriveNode(ev);
@@ -206,7 +208,8 @@ export class FloorSim {
   }
   releaseJob() {
     const p = this.mainPart; if (!p) return;
-    const job = { id: ++this.pid, part: p.id, routing: p.routing, step: 0, entry: this.now, transit: 0 };
+    const job = { id: ++this.pid, part: p.id, routing: p.routing, step: 0, entry: this.now, transit: 0, loc: null };
+    this.jobs.set(job.id, job);
     this.entered++; this.wip++; this.lineWip++;
     if (this.lineWip > this.maxLineWip) this.maxLineWip = this.lineWip;
     this.admit(job, 0);
@@ -220,7 +223,7 @@ export class FloorSim {
   onSinkArrival(job) {
     this.lineWip = Math.max(0, this.lineWip - 1);   // the job has left the production line
     if (this.demandCfg.mode === 'instant') this.exit(job);
-    else { this.fg++; this.fgQueue.push(job); }      // becomes finished-goods inventory
+    else { this.fg++; this.fgQueue.push(job); job.loc = { k: 'fg', node: job.routing[job.routing.length - 1] }; }
   }
 
   /* admit a job to the node at routing[toStep]; returns true if accepted */
@@ -230,12 +233,12 @@ export class FloorSim {
     if (node.kind === 'resource') {
       const r = this.res[id];
       if (this.occ(id) >= r.cap) return false;
-      job.step = toStep; r.queue.push(job); return true;
+      job.step = toStep; job.loc = { k: 'queue', node: id }; r.queue.push(job); return true;
     }
     // source / storage
     const h = this.hold[id];
     if (h.items.length >= h.cap) return false;
-    job.step = toStep; h.items.push(job); return true;
+    job.step = toStep; job.loc = { k: 'hold', node: id }; h.items.push(job); return true;
   }
   occ(resId) { const r = this.res[resId]; let n = r.queue.length; for (const m of r.machines) if (m.busy || m.blocked) n++; return n; }
 
@@ -301,15 +304,18 @@ export class FloorSim {
       if (leg.items.length >= leg.cap) return false;       // conveyor full → caller stays blocked
       const item = { job, step: toStep, arrived: false };
       leg.items.push(item); this.inTransit++; job.transit += tt;
+      job.loc = { k: 'transit', from: fromId, to: toId, t0: this.now, t1: this.now + tt };
       this.schedule(tt, { t: 'CONVEYOR_END', item, leg });
       return true;
     }
     if (mover === 'worker' && this.workers) {
       this.workers.pending.push({ job, step: toStep });    // wait for a free worker (transport queue)
+      job.loc = { k: 'pending', node: fromId };             // waiting at the from-node for a worker
       return true;                                          // job leaves the node into the pending queue
     }
     // instant (uncapacitated delay)
     this.inTransit++; job.transit += tt;
+    job.loc = { k: 'transit', from: fromId, to: toId, t0: this.now, t1: this.now + tt };
     this.schedule(tt, { t: 'ARRIVE_NODE', job, step: toStep });
     return true;
   }
@@ -340,14 +346,15 @@ export class FloorSim {
         const req = this.workers.pending.shift(); this.workers.busy++;
         const job = req.job, fromId = job.routing[job.step], toId = job.routing[req.step];
         const tt = this._tt(fromId, toId, 'worker'); this.inTransit++; job.transit += tt;
+        job.loc = { k: 'transit', from: fromId, to: toId, t0: this.now, t1: this.now + tt };
         this.schedule(tt, { t: 'MOVE_END', job, step: req.step }); changed = true; }
       // 5. resources: board finished (blocked) jobs, then start new services
       for (const id in this.res) { const r = this.res[id];
         for (const m of r.machines) { if (m.blocked && m.job) { if (this.board(m.job)) { m.blocked = false; m.job = null; changed = true; } } }
         for (const m of r.machines) { if (!m.busy && !m.blocked && !m.down && r.queue.length) {
-          const job = r.queue.shift(); m.busy = true; m.job = job;
+          const job = r.queue.shift(); m.busy = true; m.job = job; job.loc = { k: 'service', node: id };
           const st = Math.max(0, sample(r.node.service, this.rng));
-          m.depSeq++; m.depTime = this.now + st;
+          m.depSeq++; m.startTime = this.now; m.depTime = this.now + st;
           this.schedule(st, { t: 'COMPLETE', node: id, m, job, seq2: m.depSeq }); changed = true; } } }
       // 6. holding nodes (source/storage): push head jobs onward
       for (const id in this.hold) { const h = this.hold[id];
@@ -355,8 +362,8 @@ export class FloorSim {
     }
   }
 
-  exit(job) { this.wip--; this.completed++; this.sumCycle += this.now - job.entry; this.sumJobTransit += job.transit; }
-  scrap(job) { this.wip--; this.scrapped++; }     // job leaves the system as scrap (not completed)
+  exit(job) { this.wip--; this.completed++; this.sumCycle += this.now - job.entry; this.sumJobTransit += job.transit; this.jobs.delete(job.id); }
+  scrap(job) { this.wip--; this.scrapped++; this.jobs.delete(job.id); }   // leaves as scrap (not completed)
 
   /* ---- metrics ---------------------------------------------------------- */
   metrics() {

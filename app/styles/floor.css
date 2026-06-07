@@ -5,6 +5,25 @@
 .floor-wrap { display: grid; grid-template-columns: 1fr 340px; gap: var(--s-5); align-items: start; }
 @media (max-width: 900px) { .floor-wrap { grid-template-columns: 1fr; } }
 
+/* tabbed side panel keeps the page compact (one section at a time) */
+.tabpanel { padding: 0; position: sticky; top: 76px; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tabs .tab { flex: 1; appearance: none; background: transparent; border: 0; cursor: pointer;
+  font-family: var(--sans); font-size: var(--fs-small); color: var(--ink-2);
+  padding: 12px 8px; border-bottom: 2px solid transparent; }
+.tabs .tab:hover { color: var(--ink); background: var(--surface-2); }
+.tabs .tab[aria-selected="true"] { color: var(--primary); border-bottom-color: var(--primary); font-weight: 500; }
+.tabbody { padding: var(--s-5); max-height: 70vh; overflow: auto; }
+.tabbody .section-label { margin-bottom: var(--s-2); }
+
+/* playback bar + clock */
+.playbar { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; margin-top: var(--s-3);
+  padding-top: var(--s-3); border-top: 1px solid var(--line); }
+.playbar .spd { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-small); color: var(--ink-2); }
+.playbar input[type=range] { width: 120px; accent-color: var(--primary); }
+.clock { display: flex; gap: var(--s-4); align-items: baseline; font-size: var(--fs-small); color: var(--ink-2); }
+.clock b { font-family: var(--mono); color: var(--ink); font-weight: 600; }
+
 .floor-toolbar { display: flex; gap: var(--s-3); align-items: center; flex-wrap: wrap; margin-bottom: var(--s-4); }
 .floor-toolbar .spacer { margin-left: auto; }
 .floor-hint { font-size: var(--fs-small); color: var(--faint); }
@@ -20,6 +39,14 @@ svg.floor .node { cursor: grab; }
 svg.floor .node.dragging { cursor: grabbing; }
 svg.floor .node-rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; }
 svg.floor .node.sel .node-rect { stroke: var(--primary); stroke-width: 1.5; }
+/* live station states (fill + border, no glow) */
+svg.floor .node-rect.busy { fill: var(--primary-tint); stroke: var(--busy); }
+svg.floor .node-rect.blocked { stroke: var(--blocked); fill: rgba(194,118,46,.07); }
+svg.floor .node-rect.down { stroke: var(--down); fill: rgba(181,70,47,.07); }
+svg.floor .prog { fill: var(--busy); opacity: .55; }
+/* job tokens */
+svg.floor .tok { fill: var(--busy); }
+svg.floor .tok.q { fill: var(--idle); }
 svg.floor .node.sel .bracket { stroke: var(--primary); }
 svg.floor .node-label { font-family: var(--sans); font-size: 11px; fill: var(--ink); }
 svg.floor .node-kind { font-family: var(--mono); font-size: 9px; letter-spacing: .08em;

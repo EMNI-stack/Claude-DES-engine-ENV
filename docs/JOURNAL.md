@@ -333,3 +333,30 @@ B scrap/breakdowns, C control/demand). The floor now matches the old engine's mo
 per-element click-to-edit and a table overview. **Still pending (paused):** branching + assembly
 (Milestone 2b) and the broader Phase 3 integration polish (binding floor params to conceptual
 experimental factors).
+
+---
+
+## 2026-06-07 — Phase 3: compact UI + live playback
+
+Stakeholder feedback: (1) the parameter panels made the page far too long; (2) running the sim just
+produced a result — you couldn't *watch* it run or see elapsed time, unlike the old demo. Addressed
+both (kept the new aesthetic; copied only the old demo's run *mechanism*):
+
+- **Compact layout.** The right column is now a **tabbed panel — Inspect / Model / Results** — so only
+  one section shows at a time instead of every panel stacked. Selecting a node/leg switches to Inspect;
+  Model holds route + transport defaults + control & demand; Results holds the run summary. The page is
+  now roughly canvas-height.
+- **Live playback.** A real-time `requestAnimationFrame` loop advances a `simCursor` at a **speed**
+  multiplier and steps the engine to that time (the proven old-demo pattern), rendering each frame:
+  **jobs as tokens** that move along transport legs (interpolated by distance/time) and sit in
+  queues/service, **station fill/border colour** for busy/blocked/down, a **progress sliver** on busy
+  machines, and a **clock strip** (sim time, WIP, output, events). Controls: **Play/Pause, Step, Run to
+  end, Reset, speed slider**. A `#play` deep-link opens a floor already running.
+- Engine support (`floor-engine.js`): a live `jobs` map with a per-job `loc` tag
+  (queue/service/transit{from,to,t0,t1}/pending/hold/fg), an `events` counter, and machine
+  `startTime` for the progress sliver. No change to simulation logic — purely additive state for
+  animation; all 75 tests stay green.
+
+**Verification:** `npm test` → 75/75. Headless: controls + tabs render, no console errors; a
+deterministic mid-run snapshot showed tokens in the busy Press/Inspect stations with the clock at
+66.8 min / 4 WIP / 21 out / 160 events. Screenshots reviewed — compact and on-brand.
