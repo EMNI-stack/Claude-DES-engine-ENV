@@ -94,3 +94,46 @@ McKinsey-meets-engineering design system, navigation, reuse the engine).
 
 **Next:** Phase 2 — methodology scaffolding (conceptual-model builder, assumptions log, V&V
 framing) on this shell.
+
+---
+
+## 2026-06-07 — Phase 2: methodology scaffolding (Robinson backbone)
+
+**Done today**
+- **Project container** (`app/js/project.js`): one schema-tagged JSON object (`des-study/v1`) per
+  student holding `meta`, `conceptual` (objectives / factors / responses / content), `assumptions`,
+  `vv`, and reserved `model` (Phase 3) / `results` (Phase 4) nulls. Factors & responses carry stable
+  ids for later binding. localStorage autosave + JSON file save/load (Blob/FileReader, like the demo)
+  + a defensive `migrate()`.
+- **Study-process overview** on `methodology.html`: a calm diagram of Robinson's four activities with
+  "Conceptual model" marked active and a note that V&V runs throughout (not a stage).
+- **Conceptual-model builder** (`app/js/methodology.js`): a stepped, revisitable workspace (left rail
+  + content, deep-linked by URL hash) walking Objectives → Experimental factors → Responses → Model
+  content, each in plain language with helper text and an optional fast-food worked example. The
+  "simplest model that meets the objectives" rule is stated in the intro and the content step.
+- **Assumptions & simplifications log**: typed entries (ASSUMPTION = knowledge gap vs SIMPLIFICATION
+  = deliberate reduction), each with rationale, data-availability tag (A/B/C), uncertainty note, and a
+  sensitivity flag; selecting category C prompts "test by sensitivity analysis later (Phase 4)".
+- **V&V framing**: verification-vs-validation explainer, the forms of validation, the first-class
+  message "a model is never valid in general — V&V builds confidence", and a manual progress
+  checklist (now-items vs Phase 3–4 items, honestly marked).
+- **Export** (`export.html` + `app/js/export.js`): a clean print-friendly HTML document (print → PDF)
+  plus a Markdown download of the whole front matter.
+- Added `app/styles/methodology.css` (layout only, built on Phase 1 tokens — no component restyling).
+
+**Scope:** strictly Charter §5. No model execution, no 2D floor, no warm-up/replications/CI, no
+Factory Physics overlays — nav placeholders stay placeholders. Nothing exceeded the charter. Engine,
+`src/`, and the legacy demo were not touched.
+
+**Verification:** `npm test` → 62/62 pass (engine untouched). New JS passes `node --check`. Rendered
+both pages in headless Chrome: no console errors; the step rail builds all six steps and the export
+document renders. Screenshots reviewed — on-brand with Phase 1.
+
+**Decisions logged (2026-06-07):** project-container data structure; stepped revisitable wizard;
+export format (print HTML + Markdown). **Principles added:** study-process cycle; conceptual-model
+elements; data A/B/C → sensitivity (all cited to Robinson).
+
+**Sources:** `Reference/theory-notes.md` §2.2–2.5; Charter §2, §5; `docs/DESIGN-LANGUAGE.md`.
+
+**Next:** Phase 3 — the 2D floor & transport engine (binds the model to the factors/responses ids
+defined here).

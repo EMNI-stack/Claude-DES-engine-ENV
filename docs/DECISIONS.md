@@ -154,3 +154,50 @@ Entry format:
   step/bundler (rejected — violates the no-build / GitHub-Pages constraint).
 - Governing principle / source: Charter §4 (architecture), §9 (non-goals); DECISIONS 2026-06-05
   "Build on the existing engine, as entirely new files & pages".
+
+## [2026-06-07] — Project-container data structure (`des-study/v1`)
+- Decision: One JSON object per student holds the whole study, schema-tagged `des-study/v1`:
+  `meta` (title/author/created/modified); `conceptual` { `objectives` {question, success, notes},
+  `factors[]`, `responses[]`, `content` {included, excluded, detail, simplest} }; `assumptions[]`;
+  `vv` { checklist[], notes }; and two reserved nulls — `model` (Phase 3 floor/line) and `results`
+  (Phase 4). **Experimental factors and responses carry stable ids** (`f_*`, `r_*`) so the Phase 3
+  model can bind to them later. A defensive `migrate()` fills any missing shape so older/partial
+  saves keep loading as the schema grows. Persistence is localStorage autosave + JSON file
+  save/load (Blob download / FileReader), matching the legacy demo — no backend.
+- Rationale: A single versioned object that later phases attach to (rather than separate files)
+  keeps one student's study coherent, save/load trivial, and forward-compatible. Stable ids are the
+  hinge that lets Phase 3 reference Phase 2's factors/responses without a rewrite.
+- Alternatives considered: Separate per-section storage keys (rejected — fragments the study, harder
+  to export/submit as one artifact); array indices instead of ids for factors/responses (rejected —
+  reordering/removal would break Phase 3 bindings).
+- Governing principle / source: Charter §5 (methodology scaffolding); `Reference/theory-notes.md`
+  §2.3 (conceptual-model elements).
+
+## [2026-06-07] — Stepped, revisitable wizard on one workspace page
+- Decision: The conceptual-model builder is a single workspace page (`methodology.html`) with a
+  left step rail (Objectives → Experimental factors → Responses → Model content → Assumptions &
+  simplifications → Verification & validation) rather than one page per step or a free-form form.
+  Steps are revisitable in any order (deep-linked via URL hash), the rail shows per-step completion,
+  and a study-process diagram marks where the student is. Guided rails, plain language, Robinson's
+  terms; an optional fast-food worked example is disclosed per step.
+- Rationale: Charter resolved "guided rails over open sandbox" (DECISIONS 2026-06-05). A stepped
+  spine teaches the order of Robinson's conceptual-model elements while staying revisitable; one page
+  keeps all of the shared project state in one place (no cross-page sync) and matches the calm,
+  diagrammatic aesthetic.
+- Alternatives considered: A strict linear wizard that locks later steps (rejected — students must
+  revisit; modelling is iterative); a single long scroll form with no spine (rejected — loses the
+  "where am I in the process" teaching); multipage (rejected — needless state-sync complexity).
+- Governing principle / source: Charter §5; DECISIONS 2026-06-05 "Guided rails over open sandbox";
+  `Reference/theory-notes.md` §2.2–2.3.
+
+## [2026-06-07] — Export format: print-friendly HTML + Markdown
+- Decision: The study front matter exports two ways from `export.html`: an on-brand, print-friendly
+  HTML document (a `@media print` stylesheet hides the chrome → "Print / save as PDF" for hand-in),
+  and a downloadable **Markdown** file (`*.conceptual-model.md`). Both are generated client-side from
+  the saved project.
+- Rationale: The deliverable asks for "Markdown or print-friendly HTML"; providing both covers
+  submission as a PDF (print) and as editable text (Markdown) with no backend and no new dependency.
+- Alternatives considered: PDF generation via a bundled library (rejected — violates no-build /
+  adds weight; the browser's own print-to-PDF is sufficient); HTML only (rejected — Markdown is more
+  portable for submission/versioning).
+- Governing principle / source: Charter §5 (exportable assumptions record), §4.1 (client-side).

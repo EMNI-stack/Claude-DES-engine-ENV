@@ -8,37 +8,74 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles/design-system.css">
+<link rel="stylesheet" href="styles/methodology.css">
 </head>
 <body data-page="methodology">
 
 <main class="container page stack-lg">
+
   <section class="reveal">
     <p class="section-label eyebrow">Step 01 · the backbone</p>
     <h1 class="display">Methodology</h1>
-    <p class="lead" style="margin-top: var(--s-4);">
-      The simulation study process, made first-class — following Robinson. This is where a model
-      begins: stating what it is for before any machine is placed.
+    <p class="lead measure" style="margin-top: var(--s-4);">
+      The structured front matter of a simulation study, following Robinson's process. Decide what
+      the model is <em>for</em> — and write down its assumptions — before any machine is placed.
+      The guiding rule throughout: <strong>build the simplest model that meets the objectives.</strong>
     </p>
   </section>
 
-  <section class="reveal placeholder">
-    <p class="section-label">Coming in Phase 2</p>
-    <h2>Conceptual model &amp; assumptions log</h2>
-    <p class="small measure">
-      This section will guide students through the conceptual model — objectives, experimental
-      factors (inputs), responses (outputs), scope &amp; level of detail — and keep a living,
-      exportable record that separates <strong>assumptions</strong> (gaps in knowledge) from
-      <strong>simplifications</strong> (deliberate reductions). Input-data modelling (data
-      availability A/B/C, distribution choice, surfacing input-model uncertainty) and the
-      verification &amp; validation framing — "a model is never valid in general; V&amp;V builds
-      confidence" — live here too.
-    </p>
-    <div class="row" style="justify-content:center; margin-top: var(--s-4);">
-      <a class="btn btn-ghost" href="index.html">Back to overview</a>
+  <!-- PROJECT BAR -->
+  <section class="reveal studybar" aria-label="Study">
+    <div class="studybar__title field">
+      <label class="section-label" for="studyTitle">Study title</label>
+      <input id="studyTitle" type="text" placeholder="Untitled study" autocomplete="off">
+    </div>
+    <div class="studybar__author field">
+      <label class="section-label" for="studyAuthor">Author</label>
+      <input id="studyAuthor" class="input" type="text" placeholder="Your name" autocomplete="off">
+    </div>
+    <div class="studybar__actions">
+      <span id="saveState" class="savestate" title="Autosaved in this browser">saved</span>
+      <button id="btnSave" class="btn btn-ghost" title="Download the whole study as a JSON file">Save file</button>
+      <button id="btnLoad" class="btn btn-ghost" title="Load a study JSON file">Load file</button>
+      <a id="btnExport" class="btn btn-primary" href="export.html" title="Open a clean, printable summary">Export</a>
+      <input id="fileInput" type="file" accept=".json,application/json" hidden>
     </div>
   </section>
+
+  <!-- STUDY-PROCESS OVERVIEW -->
+  <section class="reveal panel process">
+    <div class="panel__head">
+      <p class="section-label">Robinson's study process</p>
+      <h2 class="panel__title">Where you are</h2>
+      <p class="panel__sub">A non-linear cycle of four activities — you can revisit any of them. Verification &amp; validation is not a stage; it runs throughout.</p>
+    </div>
+    <div class="process__flow">
+      <div class="process__step" data-active="true">
+        <div class="k">Activity 01</div><div class="t">Conceptual model</div><div class="ph">this phase</div>
+      </div>
+      <div class="process__step">
+        <div class="k">Activity 02</div><div class="t">Computer model</div><div class="ph">Phase 3</div>
+      </div>
+      <div class="process__step">
+        <div class="k">Activity 03</div><div class="t">Experimentation</div><div class="ph">Phase 4</div>
+      </div>
+      <div class="process__step">
+        <div class="k">Activity 04</div><div class="t">Implementation</div><div class="ph">later</div>
+      </div>
+    </div>
+    <div class="process__vv"><b>Verification &amp; validation</b> runs across all four activities — it builds <em>confidence</em>, and is never "finished".</div>
+  </section>
+
+  <!-- WORKSPACE -->
+  <section class="reveal workspace">
+    <nav id="stepRail" class="steprail" aria-label="Conceptual-model steps"><!-- rendered by JS --></nav>
+    <section id="stepContent" class="stack"><!-- rendered by JS --></section>
+  </section>
+
 </main>
 
 <script type="module" src="js/nav.js"></script>
+<script type="module" src="js/methodology.js"></script>
 </body>
 </html>

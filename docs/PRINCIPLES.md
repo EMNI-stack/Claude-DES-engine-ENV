@@ -35,6 +35,23 @@
 - **Simulation is decision support, not optimisation.** It predicts performance for a
   given set of inputs; the student varies inputs and re-runs. — [R] (theory-notes §2.1)
 
+- **The simulation study process is a non-linear cycle**, not a waterfall: conceptual model
+  → computer model → experimentation → implementation, revisitable, with V&V running
+  *throughout* rather than as a stage. — [R] (theory-notes §2.2)
+
+- **A conceptual model has defined elements**, captured in order: objectives, experimental
+  factors (inputs to vary), responses (outputs + how they show the objective is met), and
+  model content (scope × level of detail). — [R] (theory-notes §2.3)
+
+- **Data availability is graded A / B / C** (available / collectable / not available); a
+  category-C input must be estimated, documented, and **flagged for sensitivity analysis**
+  later. (Light input-data framing only — no distribution fitting in the methodology stage.)
+  — [R] (theory-notes §2.4)
+
+> Phase 2 encodes the above in the methodology workspace: the study-process diagram, the
+> stepped conceptual-model builder, the typed assumptions/simplifications log (with the A/B/C
+> tag and category-C sensitivity prompt), and the V&V framing + manual checklist.
+
 ## Output analysis & statistical honesty
 
 - **Never present a single run as "the answer."** A single run is a sample of size one;

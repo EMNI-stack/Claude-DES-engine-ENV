@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Export — DES Simulation Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles/design-system.css">
+<link rel="stylesheet" href="styles/methodology.css">
+</head>
+<body data-page="methodology">
+
+<main class="container page stack">
+
+  <div class="row noprint" style="justify-content:space-between;">
+    <div>
+      <p class="section-label eyebrow">Export</p>
+      <h1 style="font-family:var(--serif);font-weight:500;">Study front matter</h1>
+    </div>
+    <div class="row">
+      <a class="btn btn-ghost" href="methodology.html">← Back to builder</a>
+      <button id="btnMd" class="btn btn-ghost">Download Markdown</button>
+      <button id="btnPrint" class="btn btn-primary">Print / save as PDF</button>
+    </div>
+  </div>
+
+  <p class="small faint noprint measure">A clean, submittable summary of your conceptual model and its assumptions, generated from the current study. Use “Print / save as PDF” for a hand-in copy, or download the Markdown.</p>
+
+  <div id="docHost"><!-- document rendered by export.js --></div>
+
+</main>
+
+<script type="module" src="js/nav.js"></script>
+<script type="module" src="js/export.js"></script>
+</body>
+</html>
