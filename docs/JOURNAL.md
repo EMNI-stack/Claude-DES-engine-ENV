@@ -175,3 +175,19 @@ empty-return simplification), each marked **PROPOSED — pending review**. Liste
 implementing. `npm test` untouched (62/62, no code change).
 
 **Next (after approval):** Milestone 1 — 2D placement with distance-based (instant) transport delay.
+
+---
+
+## 2026-06-07 — Phase 3 design revised: branching + assembly in scope (Option B)
+
+Stakeholder reviewed the design note and decided **both branching and assembly are in v1**, taking
+**Option B** (model is graph-/assembly-capable from day one; implement linear-first, then layer in
+branching/assembly — no rewrite). Updated `docs/PHASE-3-DESIGN.md` (§1 scope + sequencing, §3 data
+model now parts-with-routings + BOM + assembly nodes, §4 leg/assembly mapping, §6 MATCH step, §9
+assembly test, §10 resolved), `docs/PROJECT-CHARTER.md` §6 (branching/assembly in scope; NOT-list
+clarified as transport-only), and `docs/DECISIONS.md` (ratified entry superseding the earlier
+"single linear routing" clause). Remaining low-stakes design choices (Euclidean distance, `instant`
+default mover, dual storage model) stand as proposed defaults. `npm test` untouched — still no code.
+
+**Next:** Milestone 1 — implement the linear path on the graph-capable model (placement + instant
+transport delay), with tests.

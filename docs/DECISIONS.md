@@ -256,3 +256,25 @@ Entry format:
 - Alternatives considered: modelling return-to-base or nearest-pickup travel (rejected — Charter §6
   NOT-list; adds dispatch logic we explicitly avoid).
 - Governing principle / source: Charter §6; Phase 2 assumptions-log principle; design note. **Pending review.**
+
+## [2026-06-07] — Branching & assembly are in-scope v1 floor capabilities (RATIFIED)
+- Decision: The 2D floor supports **both branching** (different products/parts take different routes)
+  **and assembly** (components converge at an `assembly:true` node and a product starts only when its
+  BOM is on hand). The floor data model is a **routing graph with parts** (each part has its own
+  routing; assembly reuses the validated advanced-engine fork-join idea) — **graph-/assembly-capable
+  from day one**. Built **incrementally (Option B)**: Milestone 1 linear path → M2 transport
+  resources → **M2b branching + assembly** → M3 integration, so no rewrite. **Supersedes** the
+  "single linear routing in v1 (no BOM/branching)" clause of the 2026-06-07 *proposed* data-model
+  entry above; the rest of that entry (node kinds, storage model, stable ids) stands and is now
+  ratified.
+- Rationale: Stakeholder confirmed branching + assembly are essential to the course (factory layout
+  inherently includes assembly/BOMs), and the capability is already proven in `advanced-engine`.
+  Designing the model for it now avoids a later rewrite; building linear-first keeps Charter §6's
+  "as simple as possible" governing the *build order*.
+- Alternatives considered: linear-only v1 then a separate version for assembly (rejected by
+  stakeholder); full branching+assembly engine in the first milestone (rejected — needless upfront
+  risk; incremental is safer).
+- Governing principle / source: Stakeholder direction (2026-06-07); Charter §6 (updated); design
+  note `docs/PHASE-3-DESIGN.md` §1, §3. Units & worker-empty-return decisions above stand; the
+  remaining design-note choices (Euclidean distance, `instant` default mover, dual storage model)
+  proceed as proposed defaults unless the stakeholder objects.

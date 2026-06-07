@@ -140,10 +140,19 @@ The genuinely new, higher-risk capability. **v1 minimal definition:**
   flow that the course is about.
 - Transport is modelled as a **resource that can starve, queue, and delay** —
   i.e. movement is non-value-adding time, the "best flow is no flow" idea.
+- **Branching and assembly are in scope** (stakeholder decision 2026-06-07): the
+  floor is a **routing graph** where different products take different routes
+  (branching) and components **converge at assembly** nodes per a BOM (reusing the
+  validated advanced-engine's fork-join synchronisation). The data model is
+  graph-/assembly-capable from the start; it is built **incrementally** (Option B:
+  linear path → transport resources → branching/assembly → integration) so the
+  "kept simple" principle still governs the *build order*, not the final scope.
 
 **Explicitly NOT in v1:** routing/path-finding around obstacles, AGV fleets with
-dispatching logic, collision, multi-floor, optimisation/auto-layout. Keep it to
-"placement sets distances; distances set transport delays; movers are limited."
+dispatching logic, collision, multi-floor, optimisation/auto-layout, empty-travel
+modelling for workers. (These are *transport* exclusions; branching & assembly are
+modelling-domain capabilities and are included, per above.) Keep it to "placement
+sets distances; distances set transport delays; movers are limited."
 
 This connects to the layout theory (from-to logic, material handling, evaluate
 layout *dynamically by simulation*) without becoming a facilities-planning tool.
