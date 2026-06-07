@@ -201,3 +201,20 @@ Entry format:
   adds weight; the browser's own print-to-PDF is sufficient); HTML only (rejected — Markdown is more
   portable for submission/versioning).
 - Governing principle / source: Charter §5 (exportable assumptions record), §4.1 (client-side).
+
+## [2026-06-07] — Internal build-roadmap "phases" stay out of the student-facing UI
+- Decision: The application UI must not surface our internal build-roadmap phase numbers (Phase 1–5).
+  Unbuilt sections are marked by **availability** ("available" / "soon" / "coming soon"), not phase
+  number. Roadmap phase references live only in `docs/` (charter, journal, decisions) and in code
+  comments. Removed the leaked references from the top nav, the home workflow cards, the placeholder
+  pages, the methodology study-process diagram, the C-data helper text, the V&V checklist pill, and
+  the gallery sample tags.
+- Rationale: Stakeholder feedback — a student has no idea what "Phase 3" means; it is purely our
+  development sequence. Worse, in the study-process diagram it sat next to Robinson's "Activity
+  01–04", so the activities appeared to start at phase 2/3. Two unrelated numbering systems in one
+  view is confusing; the dev roadmap is an implementation detail.
+- Alternatives considered: Keep the phase tags as a build-progress indicator (rejected — that
+  belongs in `docs/`, not the app); renumber the diagram's activities to match phases (rejected —
+  conflates pedagogy with our roadmap).
+- Governing principle / source: Stakeholder direction (2026-06-07); Charter §8 (calm, legible),
+  §1 (clarity for a learner wins).

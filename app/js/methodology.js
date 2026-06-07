@@ -272,7 +272,7 @@ function stepAssumptions(host) {
         dataNote.innerHTML = '';
         if (a.data === 'C') {
           dataNote.append(el('div', { class: 'process__vv', style: 'margin-top:var(--s-3)' },
-            'Category C — not available. Note it should be tested by sensitivity analysis later (Phase 4), and record your estimate and its uncertainty.'));
+            'Category C — not available. Note it should be tested by sensitivity analysis later (during experimentation), and record your estimate and its uncertainty.'));
         }
       };
       const body = el('div', { class: 'entry__grid' }, [
@@ -340,7 +340,7 @@ function stepVV(host) {
     cb.addEventListener('change', () => { item.done = cb.checked; persist(); });
     ul.append(el('li', { class: item.phase === 'later' ? 'later' : '' }, [
       cb,
-      el('span', { class: 'lbl' }, [item.label, el('span', { class: 'phase-pill' }, item.phase === 'later' ? 'Phase 3–4' : 'now')]),
+      el('span', { class: 'lbl' }, [item.label, el('span', { class: 'phase-pill' }, item.phase === 'later' ? 'later' : 'now')]),
     ]));
   });
 

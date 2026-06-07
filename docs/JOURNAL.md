@@ -137,3 +137,23 @@ elements; data A/B/C → sensitivity (all cited to Robinson).
 
 **Next:** Phase 3 — the 2D floor & transport engine (binds the model to the factors/responses ids
 defined here).
+
+---
+
+## 2026-06-07 — Fix: strip internal build-phase numbering from the app UI
+
+**Trigger:** stakeholder noticed the methodology study-process diagram referenced "Phase 3 / Phase 4"
+next to Robinson's "Activity 01–04", making the activities look like they started at phase 2/3 — and
+correctly identified that our internal build roadmap had leaked into the student-facing application.
+
+**Done**
+- Study-process diagram: activity sub-labels now "available now" / "coming soon" (no phase numbers).
+- Top nav (`nav.js`): unbuilt sections tagged "soon" instead of "P3/P4/P5"; Methodology untagged.
+- Home cards: "available" on Methodology, "soon" on the other three; reworded the summary line.
+- Placeholder pages (floor/analyse/physics): "Coming soon" instead of "Coming in Phase N".
+- Helper text + V&V checklist pill + gallery sample tags: phase numbers removed.
+- Kept phase references only in `docs/` and in `project.js` code comments (internal dev process).
+- Logged the standing policy in `docs/DECISIONS.md` (2026-06-07).
+
+**Verification:** headless re-render of home + methodology — nav shows "available"/"soon", diagram
+reads Activity 01–04, no console errors. `npm test` unaffected (no engine change).

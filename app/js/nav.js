@@ -4,10 +4,10 @@
 
 const NAV = [
   { key: 'home',        label: 'Home',            href: 'index.html' },
-  { key: 'methodology', label: 'Methodology',     href: 'methodology.html', phase: 2 },
-  { key: 'floor',       label: 'Model & Floor',   href: 'floor.html',       phase: 3 },
-  { key: 'analyse',     label: 'Run & Analyse',   href: 'analyse.html',     phase: 4 },
-  { key: 'physics',     label: 'Factory Physics', href: 'physics.html',     phase: 5 },
+  { key: 'methodology', label: 'Methodology',     href: 'methodology.html' },
+  { key: 'floor',       label: 'Model & Floor',   href: 'floor.html',       soon: true },
+  { key: 'analyse',     label: 'Run & Analyse',   href: 'analyse.html',     soon: true },
+  { key: 'physics',     label: 'Factory Physics', href: 'physics.html',     soon: true },
 ];
 
 // Minimal Lucide-style line icons (1.5px stroke set in CSS via .icon).
@@ -25,7 +25,7 @@ export { ICONS };
 function header(active) {
   const links = NAV.map((n) => {
     const cur = n.key === active ? ' aria-current="page"' : '';
-    const tag = n.phase ? `<span class="nav__tag">P${n.phase}</span>` : '';
+    const tag = n.soon ? `<span class="nav__tag">soon</span>` : '';
     return `<a class="nav__link" href="${n.href}"${cur}>${n.label}${tag}</a>`;
   }).join('');
   return `
