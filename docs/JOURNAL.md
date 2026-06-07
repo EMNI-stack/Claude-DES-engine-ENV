@@ -255,3 +255,29 @@ console errors, Transport panel + three movers present; screenshot reviewed — 
 
 **Next:** Milestone 2b — branching + assembly (multi-part routings + BOM matching), then Milestone 3
 integration into the study project.
+
+---
+
+## 2026-06-07 — Phase 3 (model richness), stage A: per-element parameters + table
+
+Stakeholder asked for the old engine's parameter depth on the floor: full statistical distributions
+per station, per-leg transport configuration (click each element), and a table overview; and agreed
+push/pull/demand belong in the Model (not Run & Analyse). Plan: (A) UI richness for what the floor
+engine already supports, (B) port scrap + breakdowns, (C) port push/pull + supply/demand. This stage = A.
+
+**Done (UI only; engine unchanged):**
+- **Click any node** → inspector with a reusable **distribution editor** (all 7 distributions from
+  `DISTS`, with parameter fields + live mean/SCV), machines, and a finite/infinite **input buffer**
+  with capacity. Source nodes get an **interarrival distribution**; storage gets capacity.
+- **Click any transport leg** → leg inspector to set its **mover (instant/conveyor/worker) and
+  params independently** (per-leg overrides stored in `model.legs`), with "reset to default".
+- **Transport defaults** panel (default mover, default speed, worker pool, conveyor default) for legs
+  not individually set.
+- **Table view** toggle: an overview of every resource (service dist, machines, buffer) and every
+  leg (mover, params); rows click to select+edit.
+- Migration: old `serviceMean` floor models upgrade to a full `service` distribution automatically.
+
+**Verification:** `npm test` → 70/70 (engine untouched). Headless render of the floor: distribution
+editor + inspector render, no console errors; screenshot reviewed — on-brand.
+
+**Next (this work):** stage B — port scrap + breakdowns into `floor-engine.js` with UI + tests.

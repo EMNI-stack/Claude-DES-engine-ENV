@@ -20,9 +20,9 @@
     <p class="lead measure" style="margin-top: var(--s-4);">
       Place resources and storage on the floor and connect them into a route. Travel time comes from
       the distance between placed nodes, so <strong>where things sit changes how the line performs</strong>.
-      Move a node, re-run, and watch the cycle time change.
+      Click any node or any transport leg to set its parameters.
     </p>
-    <p class="floor-hint">Early build: a single linear route. Choose how loads move — instant delay, a capacity-limited conveyor, or a shared worker pool. Branching and assembly come next.</p>
+    <p class="floor-hint">Single linear route for now. Each station takes a full service-time distribution; each transport leg can be set independently. Branching and assembly come later.</p>
   </section>
 
   <section class="reveal">
@@ -34,24 +34,23 @@
         <button data-tool="storage" aria-pressed="false">Storage</button>
         <button data-tool="sink" aria-pressed="false">Sink</button>
       </div>
-      <div class="field" style="flex-direction:row;align-items:center;gap:var(--s-2)">
-        <label for="speed" class="small" style="white-space:nowrap">Speed (m/min)</label>
-        <input id="speed" class="input num" type="number" value="40" min="1" step="5" style="width:90px">
-      </div>
-      <div class="field" style="flex-direction:row;align-items:center;gap:var(--s-2)">
-        <label for="arr" class="small" style="white-space:nowrap">Arrival mean (min)</label>
-        <input id="arr" class="input num" type="number" value="3" min="0.1" step="0.5" style="width:90px">
-      </div>
       <span class="spacer"></span>
+      <button id="btnTable" class="btn btn-ghost" aria-pressed="false">Table view</button>
       <button id="btnRun" class="btn btn-primary">Run</button>
       <button id="btnSeed" class="btn btn-ghost" title="Load a small example floor">Example</button>
       <button id="btnClear" class="btn btn-ghost">Clear</button>
     </div>
 
     <div class="floor-wrap">
-      <div class="panel canvas-card">
-        <svg class="floor" id="svg" viewBox="0 0 820 520" aria-label="Factory floor"></svg>
-        <p class="floor-hint" style="margin-top:var(--s-3)">Pick a tool, then click the canvas to place a node. In <em>Move</em>, drag a node to reposition it; click to select and edit. The route follows the order nodes are added (edit it on the right).</p>
+      <div class="stack" style="min-width:0">
+        <div class="panel canvas-card">
+          <svg class="floor" id="svg" viewBox="0 0 820 520" aria-label="Factory floor"></svg>
+          <p class="floor-hint" style="margin-top:var(--s-3)">Pick a tool, then click the canvas to place a node. In <em>Move</em>, drag a node to reposition; click a node or a leg to edit it on the right. The route follows the order nodes are added.</p>
+        </div>
+        <div class="panel" id="tablePanel" hidden>
+          <div class="panel__head"><p class="section-label">Overview</p><h2 class="panel__title">All parameters</h2></div>
+          <div id="tableHost"></div>
+        </div>
       </div>
 
       <div class="stack">
@@ -62,22 +61,14 @@
         </div>
 
         <div class="panel" id="propPanel" hidden>
-          <div class="panel__head"><p class="section-label">Selected</p><h2 class="panel__title" id="propTitle">Node</h2></div>
-          <div class="prop-grid" id="propGrid"></div>
+          <div class="panel__head"><p class="section-label" id="propKind">Selected</p><h2 class="panel__title" id="propTitle">Node</h2></div>
+          <div id="propBody" class="stack"></div>
         </div>
 
         <div class="panel">
-          <div class="panel__head"><p class="section-label">Transport</p><h2 class="panel__title">Movers</h2></div>
-          <div class="field">
-            <label class="small">How loads move between nodes</label>
-            <div class="segmented" id="moverSel" role="group" aria-label="Default mover">
-              <button data-mover="instant" aria-pressed="true">Instant</button>
-              <button data-mover="conveyor" aria-pressed="false">Conveyor</button>
-              <button data-mover="worker" aria-pressed="false">Worker</button>
-            </div>
-          </div>
-          <div id="moverParams" class="prop-grid" style="margin-top:var(--s-3)"></div>
-          <p class="floor-hint" id="moverHint" style="margin-top:var(--s-3)"></p>
+          <div class="panel__head"><p class="section-label">Transport</p><h2 class="panel__title">Defaults</h2></div>
+          <div id="transportBody" class="stack"></div>
+          <p class="floor-hint" style="margin-top:var(--s-3)">These apply to legs you haven't set individually. Click a leg on the floor to override it.</p>
         </div>
 
         <div class="panel">
