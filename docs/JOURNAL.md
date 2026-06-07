@@ -34,13 +34,28 @@
 touched (per Charter §10 Phase 0 and the task brief).
 
 **Open questions carried forward (Charter §11):**
-- **Sustainability** is the thinnest-covered objective in the source material — still
-  undecided what it concretely means in the app (energy/utilisation? scrap/yield?
-  transport distance? obsolescence?). Needs a stakeholder decision before any feature
-  claims to serve the sustainability objective.
 - **Confirm the v1 minimal 2D/transport floor** (Charter §6) is the right scope before
   Phase 3 — it is the main engineering risk. (Distribution/units conventions are being
   fixed in `theory-notes.md` §1 and enforced everywhere.)
 
 **Next:** Phase 1 — app shell & aesthetic foundation (new pages/files, the
 McKinsey-meets-engineering design system, navigation, reuse the engine).
+
+---
+
+## 2026-06-07 — Scope change: drop sustainability; lock phase order
+
+**Done today (stakeholder direction)**
+- **Sustainability removed from scope.** Struck it from the project records: Charter §2
+  (competence objective now "efficiency and flexibility"), §7 (interpretation lens), and
+  §11 (removed the open question). Removed it from `Reference/theory-notes.md` (§0
+  objective map, §5 scope note, §6 title/lens, §7 gaps) and from the project memory.
+  Logged as a decision in `docs/DECISIONS.md`.
+- **Phase order locked.** Methodology scaffolding stays **Phase 2**, the 2D layout &
+  transport engine stays **Phase 3** — the previously-noted "Phase 2 vs 3 could swap"
+  proposal is removed (Charter §10). Also logged in `docs/DECISIONS.md`.
+- Left the per-book reading notes `Reference/_notes/{facilities,fp-managers}.md`
+  untouched: they are faithful summaries of what those books actually say (which includes
+  environmental/sustainability content) and serve as a source archive, not project scope.
+
+**Scope note:** documentation only — no engine code, app pages, or tests touched.

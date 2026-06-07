@@ -45,8 +45,8 @@ models; experiment with, validate, and analyse results; and relate critically to
 results, uncertainty, and limitations.
 
 **Competence** — students can design & carry out simulation analyses and
-translate results into decision support with regard to efficiency, flexibility,
-and sustainability.
+translate results into decision support with regard to efficiency and
+flexibility.
 
 **Design rule:** if a proposed feature does not serve one of these, it is out of
 scope for v1.
@@ -157,7 +157,7 @@ Factory Physics theory**:
 - Overlay theoretical references (best/worst/practical-worst-case curves, VUT
   prediction, Little's Law consistency) on simulated output.
 - Qualitative interpretation in the Managers' vocabulary (buffers, the
-  efficiency/flexibility/sustainability lens).
+  efficiency/flexibility lens).
 - The teaching payoff: see *where simulation and closed-form theory agree, and
   where the simulation is needed because the formulas stop applying* (blocking,
   non-exponential service, breakdowns) — which is the whole reason DES exists.
@@ -212,8 +212,8 @@ too playful, too "cyber" (neon accents, glowing grids). **Retire that look.**
 - **Phase 5 — Factory Physics overlays.** Theory-vs-results comparison; the
   intuition layer.
 
-(Ordering is a proposal — Phase 2 vs 3 could swap depending on where you want
-early momentum.)
+(Phase ordering is fixed: methodology scaffolding is Phase 2, the 2D layout &
+transport engine is Phase 3 — no swap.)
 
 ---
 
@@ -223,9 +223,6 @@ early momentum.)
   definition in §6 is the right floor.
 - **Distribution/units conventions** must be fixed once and enforced everywhere
   (the theory-notes already start this).
-- **Sustainability** is the thinnest-covered objective in the source material —
-  decide what it concretely means in the app (energy/utilisation? scrap/yield?
-  transport distance? obsolescence?).
 
 > **Resolved in review #1:** the methodology scaffolding favours **guided rails
 > over open sandbox** — the priority is learning the basics correctly, so the app
