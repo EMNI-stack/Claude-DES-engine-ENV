@@ -6,7 +6,21 @@
 
 import { load, save, uid, newAssumption } from './project.js';
 import { FloorSim, legDistance } from '../../src/floor-engine.js';
-import { DISTS, newDist, distMean, distScv } from '../../src/distributions.js';
+import { DISTS, newDist, distMean, distScv, sample, mulberry32 } from '../../src/distributions.js';
+
+/* resource symbols (Lucide-style line glyphs, 24×24) — pickable per resource */
+const SYMBOLS = {
+  box:     '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+  press:   '<path d="M6 3h12"/><path d="M12 3v8"/><path d="M7 11h10l-1.5 5h-7z"/><path d="M5 20h14"/>',
+  cut:     '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88"/><path d="M14.47 14.48 20 20"/><path d="M8.12 8.12 12 12"/>',
+  weld:    '<path d="M13 2 3 14h9l-1 8 10-12h-9z" class="fillsym"/>',
+  furnace: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16"/><path d="M9 14a3 3 0 0 0 6 0c0-1-.5-1.6-1-2.2-.7 1-1.6 1.2-2.5.5.2 1-.3 1.7-1 2 0-.4-.2-.8-.5-1-.6.5-1 1.1-1 1.7z" class="fillsym"/>',
+  inspect: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
+  assemble:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  cpu:     '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/>',
+  gear:    '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
+};
+const SYMBOL_KEYS = Object.keys(SYMBOLS);
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const S = 10;                 // px per metre (display); model coords are metres
@@ -21,6 +35,11 @@ let drag = null;
 // playback + animation state
 let sim = null, simCursor = 0, playing = false, lastTs = 0, speed = 6, needsBuild = true, finished = false, raf = 0;
 let tokenEls = new Map(), tokenLayer = null;
+
+// view (zoom / pan). Base coordinate space is 820×480 px (= 82×48 m at S=10).
+const BASE_W = 820, BASE_H = 480;
+let view = { z: 1, cx: BASE_W / 2, cy: BASE_H / 2 };   // cx,cy = viewBox centre in base px
+let panning = null;
 
 /* ---- model defaults + migration ---------------------------------------- */
 function ensureModel(m) {
@@ -47,6 +66,7 @@ function ensureModel(m) {
       if (!n.service) n.service = newDist('exp', { mean: n.serviceMean != null ? n.serviceMean : 1 });
       if (!n.buffer) n.buffer = { finite: false, cap: 10, init: 0, target: 8 };
       if (typeof n.scrap !== 'number') n.scrap = 0;
+      if (!n.symbol) n.symbol = 'box';
       if (!n.brk) n.brk = { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) };
     } else if (n.kind === 'source') {
       if (!n.interarrival) n.interarrival = newDist('exp', { mean: arr });
@@ -72,6 +92,27 @@ function legSpeedFor(key, mover) {
 function svgPoint(e) { const svg = $('svg'); const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
   const loc = pt.matrixTransform(svg.getScreenCTM().inverse()); return { x: loc.x, y: loc.y }; }
 
+/* ---- zoom / pan (viewBox-based) ---------------------------------------- */
+function setViewBox() {
+  const w = BASE_W / view.z, h = BASE_H / view.z;
+  $('svg').setAttribute('viewBox', `${(view.cx - w / 2).toFixed(1)} ${(view.cy - h / 2).toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}`);
+  const zl = $('zLabel'); if (zl) zl.textContent = Math.round(view.z * 100) + '%';
+}
+function zoomBy(factor, anchor) {
+  const oldz = view.z; view.z = Math.max(0.4, Math.min(4, view.z * factor));
+  if (anchor) { view.cx = anchor.x + (view.cx - anchor.x) * (oldz / view.z); view.cy = anchor.y + (view.cy - anchor.y) * (oldz / view.z); }
+  setViewBox();
+}
+function zoomFit() {
+  const ns = model.nodes;
+  if (!ns.length) { view = { z: 1, cx: BASE_W / 2, cy: BASE_H / 2 }; setViewBox(); return; }
+  let a = 1e9, b = 1e9, c = -1e9, d = -1e9;
+  for (const n of ns) { a = Math.min(a, px(n.x)); c = Math.max(c, px(n.x)); b = Math.min(b, px(n.y)); d = Math.max(d, px(n.y)); }
+  const pad = 80, w = Math.max(160, (c - a) + pad * 2), h = Math.max(160, (d - b) + pad * 2);
+  view.z = Math.max(0.4, Math.min(3, Math.min(BASE_W / w, BASE_H / h)));
+  view.cx = (a + c) / 2; view.cy = (b + d) / 2; setViewBox();
+}
+
 /* ---- DOM + form helpers ------------------------------------------------- */
 function E(tag, attrs = {}, kids = []) { const n = document.createElementNS(SVGNS, tag);
   for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
@@ -85,9 +126,32 @@ function numInput(v, min, step, on) { const i = H('input', { class: 'input num',
 function segmented(opts, cur, on, label) { const g = H('div', { class: 'segmented', role: 'group', 'aria-label': label || '' });
   opts.forEach((o) => { const b = H('button', { type: 'button', 'aria-pressed': String(o.value === cur) }, o.label); b.addEventListener('click', () => on(o.value)); g.append(b); }); return g; }
 
-/* a bound distribution editor (type picker + parameter fields + mean/SCV) */
+/* a small density preview that re-samples the distribution on every change */
+function distGraph(dist) {
+  const W = 248, Hh = 56;
+  const g = E('svg', { class: 'distgraph', viewBox: `0 0 ${W} ${Hh}`, preserveAspectRatio: 'none' });
+  function draw() {
+    g.innerHTML = '';
+    const rng = mulberry32(20260607), n = 2500, xs = [];
+    for (let i = 0; i < n; i++) xs.push(sample(dist, rng));
+    xs.sort((a, b) => a - b);
+    const lo = xs[Math.floor(0.005 * n)], hi = xs[Math.floor(0.995 * n)] || (lo + 1), span = (hi - lo) || 1;
+    const bins = 38, counts = new Array(bins).fill(0);
+    for (const x of xs) { let b = Math.floor((x - lo) / span * bins); if (b < 0) b = 0; if (b >= bins) b = bins - 1; counts[b]++; }
+    const max = Math.max(...counts) || 1;
+    let d = `M0 ${Hh}`;
+    for (let i = 0; i < bins; i++) { const x = ((i + 0.5) / bins * W).toFixed(1); const y = (Hh - (counts[i] / max) * (Hh - 8) - 3).toFixed(1); d += ` L${x} ${y}`; }
+    d += ` L${W} ${Hh} Z`;
+    g.append(E('line', { class: 'distaxis', x1: 0, y1: Hh - 0.5, x2: W, y2: Hh - 0.5 }));
+    g.append(E('path', { class: 'distarea', d }));
+  }
+  return { el: g, draw };
+}
+
+/* a bound distribution editor (type picker + parameter fields + mean/SCV + graph) */
 function distEditor(dist, onChange) {
   const wrap = H('div', { class: 'dist-ed' });
+  const graph = distGraph(dist);
   function draw() {
     wrap.innerHTML = '';
     const sel = H('select', { class: 'select full' });
@@ -95,20 +159,22 @@ function distEditor(dist, onChange) {
     sel.addEventListener('change', () => { dist.type = sel.value; const def = {}; for (const [key, , d] of DISTS[sel.value].f) def[key] = d; dist.params = def; onChange(); draw(); });
     wrap.append(field('Distribution', sel, true));
     const stat = H('div', { class: 'stat' });
-    const refresh = () => { const m = distMean(dist), s = distScv(dist); stat.textContent = `mean ${isFinite(m) ? m.toFixed(2) : '—'} · SCV ${isFinite(s) ? s.toFixed(2) : '—'}`; };
+    const refresh = () => { const m = distMean(dist), s = distScv(dist); stat.textContent = `mean ${isFinite(m) ? m.toFixed(2) : '—'} · SCV ${isFinite(s) ? s.toFixed(2) : '—'}`; graph.draw(); };
     for (const [key, label, defv] of DISTS[dist.type].f) {
       wrap.append(field(label, numInput(dist.params[key] != null ? dist.params[key] : defv, 0, 0.1, (v) => { dist.params[key] = v; onChange(); refresh(); })));
     }
-    wrap.append(stat); refresh();
+    wrap.append(stat);
+    wrap.append(H('div', { class: 'full' }, [graph.el]));
+    refresh();
   }
   draw(); return wrap;
 }
 
 /* ---- canvas render ------------------------------------------------------ */
 function render() {
-  const svg = $('svg'); svg.innerHTML = '';
+  const svg = $('svg'); svg.innerHTML = ''; setViewBox();
   const grid = E('g', {});
-  for (let x = 0; x <= 820; x += 5 * S) for (let y = 0; y <= 520; y += 5 * S) grid.append(E('circle', { cx: x, cy: y, r: 0.8, class: 'grid-dot' }));
+  for (let x = 0; x <= BASE_W; x += 5 * S) for (let y = 0; y <= BASE_H; y += 5 * S) grid.append(E('circle', { cx: x, cy: y, r: 0.8, class: 'grid-dot' }));
   svg.append(grid);
 
   const legG = E('g', {});
@@ -119,10 +185,8 @@ function render() {
     const cls = 'leg ' + (mover === 'conveyor' ? 'leg-conv' : mover === 'worker' ? 'leg-worker' : '') + (selected && selected.kind === 'leg' && selected.key === key ? ' sel' : '');
     legG.append(E('line', { class: cls.trim(), x1: ax, y1: ay, x2: bx, y2: by }));
     legG.append(E('line', { class: 'leg-hit', 'data-leg': key, x1: ax, y1: ay, x2: bx, y2: by }));
-    const dist = legDistance(a, b), tt = legSpeedFor(key, mover) > 0 ? dist / legSpeedFor(key, mover) : 0;
-    const mx = (ax + bx) / 2, my = (ay + by) / 2;
-    if (mover === 'worker' && dist > 0.5) { legG.append(E('circle', { class: 'worker-mark', cx: mx, cy: my, r: 6 })); legG.append(E('text', { class: 'worker-mark-t', x: mx, y: my + 3, 'text-anchor': 'middle' }, 'W')); }
-    if (dist > 0.5) legG.append(E('text', { class: 'leg-label', x: mx + 9, y: my - 6 }, `${dist.toFixed(0)} m · ${tt.toFixed(1)} min`));
+    const far = legDistance(a, b) > 0.5, mx = (ax + bx) / 2, my = (ay + by) / 2;
+    if (mover === 'worker' && far) { legG.append(E('circle', { class: 'worker-mark', cx: mx, cy: my, r: 7 })); legG.append(E('text', { class: 'worker-mark-t', x: mx, y: my + 3, 'text-anchor': 'middle' }, 'W')); }
   }
   svg.append(legG);
   for (const n of model.nodes) svg.append(nodeEl(n));
@@ -168,30 +232,39 @@ function jobPos(job, cursor, buckets) {
     return { x: px(f.x + (t.x - f.x) * p), y: px(f.y + (t.y - f.y) * p), r: 4, q: false };
   }
   const n = node(loc.node); if (!n) return null;
-  if (loc.k === 'service') return { x: px(n.x), y: px(n.y), r: 4, q: false };
+  if (loc.k === 'service') return { x: px(n.x), y: px(n.y) - 2, r: 5, q: false };
   const key = loc.node + loc.k, i = buckets.get(key) || 0; buckets.set(key, i + 1);
-  if (loc.k === 'fg') return { x: px(n.x) + 22 + i * 9, y: px(n.y), r: 3.4, q: true };
-  if (loc.k === 'hold') return { x: px(n.x) - i * 9, y: px(n.y) - 22, r: 3.4, q: true };
-  return { x: px(n.x) - 26 - i * 9, y: px(n.y), r: 3.4, q: true };   // queue / pending: stack to the left
+  if (loc.k === 'fg') return { x: px(n.x) + 26 + i * 9, y: px(n.y), r: 4, q: true };
+  if (loc.k === 'hold') return { x: px(n.x) + i * 9, y: px(n.y) - 26, r: 4, q: true };
+  return { x: px(n.x) - 52 - i * 9, y: px(n.y), r: 4, q: true };     // queue / pending: stack to the left
+}
+function symG(key, cls, tx, ty, scale) {
+  const g = E('g', { class: cls, transform: `translate(${tx},${ty}) scale(${scale})` });
+  // parse the glyph markup in the SVG namespace (innerHTML on an SVG element won't)
+  const doc = new DOMParser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg">${SYMBOLS[key] || SYMBOLS.box}</svg>`, 'image/svg+xml');
+  for (const child of Array.from(doc.documentElement.childNodes)) g.append(document.importNode(child, true));
+  return g;
 }
 function nodeEl(n) {
   const sel = selected && selected.kind === 'node' && selected.id === n.id;
   const g = E('g', { class: 'node' + (sel ? ' sel' : ''), 'data-node': n.id, transform: `translate(${px(n.x)},${px(n.y)})` });
   if (n.kind === 'resource') {
-    g.append(E('rect', { class: 'node-rect', x: -34, y: -22, width: 68, height: 44, rx: 6 }));
-    g.append(E('rect', { class: 'prog', x: -33, y: 18, width: 0, height: 3, rx: 1 }));
-    g.append(E('text', { class: 'node-kind', x: 0, y: -8, 'text-anchor': 'middle' }, `RESOURCE · ${n.machines || 1}m`));
-    g.append(E('text', { class: 'node-label', x: 0, y: 9, 'text-anchor': 'middle' }, n.name || 'Resource'));
+    g.append(E('rect', { class: 'node-rect', x: -46, y: -32, width: 92, height: 64, rx: 9 }));
+    g.append(E('rect', { class: 'prog', x: -44, y: 26, width: 0, height: 4, rx: 2 }));
+    g.append(symG(n.symbol || 'box', 'node-sym', -12, -27, 1.0));     // 24×24 glyph, centred top
+    g.append(E('text', { class: 'node-label', x: 0, y: 18, 'text-anchor': 'middle' }, n.name || 'Resource'));
+    if ((n.machines || 1) > 1) g.append(E('text', { class: 'node-badge', x: 40, y: -20, 'text-anchor': 'end' }, '×' + n.machines));
   } else if (n.kind === 'storage') {
-    g.append(E('path', { class: 'bracket', d: 'M -22 -18 l -7 0 l 0 36 l 7 0' }));
-    g.append(E('path', { class: 'bracket', d: 'M 22 -18 l 7 0 l 0 36 l -7 0' }));
-    g.append(E('text', { class: 'node-kind', x: 0, y: -2, 'text-anchor': 'middle' }, 'WIP'));
-    g.append(E('text', { class: 'node-label', x: 0, y: 32, 'text-anchor': 'middle' }, n.name || 'Storage'));
+    g.append(E('path', { class: 'bracket', d: 'M -28 -24 l -9 0 l 0 48 l 9 0' }));
+    g.append(E('path', { class: 'bracket', d: 'M 28 -24 l 9 0 l 0 48 l -9 0' }));
+    g.append(E('text', { class: 'node-kind', x: 0, y: -4, 'text-anchor': 'middle' }, 'WIP'));
+    g.append(E('text', { class: 'node-label', x: 0, y: 14, 'text-anchor': 'middle' }, n.name || 'Storage'));
+    g.append(E('text', { class: 'node-kind', x: 0, y: 40, 'text-anchor': 'middle' }, 'cap ' + (n.cap ?? '—')));
   } else {
-    g.append(E('circle', { class: 'endpoint', r: 15 }));
-    g.append(E('circle', { class: 'endpoint-dot', r: 4 }));
-    g.append(E('text', { class: 'node-kind', x: 0, y: 30, 'text-anchor': 'middle' }, n.kind.toUpperCase()));
-    g.append(E('text', { class: 'node-label', x: 0, y: 43, 'text-anchor': 'middle' }, n.name || (n.kind === 'source' ? 'In' : 'Out')));
+    g.append(E('circle', { class: 'endpoint', r: 18 }));
+    g.append(E('circle', { class: 'endpoint-dot', r: 5 }));
+    g.append(E('text', { class: 'node-kind', x: 0, y: 35, 'text-anchor': 'middle' }, n.kind.toUpperCase()));
+    g.append(E('text', { class: 'node-label', x: 0, y: 51, 'text-anchor': 'middle' }, n.name || (n.kind === 'source' ? 'In' : 'Out')));
   }
   return g;
 }
@@ -229,6 +302,15 @@ function inspectNode(n, body) {
   $('propTitle').textContent = n.name || n.kind[0].toUpperCase() + n.kind.slice(1);
   body.append(field('Name', textInput(n.name || '', (v) => { n.name = v; persist(); render(); renderRoute(); })));
   if (n.kind === 'resource') {
+    body.append(H('p', { class: 'subhead' }, 'Symbol'));
+    const row = H('div', { class: 'symrow' });
+    SYMBOL_KEYS.forEach((k) => {
+      const b = H('button', { class: 'symbtn', type: 'button', title: k, 'aria-pressed': String((n.symbol || 'box') === k) });
+      b.innerHTML = `<svg viewBox="0 0 24 24">${SYMBOLS[k]}</svg>`;
+      b.addEventListener('click', () => { n.symbol = k; persist(); render(); renderInspector(); });
+      row.append(b);
+    });
+    body.append(row);
     body.append(field('Machines (parallel)', numInput(n.machines || 1, 1, 1, (v) => { n.machines = Math.max(1, v | 0); persist(); render(); })));
     body.append(H('p', { class: 'subhead' }, 'Service time'));
     body.append(distEditor(n.service, persist));
@@ -262,7 +344,16 @@ function inspectLeg(key, body) {
   $('propTitle').textContent = `${(from && from.name) || fromId} → ${(to && to.name) || toId}`;
   const o = model.legs[key] || {};
   const mover = o.mover || model.defaultMover;
-  body.append(H('p', { class: 'small', style: 'margin:0' }, `Distance ${legDistance(from, to).toFixed(0)} m · this leg’s travel = distance ÷ speed.`));
+  const placeDist = legDistance(from, to), effLen = (o.length > 0) ? o.length : placeDist;
+  body.append(H('p', { class: 'small', style: 'margin:0' }, 'Travel time on this leg = length ÷ speed.'));
+  body.append(field('Transport length (m)', numInput(+effLen.toFixed(1), 0, 1, (v) => {
+    if (v > 0) model.legs[key] = Object.assign({}, model.legs[key], { length: v });
+    else if (model.legs[key]) { delete model.legs[key].length; }
+    persist(); render();
+  })));
+  body.append(H('p', { class: 'small faint', style: 'margin:0' }, (o.length > 0)
+    ? `Typed length (placement distance is ${placeDist.toFixed(0)} m).`
+    : 'From placement distance — type a value to fix it independently of the layout.'));
   body.append(field('Mover', segmented(
     [{ value: 'instant', label: 'Instant' }, { value: 'conveyor', label: 'Conveyor' }, { value: 'worker', label: 'Worker' }],
     mover, (v) => { model.legs[key] = Object.assign({}, model.legs[key], { mover: v }); if (v === 'worker') ensureWorkerAssumption(); persist(); render(); renderInspector(); }, 'Leg mover')));
@@ -362,7 +453,7 @@ function activateTab(name) {
 function addNode(kind, x, y) {
   const idp = { resource: 'res', storage: 'sto', source: 'src', sink: 'snk' }[kind] || 'n';
   const n = { kind, id: uid(idp), name: '', x, y };
-  if (kind === 'resource') { n.machines = 1; n.service = newDist('exp', { mean: 1 }); n.buffer = { finite: false, cap: 10, init: 0, target: 8 }; n.scrap = 0; n.brk = { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) }; }
+  if (kind === 'resource') { n.machines = 1; n.symbol = 'box'; n.service = newDist('exp', { mean: 1 }); n.buffer = { finite: false, cap: 10, init: 0, target: 8 }; n.scrap = 0; n.brk = { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) }; }
   if (kind === 'storage') n.cap = 10;
   if (kind === 'source') n.interarrival = newDist('exp', { mean: 3 });
   model.nodes.push(n); model.routeOrder.push(n.id);
@@ -473,13 +564,13 @@ function loadExample() {
   const mk = (kind, name, x, extra = {}) => Object.assign({ kind, id: uid(kind.slice(0, 3)), name, x, y: 26 }, extra);
   model.nodes = [
     mk('source', 'Raw in', 8, { interarrival: newDist('exp', { mean: 3 }) }),
-    mk('resource', 'Press', 26, { machines: 1, service: newDist('lognormal', { mean: 2, sd: 0.5 }), buffer: { finite: false, cap: 10, init: 0, target: 8 }, scrap: 0, brk: { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) } }),
+    mk('resource', 'Press', 26, { machines: 1, symbol: 'press', service: newDist('lognormal', { mean: 2, sd: 0.5 }), buffer: { finite: false, cap: 10, init: 0, target: 8 }, scrap: 0, brk: { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) } }),
     mk('storage', 'WIP', 44, { cap: 10 }),
-    mk('resource', 'Inspect', 62, { machines: 1, service: newDist('triangular', { min: 0.8, mode: 1.2, max: 2 }), buffer: { finite: false, cap: 10, init: 0, target: 8 }, scrap: 0, brk: { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) } }),
+    mk('resource', 'Inspect', 62, { machines: 1, symbol: 'inspect', service: newDist('triangular', { min: 0.8, mode: 1.2, max: 2 }), buffer: { finite: false, cap: 10, init: 0, target: 8 }, scrap: 0, brk: { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) } }),
     mk('sink', 'Ship', 78),
   ];
   model.routeOrder = model.nodes.map((n) => n.id); model.legs = {}; selected = null; sim = null;
-  persist(); refreshAll(); updateClock(); setPlayLabel();
+  persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
 }
 function clearFloor() { model.nodes = []; model.routeOrder = []; model.legs = {}; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel();
@@ -492,11 +583,20 @@ function onPointerDown(e) {
   if (tool === 'move') {
     if (grp) { const id = grp.getAttribute('data-node'); selectNode(id); drag = { id, moved: false }; svg.setPointerCapture(e.pointerId); }
     else if (legHit) selectLeg(legHit.getAttribute('data-leg'));
+    else { panning = { sx: e.clientX, sy: e.clientY, cx: view.cx, cy: view.cy }; svg.classList.add('panning'); svg.setPointerCapture(e.pointerId); }
   } else if (!grp && !legHit) addNode(tool, p.x / S, p.y / S);
 }
-function onPointerMove(e) { if (!drag) return; const p = svgPoint(e); const n = node(drag.id); if (!n) return;
-  n.x = Math.max(1.5, Math.min(80, p.x / S)); n.y = Math.max(1.5, Math.min(50, p.y / S)); drag.moved = true; render(); }
-function onPointerUp() { if (drag) { if (drag.moved) { persist(); if (!$('tablePanel').hidden) renderTable(); } drag = null; } }
+function onPointerMove(e) {
+  if (panning) { const r = $('svg').getBoundingClientRect();
+    view.cx = panning.cx - (e.clientX - panning.sx) * (BASE_W / view.z) / r.width;
+    view.cy = panning.cy - (e.clientY - panning.sy) * (BASE_H / view.z) / r.height; setViewBox(); return; }
+  if (!drag) return; const p = svgPoint(e); const n = node(drag.id); if (!n) return;
+  n.x = Math.max(1.5, p.x / S); n.y = Math.max(1.5, p.y / S); drag.moved = true; render();
+}
+function onPointerUp() {
+  if (panning) { $('svg').classList.remove('panning'); panning = null; }
+  if (drag) { if (drag.moved) { persist(); if (!$('tablePanel').hidden) renderTable(); } drag = null; }
+}
 
 /* ---- init --------------------------------------------------------------- */
 function init() {
@@ -516,6 +616,12 @@ function init() {
   $('btnReset').addEventListener('click', resetSim);
   const sp = $('speed'); speed = parseFloat(sp.value) || 6; $('spdV').textContent = speed + '×';
   sp.addEventListener('input', () => { speed = parseFloat(sp.value) || 6; $('spdV').textContent = speed + '×'; });
+  // zoom / pan
+  $('zIn').addEventListener('click', () => zoomBy(1.25));
+  $('zOut').addEventListener('click', () => zoomBy(1 / 1.25));
+  $('zFit').addEventListener('click', zoomFit);
+  $('zLabel').addEventListener('click', () => { view = { z: 1, cx: BASE_W / 2, cy: BASE_H / 2 }; setViewBox(); });
+  svg.addEventListener('wheel', (e) => { e.preventDefault(); zoomBy(e.deltaY < 0 ? 1.12 : 1 / 1.12, svgPoint(e)); }, { passive: false });
   // tabs
   document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => activateTab(b.dataset.tab)));
 
@@ -523,7 +629,7 @@ function init() {
   if (location.hash === '#example' && model.nodes.length === 0) { loadExample(); const r = model.nodes.find((n) => n.kind === 'resource'); if (r) { selected = { kind: 'node', id: r.id }; startTab = 'inspect'; } }
   if (model.defaultMover === 'worker' || Object.values(model.legs).some((l) => l.mover === 'worker')) ensureWorkerAssumption();
   render(); renderRoute(); renderInspector(); renderTransport(); renderControl();
-  activateTab(startTab); setPlayLabel(); updateClock();
+  activateTab(startTab); setPlayLabel(); updateClock(); zoomFit();
   if (location.hash === '#play') { if (model.routeOrder.length < 2) loadExample(); play(); }  // deep-link: open running
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

@@ -319,7 +319,12 @@ export class FloorSim {
     this.schedule(tt, { t: 'ARRIVE_NODE', job, step: toStep });
     return true;
   }
-  _tt(fromId, toId, mover) { const d = legDistance(this.nodes[fromId], this.nodes[toId]); const s = this.legSpeed(fromId, toId, mover); return s > 0 ? d / s : 0; }
+  legLen(fromId, toId) {                              // typed override (m) or placement distance
+    const o = (this.transport.legs || {})[`${fromId}>${toId}`];
+    if (o && o.length > 0) return o.length;
+    return legDistance(this.nodes[fromId], this.nodes[toId]);
+  }
+  _tt(fromId, toId, mover) { const s = this.legSpeed(fromId, toId, mover); return s > 0 ? this.legLen(fromId, toId) / s : 0; }
 
   /* ---- settle: resolve all moves that can happen at this instant -------- */
   settle() {

@@ -31,14 +31,45 @@
 /* canvas */
 .canvas-card { padding: var(--s-3); }
 svg.floor { width: 100%; height: auto; display: block; background: var(--surface);
-  border: 1px solid var(--line); border-radius: var(--r-card); touch-action: none; }
+  border: 1px solid var(--line); border-radius: var(--r-card); touch-action: none; cursor: default; }
+svg.floor.panning { cursor: grabbing; }
 svg.floor .grid-dot { fill: var(--line); }
+
+/* zoom controls (canvas corner) */
+.canvas-card { position: relative; }
+.zoomctl { position: absolute; top: calc(var(--s-3) + 6px); right: calc(var(--s-3) + 6px);
+  display: flex; gap: 4px; background: rgba(255,255,255,.9); border: 1px solid var(--line);
+  border-radius: var(--r-control); padding: 3px; backdrop-filter: blur(4px); }
+.zoomctl button { appearance: none; background: transparent; border: 0; cursor: pointer;
+  font-family: var(--mono); font-size: 13px; color: var(--ink-2); width: 26px; height: 26px; border-radius: 3px; line-height: 1; }
+.zoomctl button:hover { background: var(--surface-2); color: var(--ink); }
+.zoomctl .zlabel { width: auto; padding: 0 6px; font-size: 11px; cursor: default; }
+.zoomctl .zlabel:hover { background: transparent; }
+
+/* symbol picker (inspector) */
+.symrow { display: flex; flex-wrap: wrap; gap: 6px; }
+.symbtn { width: 38px; height: 34px; border: 1px solid var(--line-strong); border-radius: var(--r-control);
+  background: var(--surface); cursor: pointer; display: grid; place-items: center; color: var(--ink-2); }
+.symbtn:hover { border-color: var(--ink-2); }
+.symbtn[aria-pressed="true"] { border-color: var(--primary); background: var(--primary-tint); color: var(--primary); }
+.symbtn svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 1.6; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.symbtn svg .fillsym { fill: currentColor; stroke: none; }
+
+/* distribution mini-graph */
+.distgraph { width: 100%; height: 58px; display: block; margin-top: var(--s-2);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-control); }
+.distgraph .distarea { fill: var(--primary-tint); stroke: var(--primary); stroke-width: 1.25; }
+.distgraph .distaxis { stroke: var(--line-strong); stroke-width: 1; }
 
 /* nodes */
 svg.floor .node { cursor: grab; }
 svg.floor .node.dragging { cursor: grabbing; }
-svg.floor .node-rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; }
-svg.floor .node.sel .node-rect { stroke: var(--primary); stroke-width: 1.5; }
+svg.floor .node-rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.5; }
+svg.floor .node.sel .node-rect { stroke: var(--primary); stroke-width: 2.5; }
+svg.floor .node-sym { stroke: var(--ink-2); stroke-width: 1.6; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+svg.floor .node-sym .fillsym { fill: var(--ink-2); stroke: none; }
+svg.floor .node.sel .node-sym { stroke: var(--primary); }
+svg.floor .node-badge { font-family: var(--mono); font-size: 10px; fill: var(--faint); }
 /* live station states (fill + border, no glow) */
 svg.floor .node-rect.busy { fill: var(--primary-tint); stroke: var(--busy); }
 svg.floor .node-rect.blocked { stroke: var(--blocked); fill: rgba(194,118,46,.07); }
@@ -48,19 +79,22 @@ svg.floor .prog { fill: var(--busy); opacity: .55; }
 svg.floor .tok { fill: var(--busy); }
 svg.floor .tok.q { fill: var(--idle); }
 svg.floor .node.sel .bracket { stroke: var(--primary); }
-svg.floor .node-label { font-family: var(--sans); font-size: 11px; fill: var(--ink); }
+svg.floor .node-label { font-family: var(--sans); font-size: 13px; font-weight: 500; fill: var(--ink); }
 svg.floor .node-kind { font-family: var(--mono); font-size: 9px; letter-spacing: .08em;
   text-transform: uppercase; fill: var(--faint); }
-svg.floor .bracket { stroke: var(--line-strong); stroke-width: 1.5; fill: none; }
-svg.floor .endpoint { fill: var(--surface-2); stroke: var(--line-strong); stroke-width: 1; }
+svg.floor .bracket { stroke: var(--line-strong); stroke-width: 2; fill: none; }
+svg.floor .node.sel .bracket { stroke: var(--primary); }
+svg.floor .endpoint { fill: var(--surface-2); stroke: var(--line-strong); stroke-width: 1.5; }
+svg.floor .node.sel .endpoint { stroke: var(--primary); stroke-width: 2.5; }
 svg.floor .endpoint-dot { fill: var(--primary); }
+svg.floor .endpoint-sym { stroke: var(--on-primary); stroke-width: 1.6; fill: none; stroke-linecap: round; }
 
 /* transport legs — mover conveyed by line style (no glow) */
 svg.floor .leg-hit { stroke: transparent; stroke-width: 14; fill: none; cursor: pointer; }
 svg.floor .leg.sel { stroke: var(--primary); }
-svg.floor .leg { stroke: var(--line-strong); stroke-width: 1.25; fill: none; }
-svg.floor .leg-conv { stroke: var(--ink-2); stroke-width: 2.5; stroke-dasharray: 1.5 3.5; stroke-linecap: round; }
-svg.floor .leg-worker { stroke: var(--accent); stroke-width: 1.25; stroke-dasharray: 5 4; }
+svg.floor .leg { stroke: var(--faint); stroke-width: 2.5; fill: none; }
+svg.floor .leg-conv { stroke: var(--ink-2); stroke-width: 3.5; stroke-dasharray: 1.5 4; stroke-linecap: round; }
+svg.floor .leg-worker { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 5; }
 svg.floor .worker-mark { fill: var(--surface); stroke: var(--accent); stroke-width: 1.25; }
 svg.floor .worker-mark-t { font-family: var(--mono); font-size: 8px; fill: var(--accent); }
 svg.floor .leg-arrow { fill: var(--line-strong); }

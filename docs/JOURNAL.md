@@ -360,3 +360,28 @@ both (kept the new aesthetic; copied only the old demo's run *mechanism*):
 **Verification:** `npm test` → 75/75. Headless: controls + tabs render, no console errors; a
 deterministic mid-run snapshot showed tokens in the busy Press/Inspect stations with the clock at
 66.8 min / 4 WIP / 21 out / 160 events. Screenshots reviewed — compact and on-brand.
+
+---
+
+## 2026-06-08 — Phase 3: floor charm & UX polish
+
+Stakeholder asks (all done in one pass): more charm, pickable resource symbols, thicker/more visible
+lines & bigger parts, zoom, drop the leg length labels, allow typing a transport length, and a live
+distribution mini-graph.
+
+- **Resource symbols.** A curated set of 9 line glyphs (box, press, cut, weld, furnace, inspect,
+  assemble, cpu, gear), pickable per resource in the inspector and drawn inside the node. (Glyphs are
+  parsed in the SVG namespace via `DOMParser` — `innerHTML` on an inline-SVG `<g>` doesn't.)
+- **Bigger, clearer graphics.** Larger resource/storage/endpoint nodes, thicker borders, thicker and
+  darker transport legs; tokens enlarged. Resource shows a machine-count badge.
+- **Zoom & pan.** viewBox-based zoom (− / % / + / Fit controls, mouse-wheel anchored at the cursor)
+  and drag-to-pan on empty canvas in Move mode; `Fit` frames the content.
+- **Removed leg length labels** from the canvas (they cluttered); length now lives in the leg inspector.
+- **Typed transport length.** Each leg can take a hard-typed length (m) that overrides the placement
+  distance (engine `legLen()` uses the override; clearing it reverts to Euclidean distance).
+- **Live distribution mini-graph.** The distribution editor draws a sampled density preview that
+  redraws on every parameter/type change (service, breakdown TTF/TTR, interarrival, interdemand).
+
+**Verification:** `npm test` → 75/75 (engine change was the additive `legLen` override). Headless
+renders show symbols inside nodes, the density graph, zoom controls, no leg labels, and no console
+errors; screenshots reviewed.
