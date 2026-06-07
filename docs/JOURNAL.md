@@ -222,3 +222,36 @@ render of `floor.html#example`: 5 nodes + 4 legs, no console errors; screenshot 
 branching/assembly (M2b) yet. Engine/demo untouched.
 
 **Next:** Milestone 2 — conveyor and worker-pool transport as constrained resources (queue/delay/block).
+
+---
+
+## 2026-06-07 — Phase 3.2: conveyor and worker-pool transport resources
+
+**Done**
+- Reworked the floor engine's movement core around an **occupancy/capacity model + a `settle()`
+  fixpoint** (the advanced-engine pattern) so transport can block and back up. The instant +
+  unbounded path is unchanged, so the Milestone 1 tests still pass.
+- **Conveyor legs**: finite `cap` (max items in transit) and a speed; transit = length ÷ speed.
+  When the downstream buffer is full the conveyor exit holds the item, the belt fills, and the
+  **upstream resource blocks** (block-after-service) — items back up. A floor-wide conveyor default
+  (cap/speed) applies to every conveyor leg.
+- **Worker pool**: a shared `count` of movers at one speed; a move **seizes** a worker for the
+  one-way trip, and when none is free the move waits in a **pending transport queue** (so too few
+  workers saturate and queue). If the destination is full on arrival the worker waits (blocked)
+  until space frees. **v1 simplification — empty return ignored** — and selecting workers in the UI
+  **auto-logs it to the study's assumptions log** (typed SIMPLIFICATION, data C, sensitivity-flagged),
+  integrating with the Phase 2 methodology.
+- New transport stats in `metrics()`: per-resource `blockedFraction`, per-conveyor utilisation, and
+  worker `{utilisation, avgQueue}`.
+- UI: a **Transport · Movers** panel (Instant / Conveyor / Worker with their params), mover-aware leg
+  rendering (conveyor = tracked dashed line; worker = dashed accent line with a small "W" marker),
+  and a transport summary in the run results (worker util/queue, busiest conveyor, most-blocked
+  resource).
+- 2 new tests (worker-pool bottleneck; conveyor capacity/blocking). Engine additions stayed in
+  `src/floor-engine.js`; existing engines/demo untouched.
+
+**Verification:** `npm test` → **70/70** (62 existing + 8 floor). Headless render of the floor: no
+console errors, Transport panel + three movers present; screenshot reviewed — on-brand.
+
+**Next:** Milestone 2b — branching + assembly (multi-part routings + BOM matching), then Milestone 3
+integration into the study project.

@@ -84,3 +84,74 @@ test('transport time is part of cycle time (CT >= transit per job)', () => {
     `CT ${r.avgCycleTime} should be >= transit ${r.avgTransitPerJob}`);
   assert.ok(r.avgTransitPerJob > 0, 'transport time should be positive when nodes are apart');
 });
+
+/* ---- Milestone 3.2: transport as constrained resources ----------------- */
+
+// Worker-served line: fast resources so worker travel dominates; long legs so
+// each move costs real worker time; the worker pool is shared across all legs.
+function workerFloor({ count = 1, speed = 50, dist = 200, service = 0.2, interarrival = 3 } = {}) {
+  return {
+    schema: 'des-floor/v1', units: { time: 'min', distance: 'm', speed: 'm/min' },
+    transport: { default: 'worker', speed, workers: { count, speed } },
+    nodes: [
+      { kind: 'source', id: 'src', x: 0, y: 0 },
+      { kind: 'resource', id: 'A', x: dist / 10, y: 0, machines: 1, service: newDist('exp', { mean: service }) },
+      { kind: 'resource', id: 'B', x: 2 * dist / 10, y: 0, machines: 1, service: newDist('exp', { mean: service }) },
+      { kind: 'sink', id: 'snk', x: 3 * dist / 10, y: 0 },
+    ],
+    // place coords in metres directly so leg distance = dist
+    parts: [{ id: 'p', kind: 'product', routing: ['src', 'A', 'B', 'snk'], demand: newDist('exp', { mean: interarrival }) }],
+  };
+}
+// fix coordinates so each consecutive leg is exactly `dist` metres apart
+function workerFloorM(opts = {}) {
+  const m = workerFloor(opts); const d = opts.dist || 200;
+  m.nodes[0].x = 0; m.nodes[1].x = d; m.nodes[2].x = 2 * d; m.nodes[3].x = 3 * d;
+  return m;
+}
+
+test('worker pool as bottleneck: too few workers queue moves and saturate; more relieve', () => {
+  const few = new FloorSim(workerFloorM({ count: 1, dist: 200, speed: 50, service: 0.2, interarrival: 3 }), 4);
+  const many = new FloorSim(workerFloorM({ count: 6, dist: 200, speed: 50, service: 0.2, interarrival: 3 }), 4);
+  few.run({ until: 12000 }); many.run({ until: 12000 });
+  const rf = few.metrics(), rm = many.metrics();
+  assert.ok(rf.workers && rm.workers, 'worker stats present');
+  assert.ok(rf.workers.utilisation > 0.85, `1 worker should saturate, util ${rf.workers.utilisation.toFixed(2)}`);
+  assert.ok(rf.workers.avgQueue > rm.workers.avgQueue + 1, `few-worker transport queue ${rf.workers.avgQueue.toFixed(2)} should exceed many ${rm.workers.avgQueue.toFixed(2)}`);
+  assert.ok(rm.throughput > rf.throughput * 1.2, `more workers should raise throughput: few ${rf.throughput.toFixed(3)}, many ${rm.throughput.toFixed(3)}`);
+  assert.ok(rm.workers.utilisation < rf.workers.utilisation, 'adding workers lowers utilisation');
+});
+
+// Conveyor into a slow, small-buffer resource: the conveyor fills and the
+// upstream resource blocks (block-after-service backs up).
+function conveyorFloor({ cap = 1, convSpeed = 10, dist = 50, sA = 0.5, sB = 5, bBuf = 1, interarrival = 1 } = {}) {
+  return {
+    schema: 'des-floor/v1', units: { time: 'min', distance: 'm', speed: 'm/min' },
+    transport: { default: 'instant', speed: 100,
+      legs: { 'A>B': { mover: 'conveyor', cap, speed: convSpeed } } },
+    nodes: [
+      { kind: 'source', id: 'src', x: 0, y: 0 },
+      { kind: 'resource', id: 'A', x: 10, y: 0, machines: 1, service: newDist('exp', { mean: sA }), bufferCap: Infinity },
+      { kind: 'resource', id: 'B', x: 10 + dist, y: 0, machines: 1, service: newDist('exp', { mean: sB }), bufferCap: bBuf },
+      { kind: 'sink', id: 'snk', x: 20 + dist, y: 0 },
+    ],
+    parts: [{ id: 'p', kind: 'product', routing: ['src', 'A', 'B', 'snk'], demand: newDist('exp', { mean: interarrival }) }],
+  };
+}
+
+test('conveyor capacity/blocking: a full downstream buffer blocks the conveyor and backs up upstream', () => {
+  // B is slow (mean 5) with a 1-slot buffer; conveyor cap 1; arrivals fast (1).
+  const sim = new FloorSim(conveyorFloor({ cap: 1, convSpeed: 10, dist: 50, sA: 0.5, sB: 5, bBuf: 1, interarrival: 1 }), 2);
+  sim.run({ until: 6000 });
+  const r = sim.metrics();
+  // upstream resource A should spend real time blocked (can't hand off downstream)
+  assert.ok(r.blockedFraction['A'] > 0.1, `A should be blocked a substantial fraction, got ${r.blockedFraction['A'].toFixed(3)}`);
+  // throughput is gated by the slow station B (~1/5), well below the arrival rate of 1/min
+  assert.ok(r.throughput < 0.3, `throughput ${r.throughput.toFixed(3)} should be gated near B's rate ~0.2`);
+  // a roomy line (big buffer, fast B, big conveyor) does NOT block A
+  const free = new FloorSim(conveyorFloor({ cap: 50, convSpeed: 10, dist: 50, sA: 0.5, sB: 0.5, bBuf: 50, interarrival: 1 }), 2);
+  free.run({ until: 6000 });
+  const rf = free.metrics();
+  assert.ok(rf.blockedFraction['A'] < 0.02, `unconstrained A should barely block, got ${rf.blockedFraction['A'].toFixed(3)}`);
+  assert.ok(rf.throughput > r.throughput, 'the unconstrained line should out-throughput the blocked one');
+});

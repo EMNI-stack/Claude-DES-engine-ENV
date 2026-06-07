@@ -3,18 +3,18 @@
 
    A NEW, separate next-event engine (Charter §4): it does not touch engine.js /
    advanced-engine.js. It REUSES the proven patterns (binary min-heap FEL,
-   area-method time-persistent stats, seeded RNG) and the shared distribution
-   samplers (src/distributions.js), at the cost of some event-loop duplication —
-   which protects the validated engines.
+   area-method stats, seeded RNG, occupancy/blocking + a settle() fixpoint) and
+   the shared distribution samplers (src/distributions.js).
 
-   Model shape: see docs/PHASE-3-DESIGN.md §3 (`des-floor/v1`). The model is
-   graph-/assembly-capable; THIS milestone (Phase 3.1) implements the LINEAR path
-   with INSTANT (uncapacitated) transport — a job in transit is in the system, so
-   travel time appears in cycle time and WIP. Conveyor/worker-pool resource limits
-   (Milestone 2) and BOM/assembly matching (Milestone 2b) are layered on later.
+   Model: docs/PHASE-3-DESIGN.md §3 (`des-floor/v1`). Implemented so far:
+   - Milestone 3.1: linear path, INSTANT (uncapacitated) transport.
+   - Milestone 3.2: CONVEYOR legs (finite capacity; block-after-service backs up
+     upstream when the downstream buffer fills) and a shared WORKER POOL (a move
+     seizes a worker for the one-way trip; too few workers queue pending moves and
+     show high utilisation). v1 simplification: worker empty-return is ignored.
 
-   Units (fixed contract, docs/PHASE-3-DESIGN.md §2): time = minutes,
-   distance = metres, speed = m/min, travelTime = distance / speed.
+   Units (docs/PHASE-3-DESIGN.md §2): time = minutes, distance = metres,
+   speed = m/min, travelTime = distance / speed.
    ========================================================================== */
 
 import { mulberry32, sample } from './distributions.js';
@@ -33,82 +33,102 @@ export class FloorSim {
     this.rng = mulberry32((seed >>> 0) || 1);
     this.now = 0; this.lastT = 0; this.seq = 0; this.fel = [];
 
-    // counters / accumulators
-    this.wip = 0;          // jobs in system (queue + service + in transit)
-    this.inTransit = 0;    // jobs currently on a transport leg
+    this.wip = 0; this.inTransit = 0;
     this.areaWIP = 0; this.areaTransit = 0;
     this.entered = 0; this.completed = 0;
-    this.sumCycle = 0;     // Σ (exit − entry) over completions
-    this.sumJobTransit = 0; // Σ per-job total transport time over completions
+    this.sumCycle = 0; this.sumJobTransit = 0;
     this.pid = 0;
+    this.arrivalBlocked = [];               // instant-delivered jobs awaiting a full buffer
 
-    // node index
+    // node index + runtime state
     this.nodes = {};
     for (const n of model.nodes) this.nodes[n.id] = n;
-
-    // resource runtime state
-    this.res = {};
+    this.res = {}; this.hold = {};
     for (const n of model.nodes) {
       if (n.kind === 'resource') {
         this.res[n.id] = {
           node: n,
-          machines: Array.from({ length: Math.max(1, n.machines || 1) }, () => ({ busy: false })),
+          machines: Array.from({ length: Math.max(1, n.machines || 1) }, () => ({ busy: false, blocked: false, job: null })),
           queue: [],
-          aBusy: 0, aQ: 0, processed: 0,
+          cap: (n.bufferCap == null ? Infinity : n.bufferCap),  // total holding (queue + in-machine)
+          aBusy: 0, aBlk: 0, aQ: 0, processed: 0,
         };
+      } else if (n.kind === 'source' || n.kind === 'storage') {
+        this.hold[n.id] = { node: n, items: [], cap: (n.kind === 'source' ? Infinity : (n.cap == null ? Infinity : n.cap)), aOcc: 0 };
       }
     }
 
     this.transport = model.transport || {};
-    this.defaultSpeed = this.transport.speed || 60; // m/min, for default/instant legs
+    this.defaultMover = this.transport.default || 'instant';
+    this.defaultSpeed = this.transport.speed || 60;
 
-    // schedule first arrival for each part that has a demand stream
+    // worker pool (shared)
+    const wp = this.transport.workers;
+    this.workers = wp ? { count: Math.max(1, wp.count || 1), speed: wp.speed || this.defaultSpeed,
+      busy: 0, pending: [], blocked: [], aBusy: 0, aPending: 0 } : null;
+
+    // conveyor leg state (per edge), precomputed from all parts' routings
+    this.conv = {};
+    for (const p of (model.parts || [])) {
+      const r = p.routing || [];
+      for (let i = 0; i < r.length - 1; i++) {
+        const key = `${r[i]}>${r[i + 1]}`;
+        if (this.moverFor(r[i], r[i + 1]) === 'conveyor' && !this.conv[key]) {
+          const leg = (this.transport.legs || {})[key] || {};
+          const cd = this.transport.conveyor || {};            // floor-wide conveyor default
+          const cap = leg.cap != null ? leg.cap : (cd.cap != null ? cd.cap : Infinity);
+          const speed = leg.speed || cd.speed || this.defaultSpeed;
+          this.conv[key] = { key, cap, speed, items: [], aBusy: 0 };
+        }
+      }
+    }
+
+    // first arrival per part with a demand stream
     for (const p of (model.parts || [])) {
       if (p.demand) this.schedule(sample(p.demand, this.rng), { t: 'ARRIVE', part: p.id });
-      else this.schedule(0, { t: 'ARRIVE', part: p.id, once: true }); // saturate fallback: one job
+      else this.schedule(0, { t: 'ARRIVE', part: p.id, once: true });
     }
   }
 
-  /* ---- heap FEL (min by time, then insertion seq) ---------------------- */
+  /* ---- heap FEL --------------------------------------------------------- */
   schedule(dt, ev) { ev.time = this.now + Math.max(0, dt); ev.seq = this.seq++; this._push(ev); }
-  _push(ev) {
-    const h = this.fel; h.push(ev); let i = h.length - 1;
-    while (i > 0) { const p = (i - 1) >> 1; if (this._less(h[i], h[p])) { [h[i], h[p]] = [h[p], h[i]]; i = p; } else break; }
-  }
-  _pop() {
-    const h = this.fel; const top = h[0], last = h.pop();
+  _push(ev) { const h = this.fel; h.push(ev); let i = h.length - 1;
+    while (i > 0) { const p = (i - 1) >> 1; if (this._less(h[i], h[p])) { [h[i], h[p]] = [h[p], h[i]]; i = p; } else break; } }
+  _pop() { const h = this.fel; const top = h[0], last = h.pop();
     if (h.length) { h[0] = last; let i = 0; const n = h.length;
       for (;;) { let l = 2 * i + 1, r = l + 1, s = i;
         if (l < n && this._less(h[l], h[s])) s = l;
         if (r < n && this._less(h[r], h[s])) s = r;
         if (s === i) break; [h[i], h[s]] = [h[s], h[i]]; i = s; } }
-    return top;
-  }
+    return top; }
   _less(a, b) { return a.time < b.time || (a.time === b.time && a.seq < b.seq); }
 
-  /* ---- time-persistent stats (area method) ----------------------------- */
+  /* ---- leg config ------------------------------------------------------- */
+  moverFor(fromId, toId) {
+    const leg = (this.transport.legs || {})[`${fromId}>${toId}`];
+    return (leg && leg.mover) || this.defaultMover;
+  }
+  legSpeed(fromId, toId, mover) {
+    const leg = (this.transport.legs || {})[`${fromId}>${toId}`];
+    if (leg && leg.speed) return leg.speed;
+    if (mover === 'conveyor' && this.transport.conveyor && this.transport.conveyor.speed) return this.transport.conveyor.speed;
+    if (mover === 'worker' && this.workers) return this.workers.speed;
+    return this.defaultSpeed;
+  }
+
+  /* ---- time-persistent stats ------------------------------------------- */
   accumulate(t) {
     const dt = t - this.lastT;
     if (dt > 0) {
-      for (const id in this.res) {
-        const r = this.res[id];
-        let busy = 0; for (const m of r.machines) if (m.busy) busy++;
-        r.aBusy += busy * dt; r.aQ += r.queue.length * dt;
-      }
-      this.areaWIP += this.wip * dt;
-      this.areaTransit += this.inTransit * dt;
+      for (const id in this.res) { const r = this.res[id];
+        let b = 0, bl = 0; for (const m of r.machines) { if (m.busy) b++; if (m.blocked) bl++; }
+        r.aBusy += b * dt; r.aBlk += bl * dt; r.aQ += r.queue.length * dt; }
+      for (const id in this.hold) this.hold[id].aOcc += this.hold[id].items.length * dt;
+      for (const k in this.conv) this.conv[k].aBusy += this.conv[k].items.length * dt;
+      if (this.workers) { this.workers.aBusy += this.workers.busy * dt; this.workers.aPending += this.workers.pending.length * dt; }
+      this.areaWIP += this.wip * dt; this.areaTransit += this.inTransit * dt;
     }
     this.lastT = t;
-  }
-
-  /* ---- routing helpers -------------------------------------------------- */
-  partOf(id) { return this.model.parts.find((p) => p.id === id); }
-  legSpeed(fromId, toId) {
-    const legs = this.transport.legs || {};
-    const leg = legs[`${fromId}>${toId}`];
-    if (leg && leg.speed) return leg.speed;
-    if (this.transport.workers && this.transport.workers.speed && leg && leg.mover === 'worker') return this.transport.workers.speed;
-    return this.defaultSpeed;
   }
 
   /* ---- event loop ------------------------------------------------------- */
@@ -118,96 +138,149 @@ export class FloorSim {
     if (ev.t === 'ARRIVE') this.onArrive(ev);
     else if (ev.t === 'ARRIVE_NODE') this.onArriveNode(ev);
     else if (ev.t === 'COMPLETE') this.onComplete(ev);
+    else if (ev.t === 'CONVEYOR_END') this.onConveyorEnd(ev);
+    else if (ev.t === 'MOVE_END') this.onMoveEnd(ev);
+    this.settle();
     return true;
   }
   run({ until = Infinity, maxEvents = 5_000_000 } = {}) {
-    let n = 0;
-    while (this.fel.length && this.now < until && n < maxEvents) { if (!this.step()) break; n++; }
-    return this;
+    let n = 0; while (this.fel.length && this.now < until && n < maxEvents) { if (!this.step()) break; n++; } return this;
   }
+
+  partOf(id) { return this.model.parts.find((p) => p.id === id); }
 
   onArrive(ev) {
     const p = this.partOf(ev.part); if (!p) return;
     const job = { id: ++this.pid, part: p.id, routing: p.routing, step: 0, entry: this.now, transit: 0 };
     this.entered++; this.wip++;
-    // schedule the next arrival for this part's stream
     if (p.demand && !ev.once) this.schedule(sample(p.demand, this.rng), { t: 'ARRIVE', part: p.id });
-    this.arriveAtNode(job, 0);
+    this.admit(job, 0);                       // place at routing[0] (source/resource)
   }
 
-  arriveAtNode(job, step) {
-    job.step = step;
-    const nodeId = job.routing[step];
-    const node = this.nodes[nodeId];
-    if (!node || node.kind === 'sink' || step >= job.routing.length - 1) { this.exit(job); return; }
+  /* admit a job to the node at routing[toStep]; returns true if accepted */
+  admit(job, toStep) {
+    const id = job.routing[toStep]; const node = this.nodes[id];
+    if (!node || node.kind === 'sink') { this.exit(job); return true; }   // exit at sink (or off the end)
     if (node.kind === 'resource') {
-      const r = this.res[nodeId];
-      r.queue.push(job);
-      this.tryStart(nodeId);
-    } else {
-      // source / storage waypoint — no processing or capacity in Milestone 1
-      this.depart(job);
+      const r = this.res[id];
+      if (this.occ(id) >= r.cap) return false;
+      job.step = toStep; r.queue.push(job); return true;
     }
+    // source / storage
+    const h = this.hold[id];
+    if (h.items.length >= h.cap) return false;
+    job.step = toStep; h.items.push(job); return true;
   }
-
-  tryStart(nodeId) {
-    const r = this.res[nodeId];
-    for (const m of r.machines) {
-      if (m.busy || !r.queue.length) continue;
-      const job = r.queue.shift();
-      m.busy = true; m.job = job;
-      const st = Math.max(0, sample(r.node.service, this.rng));
-      this.schedule(st, { t: 'COMPLETE', node: nodeId, m, job });
-    }
-  }
-
-  onComplete(ev) {
-    ev.m.busy = false; ev.m.job = null;
-    this.res[ev.node].processed++;
-    this.depart(ev.job);
-    this.tryStart(ev.node);
-  }
-
-  /* leave the current node toward the next routing step via a transport leg */
-  depart(job) {
-    const step = job.step;
-    if (step >= job.routing.length - 1) { this.exit(job); return; }
-    const fromId = job.routing[step], toId = job.routing[step + 1];
-    const from = this.nodes[fromId], to = this.nodes[toId];
-    const dist = legDistance(from, to);
-    const speed = this.legSpeed(fromId, toId);
-    const tt = speed > 0 ? dist / speed : 0;
-    this.inTransit++; job.transit += tt;
-    this.schedule(tt, { t: 'ARRIVE_NODE', job, step: step + 1 });
-  }
+  occ(resId) { const r = this.res[resId]; let n = r.queue.length; for (const m of r.machines) if (m.busy || m.blocked) n++; return n; }
 
   onArriveNode(ev) {
     this.inTransit--;
-    this.arriveAtNode(ev.job, ev.step);
+    if (!this.admit(ev.job, ev.step)) this.arrivalBlocked.push({ job: ev.job, step: ev.step });
   }
 
-  exit(job) {
-    this.wip--; this.completed++;
-    this.sumCycle += this.now - job.entry;
-    this.sumJobTransit += job.transit;
+  onComplete(ev) {
+    ev.m.busy = false; ev.m.blocked = true;       // hold finished job until it can move
+    this.res[ev.node].processed++;
+    // settle() (called by step) will try to board it and free the machine
   }
+
+  onConveyorEnd(ev) { ev.item.arrived = true; /* settle() tries to deposit */ }
+
+  onMoveEnd(ev) {
+    // worker arrived at destination; try to deposit, else block the worker
+    if (this.admit(ev.job, ev.step)) { this.workers.busy--; this.inTransit--; }
+    else this.workers.blocked.push({ job: ev.job, step: ev.step });
+  }
+
+  /* ---- board a job from its current node onto the leg to step+1 --------- */
+  board(job) {
+    const fromStep = job.step, toStep = fromStep + 1;
+    if (toStep > job.routing.length - 1) { this.exit(job); return true; }
+    const fromId = job.routing[fromStep], toId = job.routing[toStep];
+    const mover = this.moverFor(fromId, toId);
+    const tt = this._tt(fromId, toId, mover);
+    if (mover === 'conveyor') {
+      const leg = this.conv[`${fromId}>${toId}`];
+      if (leg.items.length >= leg.cap) return false;       // conveyor full → caller stays blocked
+      const item = { job, step: toStep, arrived: false };
+      leg.items.push(item); this.inTransit++; job.transit += tt;
+      this.schedule(tt, { t: 'CONVEYOR_END', item, leg });
+      return true;
+    }
+    if (mover === 'worker' && this.workers) {
+      this.workers.pending.push({ job, step: toStep });    // wait for a free worker (transport queue)
+      return true;                                          // job leaves the node into the pending queue
+    }
+    // instant (uncapacitated delay)
+    this.inTransit++; job.transit += tt;
+    this.schedule(tt, { t: 'ARRIVE_NODE', job, step: toStep });
+    return true;
+  }
+  _tt(fromId, toId, mover) { const d = legDistance(this.nodes[fromId], this.nodes[toId]); const s = this.legSpeed(fromId, toId, mover); return s > 0 ? d / s : 0; }
+
+  /* ---- settle: resolve all moves that can happen at this instant -------- */
+  settle() {
+    let changed = true, guard = 0;
+    while (changed && guard++ < 100000) {
+      changed = false;
+
+      // 1. instant arrivals that were blocked by a full buffer
+      for (let i = this.arrivalBlocked.length - 1; i >= 0; i--) {
+        const a = this.arrivalBlocked[i];
+        if (this.admit(a.job, a.step)) { this.arrivalBlocked.splice(i, 1); changed = true; }
+      }
+      // 2. conveyor exits waiting to deposit downstream
+      for (const k in this.conv) { const leg = this.conv[k];
+        for (let i = 0; i < leg.items.length; i++) { const it = leg.items[i];
+          if (it.arrived && this.admit(it.job, it.step)) { leg.items.splice(i, 1); i--; this.inTransit--; changed = true; } } }
+      // 3. workers blocked at deposit
+      if (this.workers) for (let i = this.workers.blocked.length - 1; i >= 0; i--) {
+        const b = this.workers.blocked[i];
+        if (this.admit(b.job, b.step)) { this.workers.blocked.splice(i, 1); this.workers.busy--; this.inTransit--; changed = true; } }
+      // 4. assign free workers to pending moves
+      if (this.workers) while (this.workers.busy < this.workers.count && this.workers.pending.length) {
+        const req = this.workers.pending.shift(); this.workers.busy++;
+        const job = req.job, fromId = job.routing[job.step], toId = job.routing[req.step];
+        const tt = this._tt(fromId, toId, 'worker'); this.inTransit++; job.transit += tt;
+        this.schedule(tt, { t: 'MOVE_END', job, step: req.step }); changed = true; }
+      // 5. resources: board finished (blocked) jobs, then start new services
+      for (const id in this.res) { const r = this.res[id];
+        for (const m of r.machines) { if (m.blocked && m.job) { if (this.board(m.job)) { m.blocked = false; m.job = null; changed = true; } } }
+        for (const m of r.machines) { if (!m.busy && !m.blocked && r.queue.length) {
+          const job = r.queue.shift(); m.busy = true; m.job = job;
+          const st = Math.max(0, sample(r.node.service, this.rng));
+          this.schedule(st, { t: 'COMPLETE', node: id, m, job }); changed = true; } } }
+      // 6. holding nodes (source/storage): push head jobs onward
+      for (const id in this.hold) { const h = this.hold[id];
+        while (h.items.length) { const job = h.items[0]; if (this.board(job)) { h.items.shift(); changed = true; } else break; } }
+    }
+  }
+
+  exit(job) { this.wip--; this.completed++; this.sumCycle += this.now - job.entry; this.sumJobTransit += job.transit; }
 
   /* ---- metrics ---------------------------------------------------------- */
   metrics() {
     const T = this.now || 1;
-    const util = {};
-    for (const id in this.res) util[id] = this.res[id].aBusy / (this.res[id].machines.length * T);
+    const util = {}, blocked = {};
+    for (const id in this.res) { const m = this.res[id].machines.length;
+      util[id] = this.res[id].aBusy / (m * T); blocked[id] = this.res[id].aBlk / (m * T); }
+    const conveyors = {};
+    for (const k in this.conv) conveyors[k] = { utilisation: this.conv[k].aBusy / ((this.conv[k].cap === Infinity ? 1 : this.conv[k].cap) * T) };
     return {
-      time: this.now,
-      entered: this.entered,
-      completed: this.completed,
-      inSystem: this.wip,
+      time: this.now, entered: this.entered, completed: this.completed, inSystem: this.wip,
       throughput: this.completed / T,
       avgWIP: this.areaWIP / T,
       avgCycleTime: this.completed ? this.sumCycle / this.completed : 0,
       avgTransitPerJob: this.completed ? this.sumJobTransit / this.completed : 0,
       avgInTransit: this.areaTransit / T,
       utilisation: util,
+      blockedFraction: blocked,
+      conveyors,
+      workers: this.workers ? {
+        count: this.workers.count,
+        utilisation: this.workers.aBusy / (this.workers.count * T),
+        avgQueue: this.workers.aPending / T,
+      } : null,
     };
   }
 }

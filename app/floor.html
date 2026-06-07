@@ -22,7 +22,7 @@
       the distance between placed nodes, so <strong>where things sit changes how the line performs</strong>.
       Move a node, re-run, and watch the cycle time change.
     </p>
-    <p class="floor-hint">Early build: a single linear route with instant (uncapacitated) transport. Limited movers (conveyor, worker pool) and assembly come next.</p>
+    <p class="floor-hint">Early build: a single linear route. Choose how loads move — instant delay, a capacity-limited conveyor, or a shared worker pool. Branching and assembly come next.</p>
   </section>
 
   <section class="reveal">
@@ -64,6 +64,20 @@
         <div class="panel" id="propPanel" hidden>
           <div class="panel__head"><p class="section-label">Selected</p><h2 class="panel__title" id="propTitle">Node</h2></div>
           <div class="prop-grid" id="propGrid"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel__head"><p class="section-label">Transport</p><h2 class="panel__title">Movers</h2></div>
+          <div class="field">
+            <label class="small">How loads move between nodes</label>
+            <div class="segmented" id="moverSel" role="group" aria-label="Default mover">
+              <button data-mover="instant" aria-pressed="true">Instant</button>
+              <button data-mover="conveyor" aria-pressed="false">Conveyor</button>
+              <button data-mover="worker" aria-pressed="false">Worker</button>
+            </div>
+          </div>
+          <div id="moverParams" class="prop-grid" style="margin-top:var(--s-3)"></div>
+          <p class="floor-hint" id="moverHint" style="margin-top:var(--s-3)"></p>
         </div>
 
         <div class="panel">

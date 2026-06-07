@@ -2,7 +2,7 @@
    the transport-aware engine to see how placement affects performance.
    Persists into the shared study project at `project.model` (des-floor/v1). */
 
-import { load, save, uid } from './project.js';
+import { load, save, uid, newAssumption } from './project.js';
 import { FloorSim, legDistance } from '../../src/floor-engine.js';
 import { newDist } from '../../src/distributions.js';
 
@@ -17,13 +17,17 @@ let selected = null;
 let drag = null;              // { id, moved }
 
 function ensureModel(m) {
+  const base = { defaultMover: 'instant', conveyor: { cap: 3, speed: 30 }, workers: { count: 2, speed: 40 } };
   if (m && m.schema === 'des-floor/v1') {
     m.nodes = m.nodes || []; m.routeOrder = m.routeOrder || [];
     m.params = m.params || { speed: 40, arrivalMean: 3 };
+    m.defaultMover = m.defaultMover || base.defaultMover;
+    m.conveyor = m.conveyor || base.conveyor;
+    m.workers = m.workers || base.workers;
     return m;
   }
   return { schema: 'des-floor/v1', scale: S, units: { time: 'min', distance: 'm', speed: 'm/min' },
-    nodes: [], routeOrder: [], params: { speed: 40, arrivalMean: 3 } };
+    nodes: [], routeOrder: [], params: { speed: 40, arrivalMean: 3 }, ...base };
 }
 function persist() { project.model = model; save(project); }
 
@@ -53,17 +57,25 @@ function render() {
   for (let x = 0; x <= 820; x += 5 * S) for (let y = 0; y <= 520; y += 5 * S) grid.append(E('circle', { cx: x, cy: y, r: 0.8, class: 'grid-dot' }));
   svg.append(grid);
 
-  // legs (route order), beneath nodes
+  // legs (route order), beneath nodes — line style conveys the mover
   const legG = E('g', {});
+  const mover = model.defaultMover;
+  const legSpeed = mover === 'conveyor' ? (model.conveyor.speed || 30)
+    : mover === 'worker' ? (model.workers.speed || 40) : (model.params.speed || 40);
+  const cls = mover === 'conveyor' ? 'leg leg-conv' : mover === 'worker' ? 'leg leg-worker' : 'leg';
   for (let i = 0; i < model.routeOrder.length - 1; i++) {
     const a = node(model.routeOrder[i]), b = node(model.routeOrder[i + 1]);
     if (!a || !b) continue;
     const ax = px(a.x), ay = px(a.y), bx = px(b.x), by = px(b.y);
-    legG.append(E('line', { class: 'leg', x1: ax, y1: ay, x2: bx, y2: by }));
+    legG.append(E('line', { class: cls, x1: ax, y1: ay, x2: bx, y2: by }));
     const dist = legDistance(a, b);
-    const tt = (model.params.speed > 0 ? dist / model.params.speed : 0);
+    const tt = (legSpeed > 0 ? dist / legSpeed : 0);
     const mx = (ax + bx) / 2, my = (ay + by) / 2;
-    if (dist > 0.5) legG.append(E('text', { class: 'leg-label', x: mx + 4, y: my - 4 }, `${dist.toFixed(0)} m · ${tt.toFixed(1)} min`));
+    if (mover === 'worker' && dist > 0.5) {        // small worker marker mid-leg
+      legG.append(E('circle', { class: 'worker-mark', cx: mx, cy: my, r: 6 }));
+      legG.append(E('text', { class: 'worker-mark-t', x: mx, y: my + 3, 'text-anchor': 'middle' }, 'W'));
+    }
+    if (dist > 0.5) legG.append(E('text', { class: 'leg-label', x: mx + 9, y: my - 6 }, `${dist.toFixed(0)} m · ${tt.toFixed(1)} min`));
   }
   svg.append(legG);
 
@@ -137,6 +149,40 @@ function field(label, input, full) {
 function textInput(v, on) { const i = document.createElement('input'); i.className = 'input'; i.type = 'text'; i.value = v; i.addEventListener('input', () => on(i.value)); return i; }
 function numInput(v, min, step, on) { const i = document.createElement('input'); i.className = 'input num'; i.type = 'number'; i.value = v; i.min = min; i.step = step; i.addEventListener('input', () => on(parseFloat(i.value))); return i; }
 
+/* ---- transport (movers) panel ------------------------------------------ */
+function renderMoverPanel() {
+  $('moverSel').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mover === model.defaultMover)));
+  const params = $('moverParams'); params.innerHTML = '';
+  const hint = $('moverHint');
+  if (model.defaultMover === 'conveyor') {
+    params.append(field('Capacity (items)', numInput(model.conveyor.cap ?? 3, 1, 1, (v) => { model.conveyor.cap = Math.max(1, v | 0); persist(); render(); })));
+    params.append(field('Speed (m/min)', numInput(model.conveyor.speed ?? 30, 1, 5, (v) => { model.conveyor.speed = Math.max(1, v); persist(); render(); })));
+    hint.textContent = 'A fixed link: items ride length ÷ speed. When the downstream buffer is full the belt backs up and blocks the upstream resource.';
+  } else if (model.defaultMover === 'worker') {
+    params.append(field('Workers', numInput(model.workers.count ?? 2, 1, 1, (v) => { model.workers.count = Math.max(1, v | 0); persist(); render(); })));
+    params.append(field('Speed (m/min)', numInput(model.workers.speed ?? 40, 1, 5, (v) => { model.workers.speed = Math.max(1, v); persist(); render(); })));
+    hint.textContent = 'A shared pool: each move seizes a worker for the one-way trip. Too few workers queue moves. Empty return trips are ignored — logged as a simplification in Methodology.';
+  } else {
+    hint.textContent = 'Uncapacitated time delay = distance ÷ speed (set Speed in the toolbar). No mover limits — useful as a baseline before adding constraints.';
+  }
+}
+function setMover(m) {
+  model.defaultMover = m;
+  if (m === 'worker') ensureWorkerAssumption();
+  persist(); renderMoverPanel(); render();
+}
+function ensureWorkerAssumption() {
+  if (!project.assumptions.some((a) => a.id === 'a_worker_return')) {
+    project.assumptions.push(newAssumption({
+      id: 'a_worker_return', kind: 'simplification',
+      description: 'Worker empty-return travel is ignored — only one-way loaded trips are modelled.',
+      rationale: 'Out of v1 scope (Charter §6). Ignoring it understates worker utilisation, so it is flagged for sensitivity analysis later.',
+      data: 'C', uncertainty: 'Real empty-return time depends on layout and dispatch.', sensitivity: true,
+    }));
+    save(project);
+  }
+}
+
 /* ---- mutations ---------------------------------------------------------- */
 function addNode(kind, x, y) {
   const idp = { resource: 'res', storage: 'sto', source: 'src', sink: 'snk' }[kind] || 'n';
@@ -188,10 +234,13 @@ function buildRunModel() {
   const nodes = model.nodes.map((n) => n.kind === 'resource'
     ? { kind: 'resource', id: n.id, name: n.name, x: n.x, y: n.y, machines: n.machines || 1, service: newDist('exp', { mean: n.serviceMean || 1 }) }
     : { kind: n.kind, id: n.id, name: n.name, x: n.x, y: n.y, cap: n.cap });
+  const transport = { default: model.defaultMover, speed, legs: {} };
+  if (model.defaultMover === 'conveyor') transport.conveyor = { cap: model.conveyor.cap, speed: model.conveyor.speed };
+  if (model.defaultMover === 'worker') transport.workers = { count: model.workers.count, speed: model.workers.speed };
   return {
     schema: 'des-floor/v1', scale: S, units: model.units,
     nodes, parts: [{ id: 'p', kind: 'product', routing: model.routeOrder.slice(), demand: newDist('exp', { mean: arr }) }],
-    transport: { default: 'instant', speed, legs: {} },
+    transport,
   };
 }
 function runModel() {
@@ -220,6 +269,25 @@ function runModel() {
     tr.firstChild.textContent = n.name || 'Resource';
     tb.append(tr);
   });
+
+  // transport summary (movers as constrained resources)
+  const tRows = [];
+  if (r.workers) {
+    tRows.push(`<tr><td>Workers (${r.workers.count})</td><td class="num">${(100 * r.workers.utilisation).toFixed(1)}% util</td><td class="num">${r.workers.avgQueue.toFixed(2)} queued</td></tr>`);
+  }
+  const convVals = Object.values(r.conveyors || {});
+  if (convVals.length) {
+    const maxU = Math.max(...convVals.map((c) => c.utilisation));
+    tRows.push(`<tr><td>Conveyor (busiest)</td><td class="num">${(100 * maxU).toFixed(1)}% full</td><td class="num">—</td></tr>`);
+  }
+  const blk = Math.max(0, ...Object.values(r.blockedFraction || {}));
+  if (blk > 0.001) tRows.push(`<tr><td>Most-blocked resource</td><td class="num">${(100 * blk).toFixed(1)}% blocked</td><td class="num">—</td></tr>`);
+  if (tRows.length) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `<p class="section-label" style="margin:var(--s-4) 0 var(--s-2)">Transport</p>
+      <table class="table"><tbody>${tRows.join('')}</tbody></table>`;
+    $('results').append(wrap);
+  }
 }
 
 /* ---- example + clear ---------------------------------------------------- */
@@ -254,12 +322,15 @@ function init() {
   speed.addEventListener('input', () => { model.params.speed = Math.max(1, parseFloat(speed.value) || 40); persist(); render(); });
   arr.addEventListener('input', () => { model.params.arrivalMean = Math.max(0.1, parseFloat(arr.value) || 3); persist(); });
 
+  $('moverSel').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setMover(b.dataset.mover); });
+
   $('btnRun').addEventListener('click', runModel);
   $('btnSeed').addEventListener('click', loadExample);
   $('btnClear').addEventListener('click', clearFloor);
 
   if (location.hash === '#example' && model.nodes.length === 0) loadExample();
-  render(); renderRoute();
+  if (model.defaultMover === 'worker') ensureWorkerAssumption();
+  render(); renderRoute(); renderMoverPanel();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
 else init();
