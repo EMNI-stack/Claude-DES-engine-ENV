@@ -469,12 +469,15 @@ function nodeEl(n) {
 }
 
 /* ---- parts panel (Phase 3.5) ------------------------------------------- */
+function partLabel(p) { return `${p.name} · ${p.kind}${p.bom.length ? ' · assembled' : ''}`; }
 function renderParts() {
   const host = $('partsBody'); if (!host) return; host.innerHTML = '';
+  let activeRowLabel = null;
   model.parts.forEach((p, idx) => {
     const row = H('div', { class: 'part-row' + (p.id === model.activePart ? ' active' : '') });
     const dot = H('span', { class: 'part-dot' }); dot.style.background = partColor(idx);
-    const nm = H('span', { class: 'part-name' }); nm.textContent = `${p.name} · ${p.kind}${p.bom.length ? ' · assembled' : ''}`;
+    const nm = H('span', { class: 'part-name' }); nm.textContent = partLabel(p);
+    if (p.id === model.activePart) activeRowLabel = nm;          // updated live while typing the name
     row.append(dot, nm);
     if (model.parts.length > 1) row.append(mini('✕', () => removePart(p.id)));
     row.addEventListener('click', (e) => { if (!e.target.classList.contains('mini')) { model.activePart = p.id; persist(); refreshAll(); } });
@@ -489,7 +492,8 @@ function renderParts() {
   // editor for the ACTIVE part
   const p = activePart(); if (!p) return;
   host.append(H('hr', { class: 'muted-rule' }));
-  host.append(field('Part name', textInput(p.name, (v) => { p.name = v || 'Part'; persist(); refreshAll(); })));
+  // name updates in place — do NOT refreshAll() here (it would rebuild this very input and steal focus)
+  host.append(field('Part name', textInput(p.name, (v) => { p.name = v || 'Part'; if (activeRowLabel) activeRowLabel.textContent = partLabel(p); persist(); })));
   host.append(field('Type', segmented(
     [{ value: 'product', label: 'Product' }, { value: 'fabricated', label: 'Made' }, { value: 'purchased', label: 'Bought' }],
     p.kind, (v) => { p.kind = v; persist(); renderParts(); }, 'Type')));
