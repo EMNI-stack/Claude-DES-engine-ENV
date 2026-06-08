@@ -693,12 +693,18 @@ export class FloorSim {
     for (const id in this.res) { const r = this.res[id];
       if (r.batch) batch[id] = { size: r.batch.size, setup: r.batch.setup, batchesStarted: r.batchesStarted, waitingForBatch: r.queue.length }; }
     // process-mode: per-part production + on-hand inventory + per-product demand service
-    let partsM = null, demandM = null;
+    let partsM = null, demandM = null, productThroughput = null, productCycle = null;
     if (this.multiPart) {
       partsM = {}; demandM = {};
       for (const p of this.parts) { const s = this.pstats[p.id];
         partsM[p.id] = { name: p.name || p.id, created: s.created, completed: s.completed, scrapped: s.scrapped,
-          wip: s.wip, onHand: this.inventory[p.id], throughput: s.completed / T, avgCycleTime: s.completed ? s.sumCycle / s.completed : 0 }; }
+          wip: s.wip, onHand: this.inventory[p.id], throughput: s.completed / T, avgCycleTime: s.completed ? s.sumCycle / s.completed : 0,
+          component: this.componentPids.has(p.id) }; }
+      // headline = finished TOP-LEVEL products only (parts not consumed as a component), so the
+      // KPI reads as product output, not the sum of every component completion.
+      let topDone = 0, topCycle = 0;
+      for (const p of this.parts) if (!this.componentPids.has(p.id)) { topDone += this.pstats[p.id].completed; topCycle += this.pstats[p.id].sumCycle; }
+      productThroughput = topDone / T; productCycle = topDone ? topCycle / topDone : 0;
       for (const d of this.demandList) { const ds = this.demandStats[d.partId];
         demandM[d.partId] = { demanded: ds.demanded, fulfilled: ds.fulfilled, stockouts: ds.stockouts, backlog: ds.backlog,
           fillRate: ds.demanded ? ds.fulfilled / ds.demanded : 1 }; }
@@ -706,6 +712,7 @@ export class FloorSim {
     return {
       deadlock: !!this.deadlocked, batch,
       multiPart: !!this.multiPart, parts: partsM, demandByPart: demandM, partsCapExceeded: !!this.partsCapExceeded,
+      productThroughput, productCycle,
       time: this.now, entered: this.entered, completed: this.completed, scrapped: this.scrapped, inSystem: this.wip,
       throughput: this.completed / T,
       yield: (this.completed + this.scrapped) ? this.completed / (this.completed + this.scrapped) : 1,

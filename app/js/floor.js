@@ -996,10 +996,13 @@ function showResults() {
   const results = $('results');
   if (!sim) { results.innerHTML = '<p class="results-empty">Press Play, then “End” when you’ve seen enough, to see results.</p>'; return; }
   const r = sim.metrics(); const f = (x, d = 2) => Number.isFinite(x) ? x.toFixed(d) : '—';
+  // headline throughput/cycle: in a process model show FINISHED PRODUCTS (not every component completion)
+  const headTH = r.multiPart ? r.productThroughput : r.throughput;
+  const headCT = r.multiPart ? r.productCycle : r.avgCycleTime;
   results.innerHTML = `
     <div class="kpi-grid">
-      <div class="kpi"><div class="kpi__label">Throughput</div><div class="kpi__value num">${fmtNum(r.throughput)}<span class="kpi__unit">/min</span></div></div>
-      <div class="kpi"><div class="kpi__label">Cycle time</div><div class="kpi__value num">${fmtNum(r.avgCycleTime)}<span class="kpi__unit">min</span></div></div>
+      <div class="kpi"><div class="kpi__label">${r.multiPart ? 'Product output' : 'Throughput'}</div><div class="kpi__value num">${fmtNum(headTH)}<span class="kpi__unit">/min</span></div></div>
+      <div class="kpi"><div class="kpi__label">Cycle time</div><div class="kpi__value num">${fmtNum(headCT)}<span class="kpi__unit">min</span></div></div>
       <div class="kpi"><div class="kpi__label">In transport</div><div class="kpi__value num">${fmtNum(r.avgTransitPerJob)}<span class="kpi__unit">min</span></div></div>
       <div class="kpi"><div class="kpi__label">Avg WIP</div><div class="kpi__value num">${fmtNum(r.avgWIP)}</div></div>
       <div class="kpi"><div class="kpi__label">Yield</div><div class="kpi__value num">${f(100 * r.yield, 1)}<span class="kpi__unit">%</span></div></div>
@@ -1021,11 +1024,12 @@ function showResults() {
       bRows.push(`<tr><td>${esc(nm)} (B=${b.size})</td><td class="num">${b.batchesStarted} batches done${b.waitingForBatch ? `, ${b.waitingForBatch} waiting for a batch` : ''}</td></tr>`); }
     results.append(H('div', { html: `<p class="section-label" style="margin:var(--s-4) 0 var(--s-2)">Batching${r.deadlock ? ' — deadlock detected' : ''}</p><table class="table"><tbody>${bRows.join('')}</tbody></table>` }));
   }
-  // process model: per-part production + per-product demand fill
+  // process model: per-part production + per-product demand fill. Kept to 4 columns with units in
+  // the header so it stays readable in the narrow side panel (the fixed table layout squeezes wider tables).
   if (r.multiPart && r.parts) {
     const pr = Object.keys(r.parts).map((id) => { const p = r.parts[id]; const d = (r.demandByPart || {})[id];
-      return `<tr><td>${esc(p.name)}</td><td class="num">${fmtNum(p.throughput)}/min</td><td class="num">${fmtNum(p.avgCycleTime)} min</td><td class="num">${p.onHand}</td><td class="num">${d ? (100 * d.fillRate).toFixed(0) + '%' : '—'}</td></tr>`; });
-    results.append(H('div', { html: `<p class="section-label" style="margin:var(--s-4) 0 var(--s-2)">Parts</p><table class="table"><thead><tr><th>Part</th><th class="num">TH</th><th class="num">Cycle</th><th class="num">On hand</th><th class="num">Fill</th></tr></thead><tbody>${pr.join('')}</tbody></table>` }));
+      return `<tr><td>${esc(p.name)}</td><td class="num">${fmtNum(p.throughput)}</td><td class="num">${fmtNum(p.avgCycleTime)}</td><td class="num">${d ? (100 * d.fillRate).toFixed(0) + '%' : (p.onHand || 0)}</td></tr>`; });
+    results.append(H('div', { html: `<p class="section-label" style="margin:var(--s-4) 0 var(--s-2)">Parts</p><table class="table"><thead><tr><th>Part</th><th class="num">TH /min</th><th class="num">Cycle</th><th class="num">Fill / stock</th></tr></thead><tbody>${pr.join('')}</tbody></table>` }));
   }
   // control & demand summary
   const cRows = [`<tr><td>Control</td><td class="num">${r.control === 'conwip' ? 'CONWIP (pull)' : 'push'}</td></tr>`,
