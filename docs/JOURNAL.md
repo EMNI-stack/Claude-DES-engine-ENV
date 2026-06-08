@@ -385,3 +385,43 @@ distribution mini-graph.
 **Verification:** `npm test` → 75/75 (engine change was the additive `legLen` override). Headless
 renders show symbols inside nodes, the density graph, zoom controls, no leg labels, and no console
 errors; screenshots reviewed.
+
+---
+
+## 2026-06-08 — Phase 3: floor visuals — manual End, histogram previews, neat Results, visible grid + scale bar
+
+Stakeholder asked for four visual improvements to the floor (design rules from the charter /
+DESIGN-LANGUAGE preserved throughout). All UI-only — no engine, `src/`, or test change.
+
+- **Manual "End".** New playback control between *Step* and *Run to end*. Because the floor sim never
+  empties its FEL under a stream of arrivals, the only way to "stop" was *Run to end* (a fast-forward to
+  the event horizon). *End* now freezes the run at the moment on screen — it extends the area-method
+  statistics to the watched instant (`sim.accumulate(simCursor)`), marks the run finished, shows the
+  results, and the Play button becomes *Replay*. `metrics()` is valid at any instant, so the figures are
+  consistent.
+- **Histogram distribution previews.** Rewrote the shared `distGraph` from a filled density curve to a
+  **bar histogram with a labelled value axis (lo · μ · hi) and a dashed ochre mean marker**. The old
+  preview auto-scaled to percentiles with no labels, so changing e.g. an exponential's mean (a pure
+  rescale) looked identical — "not dynamic". Now every parameter change visibly moves the bars, the μ
+  marker, and the axis numbers. One change covers all five editors (service, breakdown TTF/TTR,
+  interarrival, interdemand). Axis labels live in an HTML row beneath the SVG (the SVG uses
+  `preserveAspectRatio: none`, which would distort embedded text).
+- **Box-safe Results.** Added an adaptive figure formatter (`fmtNum` — more decimals for small values, a
+  `k` suffix above 10 000) and scoped the Results tab (`#tab-results`): smaller KPI value with the unit
+  allowed to wrap, a responsive 2-up tile grid, and `table-layout: fixed` with a 42%-width first column
+  that truncates long names while numeric columns stay on one line. Nothing overflows the 340px panel
+  regardless of magnitude.
+- **Visible grid + scale bar.** Replaced the sparse 0.8px dotted grid with a faint **line** grid (5 m
+  minor in `--line`, 10 m major in `--line-strong`) — more legible, still quiet (engineering-paper feel).
+  Added a zoom-aware **scale bar** in the canvas corner: it picks a "nice" world length (1/2/5/10/… m)
+  whose on-screen size stays ≤30% of the canvas and labels it, recomputed on every zoom/pan and on window
+  resize. Wrapped the svg in a `.canvas-stage` so the zoom controls and scale bar anchor to the canvas box.
+
+**Verification:** `npm test` → **75/75** (engine untouched). Drove the page headless via Chrome DevTools
+Protocol: confirmed *End* stops mid-run (froze at 7.9 min, tab switched to Results, Play→Replay), the
+histogram axis labels update with parameters (`1.01 · μ 2.00 · 3.75` for the example's lognormal), the
+Results header reads "Resource" in full with no overflow, and the grid + "20 m" scale bar render on-brand.
+Screenshots reviewed.
+
+**Decision logged:** `docs/DECISIONS.md` (2026-06-08) — incl. the minor, recorded deviation from
+DESIGN-LANGUAGE §7's literal "dotted grid" (now a faint *line* grid using the same hairline tokens).

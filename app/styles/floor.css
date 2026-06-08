@@ -33,11 +33,14 @@
 svg.floor { width: 100%; height: auto; display: block; background: var(--surface);
   border: 1px solid var(--line); border-radius: var(--r-card); touch-action: none; cursor: default; }
 svg.floor.panning { cursor: grabbing; }
-svg.floor .grid-dot { fill: var(--line); }
+/* engineering line-grid — quiet, low-contrast (5 m minor, 10 m major) */
+svg.floor .grid-line { stroke: var(--line); stroke-width: 1; }
+svg.floor .grid-line.major { stroke: var(--line-strong); stroke-width: 1; }
 
-/* zoom controls (canvas corner) */
+/* canvas stage = the svg's box; overlays (zoom, scale bar) anchor to it */
 .canvas-card { position: relative; }
-.zoomctl { position: absolute; top: calc(var(--s-3) + 6px); right: calc(var(--s-3) + 6px);
+.canvas-stage { position: relative; }
+.zoomctl { position: absolute; top: 6px; right: 6px;
   display: flex; gap: 4px; background: rgba(255,255,255,.9); border: 1px solid var(--line);
   border-radius: var(--r-control); padding: 3px; backdrop-filter: blur(4px); }
 .zoomctl button { appearance: none; background: transparent; border: 0; cursor: pointer;
@@ -45,6 +48,14 @@ svg.floor .grid-dot { fill: var(--line); }
 .zoomctl button:hover { background: var(--surface-2); color: var(--ink); }
 .zoomctl .zlabel { width: auto; padding: 0 6px; font-size: 11px; cursor: default; }
 .zoomctl .zlabel:hover { background: transparent; }
+
+/* scale / dimensioning bar (canvas corner) — like a map ruler */
+.scalebar { position: absolute; left: 8px; bottom: 8px; display: flex; align-items: flex-end; gap: 7px;
+  pointer-events: none; background: rgba(255,255,255,.82); border: 1px solid var(--line);
+  border-radius: var(--r-control); padding: 4px 8px; backdrop-filter: blur(3px); }
+.scalebar .scaleseg { display: block; height: 7px; min-width: 8px;
+  border: 1.5px solid var(--ink-2); border-top: 0; }
+.scalebar .scalelabel { font-size: 10px; color: var(--ink-2); line-height: 1; }
 
 /* symbol picker (inspector) */
 .symrow { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -55,11 +66,16 @@ svg.floor .grid-dot { fill: var(--line); }
 .symbtn svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 1.6; fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .symbtn svg .fillsym { fill: currentColor; stroke: none; }
 
-/* distribution mini-graph */
-.distgraph { width: 100%; height: 58px; display: block; margin-top: var(--s-2);
+/* distribution mini-graph — histogram with a labelled value axis + mean marker */
+.distgraph-wrap { margin-top: var(--s-2); }
+.distgraph { width: 100%; height: 60px; display: block;
   background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-control); }
-.distgraph .distarea { fill: var(--primary-tint); stroke: var(--primary); stroke-width: 1.25; }
+.distgraph .distbar { fill: var(--busy); fill-opacity: .5; }
+.distgraph .distmean { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 2 2; }
 .distgraph .distaxis { stroke: var(--line-strong); stroke-width: 1; }
+.distaxis-row { display: flex; justify-content: space-between; margin-top: 3px;
+  font-family: var(--mono); font-size: 9.5px; color: var(--faint); }
+.distaxis-row .mu { color: var(--accent); }
 
 /* nodes */
 svg.floor .node { cursor: grab; }
@@ -133,3 +149,15 @@ svg.floor .leg-label { font-family: var(--mono); font-size: 9px; fill: var(--fai
 .ov-table h3 { font-size: 14px; margin: var(--s-4) 0 var(--s-2); }
 .ov-table tr.click { cursor: pointer; }
 .ov-table tr.click:hover td { background: var(--primary-tint); }
+
+/* results tab — keep tiles and tables box-safe in the narrow side panel */
+#tab-results .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(106px, 1fr)); gap: var(--s-3); }
+#tab-results .kpi { padding: var(--s-3); min-width: 0; }
+#tab-results .kpi__value { font-size: 21px; margin-top: var(--s-1);
+  display: flex; align-items: baseline; gap: 3px; flex-wrap: wrap; line-height: 1.1; }
+#tab-results .kpi__unit { font-size: 11px; }
+#tab-results .table { table-layout: fixed; }
+#tab-results .table th, #tab-results .table td { padding: var(--s-2) var(--s-2); }
+#tab-results .table td:first-child, #tab-results .table th:first-child {
+  width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tab-results .table td.num, #tab-results .table th.num { white-space: nowrap; }

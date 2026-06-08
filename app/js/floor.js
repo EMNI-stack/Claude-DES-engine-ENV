@@ -97,6 +97,18 @@ function setViewBox() {
   const w = BASE_W / view.z, h = BASE_H / view.z;
   $('svg').setAttribute('viewBox', `${(view.cx - w / 2).toFixed(1)} ${(view.cy - h / 2).toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}`);
   const zl = $('zLabel'); if (zl) zl.textContent = Math.round(view.z * 100) + '%';
+  updateScaleBar();
+}
+/* zoom-aware scale bar: pick a "nice" world length whose on-screen size is a
+   sensible fraction of the canvas, and label it in metres. */
+function updateScaleBar() {
+  const seg = $('scaleSeg'), lbl = $('scaleLabel'), svg = $('svg'); if (!seg || !svg) return;
+  const w = svg.clientWidth || BASE_W;                  // rendered px width of the canvas
+  const nice = [1, 2, 5, 10, 20, 50, 100, 200, 500];
+  let d = nice[0];
+  for (const k of nice) if (k * S * view.z / BASE_W <= 0.3) d = k;   // largest segment ≤ 30% of width
+  seg.style.width = (d * S * view.z / BASE_W * w).toFixed(1) + 'px';
+  lbl.textContent = d + ' m';
 }
 function zoomBy(factor, anchor) {
   const oldz = view.z; view.z = Math.max(0.4, Math.min(4, view.z * factor));
@@ -126,26 +138,37 @@ function numInput(v, min, step, on) { const i = H('input', { class: 'input num',
 function segmented(opts, cur, on, label) { const g = H('div', { class: 'segmented', role: 'group', 'aria-label': label || '' });
   opts.forEach((o) => { const b = H('button', { type: 'button', 'aria-pressed': String(o.value === cur) }, o.label); b.addEventListener('click', () => on(o.value)); g.append(b); }); return g; }
 
-/* a small density preview that re-samples the distribution on every change */
+/* a histogram preview that re-samples the distribution on every parameter change.
+   Bars + a labelled value axis (lo · μ · hi) + a mean marker, so even a pure
+   rescale (e.g. changing an exponential's mean) is always visibly reflected. */
 function distGraph(dist) {
-  const W = 248, Hh = 56;
+  const W = 240, Hh = 60, bins = 32;
+  const wrap = H('div', { class: 'distgraph-wrap' });
   const g = E('svg', { class: 'distgraph', viewBox: `0 0 ${W} ${Hh}`, preserveAspectRatio: 'none' });
+  const axis = H('div', { class: 'distaxis-row' }, [H('span', {}, ''), H('span', { class: 'mu' }, ''), H('span', {}, '')]);
+  wrap.append(g, axis);
+  const fmt = (v) => !isFinite(v) ? '—' : (Math.abs(v) >= 100 ? Math.round(v).toString() : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2));
   function draw() {
     g.innerHTML = '';
-    const rng = mulberry32(20260607), n = 2500, xs = [];
+    const rng = mulberry32(20260607), n = 4000, xs = [];
     for (let i = 0; i < n; i++) xs.push(sample(dist, rng));
     xs.sort((a, b) => a - b);
-    const lo = xs[Math.floor(0.005 * n)], hi = xs[Math.floor(0.995 * n)] || (lo + 1), span = (hi - lo) || 1;
-    const bins = 38, counts = new Array(bins).fill(0);
+    const lo = xs[Math.floor(0.004 * n)], hi = xs[Math.floor(0.996 * n)] || (lo + 1), span = (hi - lo) || 1;
+    const counts = new Array(bins).fill(0);
     for (const x of xs) { let b = Math.floor((x - lo) / span * bins); if (b < 0) b = 0; if (b >= bins) b = bins - 1; counts[b]++; }
-    const max = Math.max(...counts) || 1;
-    let d = `M0 ${Hh}`;
-    for (let i = 0; i < bins; i++) { const x = ((i + 0.5) / bins * W).toFixed(1); const y = (Hh - (counts[i] / max) * (Hh - 8) - 3).toFixed(1); d += ` L${x} ${y}`; }
-    d += ` L${W} ${Hh} Z`;
+    const max = Math.max(...counts) || 1, bw = W / bins;
+    for (let i = 0; i < bins; i++) {
+      const h = Math.max(0, (counts[i] / max) * (Hh - 5));
+      g.append(E('rect', { class: 'distbar', x: (i * bw + 0.5).toFixed(2), y: (Hh - h - 0.5).toFixed(2), width: (bw - 1).toFixed(2), height: h.toFixed(2) }));
+    }
+    const m = distMean(dist);
+    if (isFinite(m) && m >= lo && m <= hi) { const mx = ((m - lo) / span * W).toFixed(2); g.append(E('line', { class: 'distmean', x1: mx, y1: 0, x2: mx, y2: Hh })); }
     g.append(E('line', { class: 'distaxis', x1: 0, y1: Hh - 0.5, x2: W, y2: Hh - 0.5 }));
-    g.append(E('path', { class: 'distarea', d }));
+    axis.children[0].textContent = fmt(lo);
+    axis.children[1].textContent = 'μ ' + fmt(m);
+    axis.children[2].textContent = fmt(hi);
   }
-  return { el: g, draw };
+  return { el: wrap, draw };
 }
 
 /* a bound distribution editor (type picker + parameter fields + mean/SCV + graph) */
@@ -173,8 +196,10 @@ function distEditor(dist, onChange) {
 /* ---- canvas render ------------------------------------------------------ */
 function render() {
   const svg = $('svg'); svg.innerHTML = ''; setViewBox();
-  const grid = E('g', {});
-  for (let x = 0; x <= BASE_W; x += 5 * S) for (let y = 0; y <= BASE_H; y += 5 * S) grid.append(E('circle', { cx: x, cy: y, r: 0.8, class: 'grid-dot' }));
+  const grid = E('g', { class: 'grid' });
+  const step = 5 * S;                                   // minor grid every 5 m; major every 10 m
+  for (let x = 0; x <= BASE_W; x += step) grid.append(E('line', { class: 'grid-line' + ((x / step) % 2 ? '' : ' major'), x1: x, y1: 0, x2: x, y2: BASE_H }));
+  for (let y = 0; y <= BASE_H; y += step) grid.append(E('line', { class: 'grid-line' + ((y / step) % 2 ? '' : ' major'), x1: 0, y1: y, x2: BASE_W, y2: y }));
   svg.append(grid);
 
   const legG = E('g', {});
@@ -527,20 +552,40 @@ function pause() { playing = false; cancelAnimationFrame(raf); setPlayLabel(); }
 function togglePlay() { playing ? pause() : play(); }
 function stepOne() { pause(); if (needsBuild || !sim) buildSim(); if (!sim) return; if (sim.fel.length) { simCursor = sim.fel[0].time; sim.step(); } renderFrame(simCursor); updateClock(); }
 function runToEnd() { pause(); if (needsBuild || !sim || finished || !sim.fel.length) buildSim(); if (!sim) return; sim.run({ until: Infinity }); simCursor = sim.now; finished = true; setPlayLabel(); render(); updateClock(); showResults(); activateTab('results'); }
+/* End the run at the moment currently on screen (the sim never empties its FEL on
+   its own), freeze the time-average statistics there, and show the results. */
+function endRun() {
+  pause();
+  if (needsBuild || !sim) { $('floorHint').textContent = 'Nothing is running yet — press Play or Step first.'; return; }
+  if (simCursor > sim.now) { sim.accumulate(simCursor); sim.now = simCursor; }   // extend area-stats to the watched instant
+  finished = true; setPlayLabel(); render(); updateClock(); showResults(); activateTab('results');
+}
 function resetSim() { playing = false; cancelAnimationFrame(raf); buildSim(); setPlayLabel(); }
 
 /* ---- results (read the live sim) --------------------------------------- */
+/* adaptive figure formatting: keep KPI values compact and box-safe whatever the
+   magnitude — more decimals for small numbers, thousands-suffix for large ones. */
+function fmtNum(x) {
+  if (!Number.isFinite(x)) return '—';
+  const a = Math.abs(x);
+  if (a >= 1e5) return (x / 1e3).toFixed(0) + 'k';
+  if (a >= 1e4) return (x / 1e3).toFixed(1) + 'k';
+  if (a >= 100) return x.toFixed(0);
+  if (a >= 10) return x.toFixed(1);
+  if (a >= 1) return x.toFixed(2);
+  return x.toFixed(3);
+}
 function showResults() {
   const results = $('results');
   if (!sim) { results.innerHTML = '<p class="results-empty">Press Play or “Run to end” to see results.</p>'; return; }
   const r = sim.metrics(); const f = (x, d = 2) => Number.isFinite(x) ? x.toFixed(d) : '—';
   results.innerHTML = `
-    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">
-      <div class="kpi"><div class="kpi__label">Throughput</div><div class="kpi__value num">${f(r.throughput, 3)}<span class="kpi__unit">/min</span></div></div>
-      <div class="kpi"><div class="kpi__label">Cycle time</div><div class="kpi__value num">${f(r.avgCycleTime)}<span class="kpi__unit">min</span></div></div>
-      <div class="kpi"><div class="kpi__label">In transport</div><div class="kpi__value num">${f(r.avgTransitPerJob)}<span class="kpi__unit">min</span></div></div>
-      <div class="kpi"><div class="kpi__label">Avg WIP</div><div class="kpi__value num">${f(r.avgWIP)}</div></div>
-      <div class="kpi"><div class="kpi__label">Yield</div><div class="kpi__value num">${(100 * r.yield).toFixed(1)}<span class="kpi__unit">%</span></div></div>
+    <div class="kpi-grid">
+      <div class="kpi"><div class="kpi__label">Throughput</div><div class="kpi__value num">${fmtNum(r.throughput)}<span class="kpi__unit">/min</span></div></div>
+      <div class="kpi"><div class="kpi__label">Cycle time</div><div class="kpi__value num">${fmtNum(r.avgCycleTime)}<span class="kpi__unit">min</span></div></div>
+      <div class="kpi"><div class="kpi__label">In transport</div><div class="kpi__value num">${fmtNum(r.avgTransitPerJob)}<span class="kpi__unit">min</span></div></div>
+      <div class="kpi"><div class="kpi__label">Avg WIP</div><div class="kpi__value num">${fmtNum(r.avgWIP)}</div></div>
+      <div class="kpi"><div class="kpi__label">Yield</div><div class="kpi__value num">${f(100 * r.yield, 1)}<span class="kpi__unit">%</span></div></div>
     </div>
     <table class="table" style="margin-top:var(--s-4)"><thead><tr><th>Resource</th><th class="num">Util</th><th class="num">Down</th><th class="num">Blocked</th></tr></thead><tbody id="utilBody"></tbody></table>`;
   const tb = $('utilBody');
@@ -612,8 +657,10 @@ function init() {
   // playback controls
   $('btnPlay').addEventListener('click', togglePlay);
   $('btnStep').addEventListener('click', stepOne);
+  $('btnEnd').addEventListener('click', endRun);
   $('btnFF').addEventListener('click', runToEnd);
   $('btnReset').addEventListener('click', resetSim);
+  window.addEventListener('resize', updateScaleBar);
   const sp = $('speed'); speed = parseFloat(sp.value) || 6; $('spdV').textContent = speed + '×';
   sp.addEventListener('input', () => { speed = parseFloat(sp.value) || 6; $('spdV').textContent = speed + '×'; });
   // zoom / pan

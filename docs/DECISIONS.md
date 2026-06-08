@@ -278,3 +278,28 @@ Entry format:
   note `docs/PHASE-3-DESIGN.md` §1, §3. Units & worker-empty-return decisions above stand; the
   remaining design-note choices (Euclidean distance, `instant` default mover, dual storage model)
   proceed as proposed defaults unless the stakeholder objects.
+
+## [2026-06-08] — Floor visual polish: line-grid + scale bar, histogram distribution preview, manual "End"
+- Decision: Four UI refinements to the floor (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`),
+  no engine change: (1) add a **manual "End"** control that stops the run at the moment currently on
+  screen and shows the time-average statistics there (the sim's FEL never empties under a stream of
+  arrivals, so "Run to end" only fast-forwards to the event horizon); (2) render every distribution
+  preview as a **bar histogram with a labelled value axis (lo · μ · hi) and a mean marker** instead of a
+  filled density curve, so a pure rescale (e.g. changing an exponential's mean) is always visibly
+  reflected; (3) make the Results tiles/tables **box-safe** via adaptive number formatting (more decimals
+  for small values, a `k` suffix for large ones) plus scoped sizing/`table-layout: fixed` with a
+  truncating first column; (4) replace the faint **dotted** floor grid with a faint **line** grid (5 m
+  minor / 10 m major) and add a zoom-aware **scale bar** in the canvas corner.
+- Rationale: Stakeholder feedback — users could not stop a run except via the all-the-way fast-forward;
+  the density preview "did not seem dynamic" (percentile auto-scaling with no axis labels hid scale
+  changes); long figures overflowed the narrow side panel; the grid was hard to see and there was no
+  sense of scale. A line grid + ruler reads as engineering drafting paper, which fits the
+  "precision-engineering documentation" half of the design language better than sparse dots.
+- Alternatives considered: keeping the dotted grid but darkening it (rejected — still no sense of scale,
+  and dots read as decoration not measurement); SVG-embedded axis text on the histogram (rejected — the
+  preview uses `preserveAspectRatio: none`, which would distort text, so labels live in an HTML row
+  beneath); per-value fixed decimals in Results (rejected — overflows on large magnitudes).
+- Governing principle / source: Stakeholder direction (2026-06-08); DESIGN-LANGUAGE §0 (data-forward,
+  legible), §5 (charts as figures), §7 (light canvas, *faint* low-contrast grid — honoured: the line grid
+  uses the hairline tokens `--line`/`--line-strong`, no neon/glow). Minor deviation from §7's literal
+  "dotted grid" wording, recorded here.
