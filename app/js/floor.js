@@ -871,6 +871,26 @@ function loadExample2() {
   persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
   $('floorHint').textContent = 'Bottleneck demo: the slow Press has a finite input buffer (cap 2), so stock piles up in the WIP buffer ahead of it (fills to cap 8) and backs up. Hover any node for live counts.';
 }
+/* Batch demo: a steady stream is prepped one-at-a-time, then a heat-treat furnace processes
+   parts in BATCHES of 4 — it waits until 4 have accumulated (watch the N/4 badge climb), pays
+   one setup, then cooks all 4 together and releases them. Stable on purpose (arrival ~0.4/min <
+   furnace capacity 4/(3+5)=0.5/min) so it cycles cleanly: accumulate → setup → process → repeat. */
+function loadExample3() {
+  const mk = (kind, name, x, extra = {}) => Object.assign({ kind, id: uid(kind.slice(0, 3)), name, x, y: 26 }, extra);
+  const brk = () => ({ on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) });
+  const buf = () => ({ finite: false, cap: 10, init: 0, target: 8 });
+  model.nodes = [
+    mk('source', 'Raw in', 8, { interarrival: newDist('exp', { mean: 2.5 }) }),
+    mk('resource', 'Prep', 28, { machines: 1, symbol: 'cut', service: newDist('lognormal', { mean: 1, sd: 0.3 }), buffer: buf(), scrap: 0, brk: brk(), batch: { on: false, size: 2, setup: 0 } }),
+    mk('resource', 'Heat-treat', 54, { machines: 1, symbol: 'furnace', service: newDist('lognormal', { mean: 5, sd: 1 }), buffer: buf(), scrap: 0, brk: brk(), batch: { on: true, size: 4, setup: 3 } }),
+    mk('sink', 'Ship', 78),
+  ];
+  model.routeOrder = model.nodes.map((n) => n.id); model.legs = {}; selected = null; sim = null;
+  model.control = 'push'; model.supply = 'stream';   // clean defaults so a leftover CONWIP<B can't block the demo
+  ensureBatchAssumption();   // log the "requires a full batch to start" simplification, as in real use
+  persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
+  $('floorHint').textContent = 'Batch demo: the Heat-treat furnace runs batches of 4 — it waits for a full batch (watch the N/4 badge), pays one setup, then cooks all 4 together. Hover it for live counts; press Play.';
+}
 function clearFloor() { model.nodes = []; model.routeOrder = []; model.legs = {}; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel();
   $('results').innerHTML = '<p class="results-empty">Press Play, then “End” when you’ve seen enough, to see results.</p>'; }
@@ -930,10 +950,11 @@ function init() {
   let startTab = 'model';
   if (location.hash === '#example' && model.nodes.length === 0) { loadExample(); const r = model.nodes.find((n) => n.kind === 'resource'); if (r) { selected = { kind: 'node', id: r.id }; startTab = 'inspect'; } }
   else if (location.hash === '#example2') { loadExample2(); const b = model.nodes.find((n) => n.kind === 'storage'); if (b) { selected = { kind: 'node', id: b.id }; startTab = 'inspect'; } }   // bottleneck + buffer demo
+  else if (location.hash === '#example3') { loadExample3(); const b = model.nodes.find((n) => n.kind === 'resource' && n.batch && n.batch.on); if (b) { selected = { kind: 'node', id: b.id }; startTab = 'inspect'; } }   // batch-processing demo
   if (model.defaultMover === 'worker' || Object.values(model.legs).some((l) => l.mover === 'worker')) ensureWorkerAssumption();
   render(); renderRoute(); renderInspector(); renderTransport(); renderControl();
   activateTab(startTab); setPlayLabel(); updateClock(); zoomFit();
-  if (location.hash === '#play' || location.hash === '#example2') { if (model.routeOrder.length < 2) loadExample(); play(); }   // deep-link: open running
+  if (location.hash === '#play' || location.hash === '#example2' || location.hash === '#example3') { if (model.routeOrder.length < 2) loadExample(); play(); }   // deep-link: open running
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
 else init();

@@ -679,3 +679,15 @@ output advancing, no console errors.
   runtime **deadlock** (drained FEL with WIP>0) and per-station batch counts (batches done / waiting).
 - PRINCIPLES.md: added the batch theory (process vs transfer batch; `te = t0 + ts/Ns`; wait-to-batch
   is control variability — theory-notes §4.6). `npm test` → **84/84**.
+
+## 2026-06-08 — Phase 3.4: batch demo example + deep link (#example3)
+
+- Added `loadExample3()` and a `#example3` deep link (auto-loads + auto-plays, like `#example2`): Raw in →
+  Prep (fast, single) → **Heat-treat furnace (batch B=4, setup 3, whole-batch process)** → Ship. Tuned
+  stable on purpose (arrival ~0.40/min < furnace capacity 4/(3+5)=0.5/min) so it cycles cleanly:
+  accumulate to 4 (N/4 badge) → setup → process all 4 → release → repeat. Selects the furnace on the
+  Inspect tab and resets control to push/stream so a leftover CONWIP<B can't block the demo; it also
+  auto-logs the batch simplification (shows the methodology integration live).
+- Verified headless through `FloorSim` (mirroring `buildRunModel`): 501 batches → 2004 completed (multiple
+  of 4), throughput 0.40/min, furnace util 80.5%, deadlock false. Live at
+  `app/floor.html#example3`. `npm test` → 84/84.
