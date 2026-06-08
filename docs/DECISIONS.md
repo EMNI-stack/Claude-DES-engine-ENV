@@ -404,3 +404,36 @@ Entry format:
   limitless feeds "the moment a machine frees up" (release constrained by capacity); Charter §4.2
   (the engine is the validated foundation — fix with a regression test). Engine change covered by
   `tests/floor-engine.test.js` (76/76).
+
+## [2026-06-08] — Instant transport is capacity-aware (finite buffers create back-pressure)
+*(Synced from another machine; folded into the collective log.)*
+- Decision: Instant ("uncapacitated delay") transport now **respects the destination's capacity**. A part
+  departs its node only if the destination `canAcceptAt()` — current holding **plus reserved-in-transit
+  `incoming`** is below capacity — and a slot is **reserved** for the trip so the `settle()` fixpoint can't
+  over-fill a finite buffer. A full downstream blocks and WIP **backs up** into the upstream storage/source.
+  Infinite buffers behave exactly as before.
+- Rationale: Previously instant transport always moved a part into transit and, if the destination was full,
+  parked it in a hidden `arrivalBlocked` limbo at the door — so finite buffers and **storage caps created no
+  back-pressure** and standalone storage never accumulated (a reported bug; 235 parts sat in limbo while
+  storage stayed 0). Capacity-aware transport makes finite buffers and placed storage behave like real
+  WIP-limited buffers — the blocking/back-up physics the course teaches.
+- Alternatives considered: keep transport uncapacitated and only cap at the resource queue (rejected — leaves
+  storage inert and hides blocking); model an explicit output buffer per node (rejected — heavier than needed;
+  the reserve-a-slot approach is sufficient and keeps infinite-buffer behaviour identical).
+- Governing principle / source: factory-dynamics blocking / variability-buffering (`Reference/theory-notes.md`
+  §4.6); Charter §4.2 (validated engine, regression-tested). Covered by `tests/floor-engine.test.js` (77/77).
+
+## [2026-06-08] — Collapse queued/stored units to one marker (×N) + an on-canvas legend
+*(Synced from another machine; folded into the collective log.)*
+- Decision: On the floor, only units **in service or in transit** draw as individual teal dots (capped at
+  150); units that are **queued / pending / held / finished** collapse to a **single grey dot with a `×N`
+  count** per location. A small **legend** under the canvas keys the shapes/colours (machine vs storage box,
+  capacity-cell states, unit/waiting/scrapped dots, transport line) with a "hover for live counts" hint.
+- Rationale: One dot per waiting unit painted the canvas solid for long queues or unstable lines and obscured
+  the diagram; the `×N` marker keeps it legible while the true WIP stays on the clock and in the hover
+  tooltip. The legend makes the visual language self-explanatory for students.
+- Alternatives considered: drawing every unit (rejected — illegible at scale, and the token cap already
+  truncated silently); a numeric-only overlay with no dot (rejected — loses the at-a-glance "stuff is piling
+  up here" cue).
+- Governing principle / source: Stakeholder direction (2026-06-08); DESIGN-LANGUAGE §7 (quiet, diagrammatic,
+  legible at a glance).

@@ -568,3 +568,51 @@ diagnostic — every supply/control/transport combination now stays bounded. UI 
 output advancing, no console errors.
 
 **Decision logged:** `docs/DECISIONS.md` (2026-06-08).
+
+---
+
+## 2026-06-08 — Phase 3: on-canvas legend + collapse queued/stored units to one marker
+
+*(Done on another machine; synced and folded into the collective docs here. Originally also captured in
+`docs/SESSION-2026-06-08-floor-ux.md`, which JOURNAL/DECISIONS now mirror as the canonical record.)*
+
+- **Legend under the canvas** (`app/floor.html` + `floor.css`, `.floor-legend`): a small key — Machine
+  (solid box) · Storage (dashed box) · capacity-cell states Busy/Blocked/Down/Free · Unit (teal dot) ·
+  Waiting/stored (grey dot ×N) · Scrapped (red dot) · Transport (faint line) · "hover for live counts".
+  Pure markup, no JS.
+- **Collapsed queue/stored marker** (`app/js/floor.js`): units in service/transit still draw as individual
+  teal dots (capped at 150); units that are queued / pending / held / finished now collapse to a **single
+  grey dot + a `×N` count** per location (`queueLoc()`, `queueEls`, `.qmark`/`.qcount`). A long queue or a
+  flooded line reads as e.g. "• ×18" instead of painting the canvas with dots; true WIP stays on the clock
+  and via hover.
+- **Verification:** headless — a 20-unit queue rendered as 2 active dots + one grey "×18"; legend 11 items;
+  no console errors. `npm test` → 76/76 (UI-only).
+
+## 2026-06-08 — Fix: storage never accumulated — instant transport is now capacity-aware
+
+*(Other-machine work, synced + folded in. Decision in `docs/DECISIONS.md` 2026-06-08.)*
+
+- **Bug:** standalone storage nodes never held stock, whatever the caps. Root cause: instant transport
+  was *uncapacitated* — `board()` always moved a part into transit and, if the destination buffer was
+  full, dropped it into a hidden `arrivalBlocked` limbo at the destination's door, so finite buffers/
+  storage caps created no back-pressure (confirmed: with a finite downstream buffer, 235 parts piled in
+  `arrivalBlocked` while storage stayed 0).
+- **Fix (`src/floor-engine.js`):** instant transport is now **capacity-aware** — a part departs only if the
+  destination `canAcceptAt()` (current holding + reserved-in-transit `incoming` < cap); a slot is **reserved**
+  for the trip so the `settle()` fixpoint can't over-fill a finite buffer. A full downstream now blocks and
+  WIP backs up into the upstream storage (and the source). Infinite buffers (the common case) behave exactly
+  as before, so all prior tests pass.
+- **To see storage fill:** the storage's *downstream* must be capacity-constrained (give the next resource a
+  finite input buffer); with an infinite downstream, WIP correctly piles in that resource's own queue.
+- **Verification:** `source→storage(cap 5)→r1(finite buf 3, slow)→sink` → storage fills to 5,
+  `arrivalBlocked` = 0, conservation holds. New regression test; `npm test` → **77/77**.
+
+## 2026-06-08 — Phase 3: bottleneck + buffer demo (`#example2`)
+
+*(Other-machine work, synced + folded in.)*
+
+- `loadExample2()` + a `#example2` deep link (auto-loads and auto-plays): **Raw in → Cut (fast) → WIP buffer
+  (storage, cap 8) → Press (slow bottleneck, finite input buffer cap 2) → Ship.** Press can't keep up and its
+  buffer is finite, so stock piles in the WIP buffer (fills to cap 8 → grey "×8" marker), Cut blocks, and the
+  line backs up — a ready-made illustration of the capacity-aware storage/finite-buffer behaviour and the
+  machines-vs-capacity point. Verified headless: WIP buffer reaches ×8, Cut shows blocked, no errors.

@@ -5,6 +5,13 @@
 > the usual machine — read this first when picking the work back up. Per-task detail
 > lives in `docs/JOURNAL.md`; the *why* of each choice in `docs/DECISIONS.md`
 > (both have dated 2026-06-08 entries matching the items below).
+>
+> **Reconciled 2026-06-08 (on sync):** this session has been **fully folded into the canonical
+> collective docs** — `docs/JOURNAL.md`, `docs/DECISIONS.md`, and `docs/PRINCIPLES.md` now carry
+> dated entries for *every* item below, including the later legend / collapsed-marker / storage
+> capacity-aware fix / `#example2` changes (which had been logged here only). This file remains a
+> convenient session snapshot, but **JOURNAL/DECISIONS/PRINCIPLES are canonical** and ongoing work
+> resumes logging there (per the Phase-0 documentation system in `CLAUDE.md`).
 
 **Branch:** `main` · **Scope:** the new app's **Model & Floor** page only (`app/floor.*`),
 plus a small, test-covered fix in the floor engine. The legacy demo (`index.html`,
@@ -114,8 +121,9 @@ plus a small, test-covered fix in the floor engine. The legacy demo (`index.html
 
 ## Continued — 2026-06-08 (later): on-canvas legend + collapsed queue marker
 
-> From here on, new changes are logged in THIS document (per stakeholder request),
-> in addition to the commit history.
+> These later items were initially logged only in this document. **On sync they were folded into the
+> canonical `docs/JOURNAL.md` / `docs/DECISIONS.md` / `docs/PRINCIPLES.md`** — see the dated 2026-06-08
+> entries there. Future changes resume in those collective logs.
 
 ### Legend under the canvas (`app/floor.html` + `app/styles/floor.css`)
 - A small, intuitive key sits below the floor (`.floor-legend`): **Machine** (solid box) ·

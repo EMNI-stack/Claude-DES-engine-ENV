@@ -102,3 +102,9 @@
 > Phase 3 realises these: the floor engine (`src/floor-engine.js`) computes transport time
 > from Euclidean distance ÷ speed, counts a job in transit as in-system (so layout shows up in
 > cycle time and WIP), and lets students compare layouts by re-running the simulation.
+
+- **Finite buffers and limited transport create back-pressure: a full downstream blocks the
+  upstream and WIP backs up.** This is the blocking/variability-buffering dynamic — a buffer cap or
+  a busy mover is felt up the line, not silently absorbed. (In the floor engine, even instant
+  transport is capacity-aware so placed storage and finite buffers fill and block as they should.)
+  — [HS] blocking / variability buffering (theory-notes §4.6); realised 2026-06-08.
