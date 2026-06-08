@@ -8,19 +8,35 @@ import { load, save, uid, newAssumption } from './project.js';
 import { FloorSim, legDistance } from '../../src/floor-engine.js';
 import { DISTS, newDist, distMean, distScv, sample, mulberry32 } from '../../src/distributions.js';
 
-/* resource symbols (Lucide-style line glyphs, 24×24) — pickable per resource */
+/* symbol library — concrete (manufacturing / service) + abstract (value-stream-
+   mapping) glyphs, 24×24, pickable per resource AND per storage. Each entry is
+   { label, cat, path }; `cat` groups them in the picker. */
 const SYMBOLS = {
-  box:     '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
-  press:   '<path d="M6 3h12"/><path d="M12 3v8"/><path d="M7 11h10l-1.5 5h-7z"/><path d="M5 20h14"/>',
-  cut:     '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88"/><path d="M14.47 14.48 20 20"/><path d="M8.12 8.12 12 12"/>',
-  weld:    '<path d="M13 2 3 14h9l-1 8 10-12h-9z" class="fillsym"/>',
-  furnace: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16"/><path d="M9 14a3 3 0 0 0 6 0c0-1-.5-1.6-1-2.2-.7 1-1.6 1.2-2.5.5.2 1-.3 1.7-1 2 0-.4-.2-.8-.5-1-.6.5-1 1.1-1 1.7z" class="fillsym"/>',
-  inspect: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
-  assemble:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
-  cpu:     '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/>',
-  gear:    '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
+  // — Manufacturing —
+  box:      { label: 'Box / unit',    cat: 'mfg', path: '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>' },
+  press:    { label: 'Press',         cat: 'mfg', path: '<path d="M6 3h12"/><path d="M12 3v8"/><path d="M7 11h10l-1.5 5h-7z"/><path d="M5 20h14"/>' },
+  cut:      { label: 'Cut',           cat: 'mfg', path: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88"/><path d="M14.47 14.48 20 20"/><path d="M8.12 8.12 12 12"/>' },
+  weld:     { label: 'Weld',          cat: 'mfg', path: '<path d="M13 2 3 14h9l-1 8 10-12h-9z" class="fillsym"/>' },
+  furnace:  { label: 'Furnace',       cat: 'mfg', path: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16"/><path d="M9 14a3 3 0 0 0 6 0c0-1-.5-1.6-1-2.2-.7 1-1.6 1.2-2.5.5.2 1-.3 1.7-1 2 0-.4-.2-.8-.5-1-.6.5-1 1.1-1 1.7z" class="fillsym"/>' },
+  assemble: { label: 'Assemble',      cat: 'mfg', path: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>' },
+  cpu:      { label: 'CNC / machine', cat: 'mfg', path: '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/>' },
+  gear:     { label: 'Machining',     cat: 'mfg', path: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>' },
+  // — Service —
+  operator: { label: 'Operator',      cat: 'svc', path: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>' },
+  desk:     { label: 'Workstation',   cat: 'svc', path: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>' },
+  counter:  { label: 'Service desk',  cat: 'svc', path: '<path d="M3 21h18"/><path d="M5 21V9l7-5 7 5v12"/><path d="M9 21v-6h6v6"/>' },
+  cart:     { label: 'Cart',          cat: 'svc', path: '<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2 2h2l2.6 12.4a2 2 0 0 0 2 1.6h9.8a2 2 0 0 0 2-1.6L23 6H5.1"/>' },
+  clipboard:{ label: 'Checklist',     cat: 'svc', path: '<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>' },
+  inspect:  { label: 'Inspect / QA',  cat: 'svc', path: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>' },
+  truck:    { label: 'Shipping',      cat: 'svc', path: '<path d="M10 17h4V5H2v12h3"/><path d="M20 17h2v-3.34a4 4 0 0 0-1.17-2.83L19 9h-5v8h1"/><circle cx="7.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>' },
+  // — Abstract / VSM —
+  square:   { label: 'Process (square)',      cat: 'abstract', path: '<rect x="4" y="4" width="16" height="16" rx="1"/>' },
+  triangle: { label: 'Inventory (triangle)',  cat: 'abstract', path: '<path d="M12 3 22 20 2 20 Z"/>' },
+  circle:   { label: 'Operation (circle)',    cat: 'abstract', path: '<circle cx="12" cy="12" r="9"/>' },
+  diamond:  { label: 'Decision (diamond)',    cat: 'abstract', path: '<path d="M12 2 22 12 12 22 2 12 Z"/>' },
+  hexagon:  { label: 'Node (hexagon)',        cat: 'abstract', path: '<path d="M21 7.5v9L12 21l-9-4.5v-9L12 3z"/>' },
 };
-const SYMBOL_KEYS = Object.keys(SYMBOLS);
+const SYMBOL_CATS = [['mfg', 'Manufacturing'], ['svc', 'Service'], ['abstract', 'Abstract · VSM']];
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const S = 10;                 // px per metre (display); model coords are metres
@@ -75,6 +91,7 @@ function ensureModel(m) {
       if (!n.interarrival) n.interarrival = newDist('exp', { mean: arr });
     } else if (n.kind === 'storage') {
       if (typeof n.cap !== 'number') n.cap = 10;
+      if (!n.symbol) n.symbol = 'triangle';      // VSM inventory triangle by default
     }
   }
   return m;
@@ -328,7 +345,7 @@ function jobPos(job, cursor, buckets) {
 function symG(key, cls, tx, ty, scale) {
   const g = E('g', { class: cls, transform: `translate(${tx},${ty}) scale(${scale})` });
   // parse the glyph markup in the SVG namespace (innerHTML on an SVG element won't)
-  const doc = new DOMParser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg">${SYMBOLS[key] || SYMBOLS.box}</svg>`, 'image/svg+xml');
+  const doc = new DOMParser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg">${(SYMBOLS[key] || SYMBOLS.box).path}</svg>`, 'image/svg+xml');
   for (const child of Array.from(doc.documentElement.childNodes)) g.append(document.importNode(child, true));
   return g;
 }
@@ -349,9 +366,9 @@ function nodeEl(n) {
   } else if (n.kind === 'storage') {
     g.append(E('path', { class: 'bracket', d: 'M -28 -24 l -9 0 l 0 48 l 9 0' }));
     g.append(E('path', { class: 'bracket', d: 'M 28 -24 l 9 0 l 0 48 l -9 0' }));
-    g.append(E('text', { class: 'node-kind', x: 0, y: -4, 'text-anchor': 'middle' }, 'WIP'));
+    g.append(symG(n.symbol || 'triangle', 'node-sym', -10, -22, 0.85));   // chosen shape, centred top
     g.append(E('text', { class: 'node-label', x: 0, y: 14, 'text-anchor': 'middle' }, n.name || 'Storage'));
-    g.append(E('text', { class: 'node-kind', x: 0, y: 40, 'text-anchor': 'middle' }, 'cap ' + (n.cap ?? '—')));
+    g.append(E('text', { class: 'node-kind', x: 0, y: 36, 'text-anchor': 'middle' }, 'cap ' + (n.cap ?? '—')));
   } else {
     g.append(E('circle', { class: 'endpoint', r: 18 }));
     g.append(E('circle', { class: 'endpoint-dot', r: 5 }));
@@ -388,21 +405,33 @@ function renderInspector() {
   if (selected.kind === 'node') inspectNode(node(selected.id), body);
   else inspectLeg(selected.key, body);
 }
+/* grouped symbol picker (Manufacturing / Service / Abstract·VSM) for a node */
+function symbolPicker(n) {
+  const wrap = H('div', { class: 'sympick' });
+  const cur = n.symbol || (n.kind === 'storage' ? 'triangle' : 'box');
+  for (const [cat, label] of SYMBOL_CATS) {
+    const keys = Object.keys(SYMBOLS).filter((k) => SYMBOLS[k].cat === cat);
+    if (!keys.length) continue;
+    wrap.append(H('p', { class: 'symcat' }, label));
+    const row = H('div', { class: 'symrow' });
+    keys.forEach((k) => {
+      const b = H('button', { class: 'symbtn', type: 'button', title: SYMBOLS[k].label, 'aria-pressed': String(cur === k) });
+      b.innerHTML = `<svg viewBox="0 0 24 24">${SYMBOLS[k].path}</svg>`;
+      b.addEventListener('click', () => { n.symbol = k; persist(); render(); renderInspector(); });
+      row.append(b);
+    });
+    wrap.append(row);
+  }
+  return wrap;
+}
 function inspectNode(n, body) {
   if (!n) { selected = null; renderInspector(); return; }
   $('propKind').textContent = n.kind;
   $('propTitle').textContent = n.name || n.kind[0].toUpperCase() + n.kind.slice(1);
   body.append(field('Name', textInput(n.name || '', (v) => { n.name = v; persist(); render(); renderRoute(); })));
   if (n.kind === 'resource') {
-    body.append(H('p', { class: 'subhead' }, 'Symbol'));
-    const row = H('div', { class: 'symrow' });
-    SYMBOL_KEYS.forEach((k) => {
-      const b = H('button', { class: 'symbtn', type: 'button', title: k, 'aria-pressed': String((n.symbol || 'box') === k) });
-      b.innerHTML = `<svg viewBox="0 0 24 24">${SYMBOLS[k]}</svg>`;
-      b.addEventListener('click', () => { n.symbol = k; persist(); render(); renderInspector(); });
-      row.append(b);
-    });
-    body.append(row);
+    body.append(H('p', { class: 'subhead' }, 'Symbol / shape'));
+    body.append(symbolPicker(n));
     body.append(field('Machines (parallel)', numInput(n.machines || 1, 1, 1, (v) => { n.machines = Math.max(1, v | 0); persist(); render(); })));
     body.append(H('p', { class: 'subhead' }, 'Service time'));
     body.append(distEditor(n.service, persist));
@@ -424,6 +453,8 @@ function inspectNode(n, body) {
       body.append(distEditor(n.brk.ttr, persist));
     }
   } else if (n.kind === 'storage') {
+    body.append(H('p', { class: 'subhead' }, 'Symbol / shape'));
+    body.append(symbolPicker(n));
     body.append(field('Capacity', numInput(n.cap, 1, 1, (v) => { n.cap = Math.max(1, v | 0); persist(); })));
   } else if (n.kind === 'source') {
     body.append(H('p', { class: 'subhead' }, 'Interarrival time'));
@@ -546,7 +577,7 @@ function addNode(kind, x, y) {
   const idp = { resource: 'res', storage: 'sto', source: 'src', sink: 'snk' }[kind] || 'n';
   const n = { kind, id: uid(idp), name: '', x, y };
   if (kind === 'resource') { n.machines = 1; n.symbol = 'box'; n.service = newDist('exp', { mean: 1 }); n.buffer = { finite: false, cap: 10, init: 0, target: 8 }; n.scrap = 0; n.brk = { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) }; }
-  if (kind === 'storage') n.cap = 10;
+  if (kind === 'storage') { n.cap = 10; n.symbol = 'triangle'; }
   if (kind === 'source') n.interarrival = newDist('exp', { mean: 3 });
   model.nodes.push(n); model.routeOrder.push(n.id);
   selected = { kind: 'node', id: n.id }; activateTab('inspect'); persist(); refreshAll();
@@ -618,7 +649,6 @@ function play() {
 function pause() { playing = false; cancelAnimationFrame(raf); setPlayLabel(); }
 function togglePlay() { playing ? pause() : play(); }
 function stepOne() { pause(); if (needsBuild || !sim) buildSim(); if (!sim) return; if (sim.fel.length) { simCursor = sim.fel[0].time; sim.step(); } renderFrame(simCursor); updateClock(); }
-function runToEnd() { pause(); if (needsBuild || !sim || finished || !sim.fel.length) buildSim(); if (!sim) return; sim.run({ until: Infinity }); simCursor = sim.now; finished = true; setPlayLabel(); render(); updateClock(); showResults(); activateTab('results'); }
 /* End the run at the moment currently on screen (the sim never empties its FEL on
    its own), freeze the time-average statistics there, and show the results. */
 function endRun() {
@@ -644,7 +674,7 @@ function fmtNum(x) {
 }
 function showResults() {
   const results = $('results');
-  if (!sim) { results.innerHTML = '<p class="results-empty">Press Play or “Run to end” to see results.</p>'; return; }
+  if (!sim) { results.innerHTML = '<p class="results-empty">Press Play, then “End” when you’ve seen enough, to see results.</p>'; return; }
   const r = sim.metrics(); const f = (x, d = 2) => Number.isFinite(x) ? x.toFixed(d) : '—';
   results.innerHTML = `
     <div class="kpi-grid">
@@ -686,7 +716,7 @@ function loadExample() {
 }
 function clearFloor() { model.nodes = []; model.routeOrder = []; model.legs = {}; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel();
-  $('results').innerHTML = '<p class="results-empty">Press Play or “Run to end” to see results.</p>'; }
+  $('results').innerHTML = '<p class="results-empty">Press Play, then “End” when you’ve seen enough, to see results.</p>'; }
 
 /* ---- pointer interaction ------------------------------------------------ */
 function onPointerDown(e) {
@@ -727,7 +757,6 @@ function init() {
   $('btnPlay').addEventListener('click', togglePlay);
   $('btnStep').addEventListener('click', stepOne);
   $('btnEnd').addEventListener('click', endRun);
-  $('btnFF').addEventListener('click', runToEnd);
   $('btnReset').addEventListener('click', resetSim);
   window.addEventListener('resize', updateScaleBar);
   const sp = $('speed'); speed = parseFloat(sp.value) || 6; $('spdV').textContent = speed + '×';

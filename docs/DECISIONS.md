@@ -343,3 +343,23 @@ Entry format:
 - Governing principle / source: Stakeholder direction (2026-06-08); legacy demo `index.html` station
   rendering (per-machine boxes); DESIGN-LANGUAGE §7 (state via fill + border colour, no glow) and §1
   (semantic state colours busy/blocked/down). UI-only; engine stays the foundation (Charter §4.2).
+
+## [2026-06-08] — Remove "Run to end"; categorised symbol/shape picker (concrete + VSM) for resources & storage
+- Decision: (1) Remove the "Run to end" playback control — runs are driven by Play/Step and stopped with
+  the manual **End** added earlier. (2) Replace the flat resource-only glyph picker with a categorised
+  symbol library — **Manufacturing**, **Service**, and **Abstract · VSM** (square = process, triangle =
+  inventory, circle, diamond, hexagon) — shown as grouped rows and available to **both resources and
+  storage**. Storage now carries a symbol too, renders it inside its brackets, and defaults to the VSM
+  inventory triangle; resources default to the box.
+- Rationale: Stakeholder asked to drop the fast-forward button and wanted a "smart" way to choose box
+  designs for resources *and* storage, spanning concrete service/manufacturing icons and abstract VSM
+  shapes (squares, triangles). Grouping by category makes a larger set browsable without clutter; sharing
+  the picker across node kinds keeps one consistent mechanism.
+- Alternatives considered: keeping "Run to end" (rejected per stakeholder; End covers stopping); a flat
+  ungrouped list of all 20 symbols (rejected — harder to scan; categories communicate intent); a separate
+  storage-only shape control (rejected — duplicates UI; one shared picker is simpler and lets storage use
+  any glyph). Note: without "Run to end" there is no one-click fast-forward to a long horizon for
+  steady-state statistics — acceptable per stakeholder; revisit if output-analysis (Phase 4) needs it.
+- Governing principle / source: Stakeholder direction (2026-06-08); DESIGN-LANGUAGE §7 (diagrammatic
+  floor), §4 (line icons); value-stream-mapping conventions (inventory triangle, process box). UI-only;
+  engine untouched (Charter §4.2).

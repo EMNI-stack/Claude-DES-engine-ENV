@@ -482,3 +482,28 @@ Inspect renders 1, and the scrap drop spawns a falling cascade. Zoomed screensho
 clean rounded boxes (checked = filled, empty = hairline), and the scrap part pops then drops and fades.
 
 **Decision logged:** `docs/DECISIONS.md` (2026-06-08).
+
+---
+
+## 2026-06-08 — Phase 3: remove "Run to end"; categorised symbol/shape picker for resources & storage
+
+Two stakeholder tweaks (UI-only; 75/75 tests green).
+
+- **Removed "Run to end".** The fast-forward-to-horizon control is gone from the playbar (and its
+  handler/function removed); the run is now driven by Play / Step and stopped with **End**. Empty-state
+  result messages updated ("Press Play, then End …").
+- **Categorised symbol/shape picker.** Reworked the symbol library into `{ label, cat, path }` entries
+  grouped into **Manufacturing** (press, cut, weld, furnace, assemble, CNC, machining, box), **Service**
+  (operator, workstation, service desk, cart, checklist, inspect/QA, shipping), and **Abstract · VSM**
+  (square = process, triangle = inventory, circle = operation, diamond = decision, hexagon). The picker
+  now renders grouped rows with category labels and is shared by **both resources and storage** (storage
+  previously had no symbol). Storage renders its chosen shape inside its brackets and **defaults to the
+  VSM inventory triangle**; resources keep the box default. Migration backfills the storage symbol.
+
+**Verification:** `npm test` → **75/75**. Drove the page headless via CDP: playbar reads
+"Play | Step | End | Reset"; the picker shows the three category groups with 20 symbols total; clicking
+through **all 20** confirmed each glyph parses and renders on the node (no `parsererror`, non-empty
+glyph); the WIP storage renders the inventory triangle. Screenshots reviewed — grouped picker and storage
+shape are on-brand.
+
+**Decision logged:** `docs/DECISIONS.md` (2026-06-08).
