@@ -135,5 +135,22 @@ plus a small, test-covered fix in the floor engine. The legacy demo (`index.html
 - **Verified** (headless): a built-up queue of 20 rendered as 2 active dots + one grey "×18" marker;
   legend = 11 items; no console errors. `npm test` → 76/76 (UI-only change).
 
+### Fix: storage never accumulated; instant transport now capacity-aware (`src/floor-engine.js`)
+- **Bug:** standalone storage nodes never held stock, regardless of model/capacities. Root cause:
+  instant transport was *uncapacitated* — `board()` always moved a part into transit and, if the
+  destination buffer was full, dumped it into a hidden `arrivalBlocked` limbo at the destination's
+  door. So finite buffers and storage caps created no back-pressure (confirmed: with a finite
+  downstream buffer, 235 parts piled in `arrivalBlocked`, storage stayed 0).
+- **Fix:** instant transport is now **capacity-aware**. A part only departs its node if the
+  destination `canAcceptAt()` (current holding + reserved-in-transit `incoming` < cap); a slot is
+  **reserved** for the trip so the `settle()` fixpoint can't over-fill a finite buffer. A full
+  downstream now blocks and WIP **backs up into the upstream storage** (and the source). Behaviour
+  is unchanged for infinite buffers (the common case), so all prior tests still pass.
+- **To SEE storage fill:** the storage's *downstream* must be capacity-constrained — give the next
+  resource a **finite input buffer** (Inspect → Input buffer → Finite, small cap). With an infinite
+  downstream buffer, WIP correctly piles in that resource's own queue, not the storage.
+- **Verified:** `source→storage(cap 5)→r1(finite buf 3, slow)→sink` → storage fills to 5,
+  `arrivalBlocked` = 0, conservation holds. New regression test; `npm test` → **77/77**.
+
 ## Live site
 After this session is pushed: https://emni-stack.github.io/Claude-DES-engine-ENV/app/floor.html

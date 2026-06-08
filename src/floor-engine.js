@@ -56,10 +56,11 @@ export class FloorSim {
           })),
           queue: [],
           cap: (n.bufferCap == null ? Infinity : n.bufferCap),  // total holding (queue + in-machine)
+          incoming: 0,                                          // slots reserved by parts in instant-transit toward here
           aBusy: 0, aBlk: 0, aDown: 0, aQ: 0, processed: 0,
         };
       } else if (n.kind === 'source' || n.kind === 'storage') {
-        this.hold[n.id] = { node: n, items: [], cap: (n.kind === 'source' ? Infinity : (n.cap == null ? Infinity : n.cap)), aOcc: 0 };
+        this.hold[n.id] = { node: n, items: [], cap: (n.kind === 'source' ? Infinity : (n.cap == null ? Infinity : n.cap)), incoming: 0, aOcc: 0 };
       }
     }
 
@@ -251,9 +252,20 @@ export class FloorSim {
     job.step = toStep; job.loc = { k: 'hold', node: id }; h.items.push(job); return true;
   }
   occ(resId) { const r = this.res[resId]; let n = r.queue.length; for (const m of r.machines) if (m.busy || m.blocked) n++; return n; }
+  // Can node `id` take one more part right now? Counts current holding + parts
+  // already reserved/in instant-transit toward it, so a finite buffer can't be
+  // over-committed. The sink always accepts.
+  canAcceptAt(id) {
+    const node = this.nodes[id];
+    if (!node || node.kind === 'sink') return true;
+    if (node.kind === 'resource') { const r = this.res[id]; return this.occ(id) + r.incoming < r.cap; }
+    const h = this.hold[id]; return h.items.length + h.incoming < h.cap;
+  }
 
   onArriveNode(ev) {
     this.inTransit--;
+    const dest = this.res[ev.dest] || this.hold[ev.dest];
+    if (dest && dest.incoming > 0) dest.incoming--;                 // release the reserved slot
     if (!this.admit(ev.job, ev.step)) this.arrivalBlocked.push({ job: ev.job, step: ev.step });
   }
 
@@ -323,10 +335,16 @@ export class FloorSim {
       job.loc = { k: 'pending', node: fromId };             // waiting at the from-node for a worker
       return true;                                          // job leaves the node into the pending queue
     }
-    // instant (uncapacitated delay)
+    // instant transport — capacity-aware: a part only leaves its node if the
+    // destination can take it (else the caller keeps it and the line backs up).
+    // Reserve the slot for the trip so the settle() fixpoint can't over-fill a
+    // finite buffer. A full downstream now backs WIP up into upstream storage.
+    if (!this.canAcceptAt(toId)) return false;
+    const dest = this.res[toId] || this.hold[toId];
+    if (dest) dest.incoming++;
     this.inTransit++; job.transit += tt;
     job.loc = { k: 'transit', from: fromId, to: toId, t0: this.now, t1: this.now + tt };
-    this.schedule(tt, { t: 'ARRIVE_NODE', job, step: toStep });
+    this.schedule(tt, { t: 'ARRIVE_NODE', job, step: toStep, dest: toId });
     return true;
   }
   legLen(fromId, toId) {                              // typed override (m) or placement distance

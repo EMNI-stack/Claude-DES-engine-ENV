@@ -208,6 +208,28 @@ test('limitless + push does not flood an infinite first buffer (bounded WIP)', (
   assert.ok(r.completed > 100, `the line should still produce, completed ${r.completed}`);
 });
 
+test('a finite downstream buffer backs WIP up into an upstream storage (instant transport is capacity-aware)', () => {
+  // source -> storage(cap 5) -> r1 (finite buffer 3, slow) -> sink, with fast arrivals.
+  // Stock must accumulate in the storage instead of teleporting into a hidden limbo.
+  const m = {
+    schema: 'des-floor/v1', units: { time: 'min', distance: 'm', speed: 'm/min' },
+    transport: { default: 'instant', speed: 100 }, control: 'push', supply: 'stream', demand: { mode: 'instant' },
+    nodes: [
+      { kind: 'source', id: 'src', x: 0, y: 0 },
+      { kind: 'storage', id: 'st', x: 5, y: 0, cap: 5 },
+      { kind: 'resource', id: 'r1', x: 10, y: 0, machines: 1, service: newDist('exp', { mean: 5 }), bufferCap: 3 },
+      { kind: 'sink', id: 'snk', x: 15, y: 0 },
+    ],
+    parts: [{ id: 'p', kind: 'product', routing: ['src', 'st', 'r1', 'snk'], demand: newDist('exp', { mean: 1 }) }],
+  };
+  const sim = new FloorSim(m, 1);
+  sim.run({ until: 400 });
+  assert.equal(sim.hold['st'].items.length, 5, 'storage should be full at its capacity');
+  assert.ok(sim.occ('r1') <= 3, `downstream occupancy must respect its finite buffer, got ${sim.occ('r1')}`);
+  assert.equal(sim.arrivalBlocked.length, 0, 'no parts should sit in the hidden arrival-blocked limbo');
+  assert.equal(sim.entered, sim.completed + sim.scrapped + sim.wip, 'conservation holds');
+});
+
 /* ---- scrap & breakdowns (ported from the original engine) -------------- */
 // Single saturated resource: source -> A -> sink, fast arrivals so A is busy.
 function oneResource({ service = 1, scrap = 0, brk = null, interarrival = 0.5 } = {}) {
