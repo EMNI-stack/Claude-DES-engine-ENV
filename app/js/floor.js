@@ -239,6 +239,11 @@ function renderFrame(cursor) {
     if (selected && selected.kind === 'node' && selected.id === n.id) cls += ' sel';
     rect.setAttribute('class', cls);
     if (prog) prog.setAttribute('width', (frac * 66).toFixed(1));
+    // capacity cells: filled (state-coloured) when that machine is in use, empty when free
+    if (r) g.querySelectorAll('.cap-cell').forEach((cell) => {
+      const m = r.machines[+cell.getAttribute('data-cell')];
+      cell.setAttribute('class', 'cap-cell' + (m ? (m.down ? ' down' : m.busy ? ' busy' : m.blocked ? ' blocked' : '') : ''));
+    });
   }
   // tokens
   const seen = new Set(), buckets = new Map();
@@ -332,10 +337,15 @@ function nodeEl(n) {
   const g = E('g', { class: 'node' + (sel ? ' sel' : ''), 'data-node': n.id, transform: `translate(${px(n.x)},${px(n.y)})` });
   if (n.kind === 'resource') {
     g.append(E('rect', { class: 'node-rect', x: -46, y: -32, width: 92, height: 64, rx: 9 }));
-    g.append(E('rect', { class: 'prog', x: -44, y: 26, width: 0, height: 4, rx: 2 }));
-    g.append(symG(n.symbol || 'box', 'node-sym', -12, -27, 1.0));     // 24×24 glyph, centred top
-    g.append(E('text', { class: 'node-label', x: 0, y: 18, 'text-anchor': 'middle' }, n.name || 'Resource'));
-    if ((n.machines || 1) > 1) g.append(E('text', { class: 'node-badge', x: 40, y: -20, 'text-anchor': 'end' }, '×' + n.machines));
+    g.append(symG(n.symbol || 'box', 'node-sym', -10, -29, 0.85));    // glyph, centred top
+    g.append(E('text', { class: 'node-label', x: 0, y: 4, 'text-anchor': 'middle' }, n.name || 'Resource'));
+    // capacity cells — one box per parallel machine, "checked" (filled) when in use
+    const cells = E('g', { class: 'cap-cells' });
+    const M = Math.max(1, n.machines || 1), shown = Math.min(M, 8), cw = 9, gap = 3, total = shown * cw + (shown - 1) * gap;
+    for (let i = 0; i < shown; i++) cells.append(E('rect', { class: 'cap-cell', 'data-cell': i, x: (-total / 2 + i * (cw + gap)).toFixed(1), y: 12, width: cw, height: 9, rx: 2 }));
+    g.append(cells);
+    if (M > 8) g.append(E('text', { class: 'node-badge', x: 44, y: -20, 'text-anchor': 'end' }, '×' + M));
+    g.append(E('rect', { class: 'prog', x: -44, y: 25, width: 0, height: 3, rx: 1.5 }));
   } else if (n.kind === 'storage') {
     g.append(E('path', { class: 'bracket', d: 'M -28 -24 l -9 0 l 0 48 l 9 0' }));
     g.append(E('path', { class: 'bracket', d: 'M 28 -24 l 9 0 l 0 48 l -9 0' }));

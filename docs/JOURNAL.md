@@ -457,3 +457,28 @@ confirmed up to 10 `.tok-scrap` drop tokens spawning live, and the Press hover t
 machine and fade; tooltip is on-brand (serif name, mono figures, hairline + barely-there shadow).
 
 **Decision logged:** `docs/DECISIONS.md` (2026-06-08).
+
+---
+
+## 2026-06-08 — Phase 3: capacity cells on machines + more dramatic scrap drop
+
+Two follow-up tweaks to the running-floor visuals (UI-only; engine untouched; 75/75 tests green).
+
+- **Capacity cells on the machine.** Echoing the legacy demo's per-machine `M1 M2 …` boxes, each resource
+  node now shows a neat centred row of small boxes — **one per parallel machine** (capacity), drawn empty
+  even at rest so capacity is legible, and **"checked" (filled, state-coloured: busy/blocked/down)** when
+  that server is in use during a run. Restructured the resource node interior (smaller top glyph, name
+  moved up, cells row, thin overall progress sliver kept at the bottom); the old `×N` count badge now only
+  appears when machines exceed the 8 cells shown. Cells update each frame in `renderFrame` from
+  `sim.res[id].machines[i]` state.
+- **More dramatic scrap drop.** Lengthened the scrap animation (700 ms → 1200 ms) and made it read as a
+  destruction: a brief **pop** (scale 1.5) then a longer **fall** (70 px) while **shrinking to nothing and
+  fading out**. Uses `transform-box: fill-box` so the scale pivots on the token's own centre;
+  `prefers-reduced-motion` shortened to 250 ms.
+
+**Verification:** `npm test` → **75/75**. Drove the page headless via CDP with Press set to 3 machines +
+scrap 0.4 at 30×: confirmed Press renders 3 cells (state snapshot `cap-cell · cap-cell busy · cap-cell`),
+Inspect renders 1, and the scrap drop spawns a falling cascade. Zoomed screenshot reviewed — cells are
+clean rounded boxes (checked = filled, empty = hairline), and the scrap part pops then drops and fades.
+
+**Decision logged:** `docs/DECISIONS.md` (2026-06-08).

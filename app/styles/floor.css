@@ -100,13 +100,25 @@ svg.floor .node-rect.busy { fill: var(--primary-tint); stroke: var(--busy); }
 svg.floor .node-rect.blocked { stroke: var(--blocked); fill: rgba(194,118,46,.07); }
 svg.floor .node-rect.down { stroke: var(--down); fill: rgba(181,70,47,.07); }
 svg.floor .prog { fill: var(--busy); opacity: .55; }
+/* capacity cells — one box per parallel machine, checked (filled) when in use */
+svg.floor .cap-cell { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; }
+svg.floor .cap-cell.busy { fill: var(--busy); stroke: var(--busy); }
+svg.floor .cap-cell.blocked { fill: var(--blocked); stroke: var(--blocked); }
+svg.floor .cap-cell.down { fill: var(--down); stroke: var(--down); }
+svg.floor .node.sel .cap-cell { stroke: var(--primary); }
 /* job tokens */
 svg.floor .tok { fill: var(--busy); pointer-events: none; }
 svg.floor .tok.q { fill: var(--idle); }
-/* scrapped part: red-ish, drops straight down and fades out (DESIGN-LANGUAGE §6) */
-svg.floor .tok-scrap { fill: var(--scrap); animation: scrap-drop 700ms var(--ease) forwards; }
-@keyframes scrap-drop { from { transform: translateY(0); opacity: 1; } to { transform: translateY(46px); opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { svg.floor .tok-scrap { animation-duration: 1ms; } }
+/* scrapped part: red-ish, a brief pop then a long drop while shrinking + fading
+   out (DESIGN-LANGUAGE §6 "scrapped dot fades out on drop") */
+svg.floor .tok-scrap { fill: var(--scrap); transform-box: fill-box; transform-origin: center;
+  animation: scrap-drop 1200ms cubic-bezier(.45, 0, .75, 1) forwards; }
+@keyframes scrap-drop {
+  0%   { transform: translateY(0) scale(1);     opacity: 1; }
+  16%  { transform: translateY(-3px) scale(1.5); opacity: 1; }
+  100% { transform: translateY(70px) scale(.1);  opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { svg.floor .tok-scrap { animation-duration: 250ms; } }
 svg.floor .node.sel .bracket { stroke: var(--primary); }
 svg.floor .node-label { font-family: var(--sans); font-size: 13px; font-weight: 500; fill: var(--ink); }
 svg.floor .node-kind { font-family: var(--mono); font-size: 9px; letter-spacing: .08em;

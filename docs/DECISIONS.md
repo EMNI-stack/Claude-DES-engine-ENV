@@ -326,3 +326,20 @@ Entry format:
   fades on drop; motion clarifies, never decorates), §7 (tokens as small solid dots; quiet diagrammatic
   floor), §8 (raised surface uses the barely-there shadow). Engine change is additive only — Charter §4.2
   (the validated engine stays the foundation).
+
+## [2026-06-08] — Per-machine capacity cells on resource nodes (port of the legacy demo's M1/M2 boxes)
+- Decision: Each floor resource shows a centred row of small boxes, one per parallel machine, that are
+  empty at rest (so capacity is visible) and filled/state-coloured ("checked") when that server is busy,
+  blocked, or down during a run — capped at 8 cells, with a `×N` badge beyond that. This reuses the
+  legacy demo's per-machine box idea (`M1 M2 …` boxes that change state), adapted to the new node and
+  design tokens.
+- Rationale: Stakeholder wanted the machine's capacity and live usage readable on the visual itself, "as
+  in the old simulation engine". Discrete cells communicate both capacity (count of boxes) and usage
+  (how many are checked) at a glance, complementing the hover tooltip's exact numbers.
+- Alternatives considered: a single fill bar for occupancy (rejected — shows usage but not discrete
+  capacity, and the demo used boxes); per-machine progress fills inside each box (deferred — the binary
+  checked/unchecked the stakeholder described is clearer; the overall progress sliver is kept for the
+  in-progress cue).
+- Governing principle / source: Stakeholder direction (2026-06-08); legacy demo `index.html` station
+  rendering (per-machine boxes); DESIGN-LANGUAGE §7 (state via fill + border colour, no glow) and §1
+  (semantic state colours busy/blocked/down). UI-only; engine stays the foundation (Charter §4.2).
