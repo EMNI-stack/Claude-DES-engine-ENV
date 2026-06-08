@@ -52,11 +52,16 @@ export class FloorSim {
           node: n,
           machines: Array.from({ length: Math.max(1, n.machines || 1) }, () => ({
             busy: false, blocked: false, down: false, preempted: false, job: null,
+            batch: null, setupEnd: 0,                           // batch mode: jobs held as a group + setup-phase end
             remaining: 0, depTime: 0, depSeq: 0, failSeq: 0,
           })),
           queue: [],
           cap: (n.bufferCap == null ? Infinity : n.bufferCap),  // total holding (queue + in-machine)
           incoming: 0,                                          // slots reserved by parts in instant-transit toward here
+          // batch mode (Phase 3.4): processes a group of B jobs together with one setup per batch.
+          // Whole-batch process time = the node's service dist (sampled once). Needs all B to start.
+          batch: (n.batch && n.batch.size >= 2) ? { size: n.batch.size | 0, setup: Math.max(0, n.batch.setup || 0) } : null,
+          batchesStarted: 0,
           aBusy: 0, aBlk: 0, aDown: 0, aQ: 0, processed: 0,
         };
       } else if (n.kind === 'source' || n.kind === 'storage') {
@@ -179,7 +184,12 @@ export class FloorSim {
     return true;
   }
   run({ until = Infinity, maxEvents = 5_000_000 } = {}) {
-    let n = 0; while (this.fel.length && this.now < until && n < maxEvents) { if (!this.step()) break; n++; } return this;
+    let n = 0; while (this.fel.length && this.now < until && n < maxEvents) { if (!this.step()) break; n++; }
+    // Deadlock guard: the event list drained while jobs remain in the system — the model jammed
+    // (e.g. a batch resource that can never accumulate B behind a finite/limitless supply). Under
+    // stream supply the FEL never empties, so this only fires for genuinely stuck models.
+    this.deadlocked = (this.fel.length === 0 && this.wip > 0);
+    return this;
   }
 
   partOf(id) { return this.model.parts.find((p) => p.id === id); }
@@ -251,7 +261,10 @@ export class FloorSim {
     if (h.items.length >= h.cap) return false;
     job.step = toStep; job.loc = { k: 'hold', node: id }; h.items.push(job); return true;
   }
-  occ(resId) { const r = this.res[resId]; let n = r.queue.length; for (const m of r.machines) if (m.busy || m.blocked) n++; return n; }
+  // Actual jobs physically present (queue + in-machine). A busy/blocked batch machine
+  // holds m.batch.length units; a single machine holds 1. So a finite buffer accounts for
+  // an in-process batch of B; non-batch behaviour is unchanged (still 1 per busy machine).
+  occ(resId) { const r = this.res[resId]; let n = r.queue.length; for (const m of r.machines) n += m.batch ? m.batch.length : ((m.busy || m.blocked) ? 1 : 0); return n; }
   // Can node `id` take one more part right now? Counts current holding + parts
   // already reserved/in instant-transit toward it, so a finite buffer can't be
   // over-committed. The sink always accepts.
@@ -271,12 +284,20 @@ export class FloorSim {
 
   onComplete(ev) {
     if (ev.seq2 !== ev.m.depSeq) return;           // stale (a breakdown preempted this service)
-    const r = this.res[ev.node]; r.processed++;
+    const r = this.res[ev.node]; r.processed++; const m = ev.m;
+    if (m.batch) {                                 // whole batch finishes together
+      const survivors = [];
+      for (const job of m.batch) {                 // scrap each part of the batch independently
+        if (r.node.scrap && this.rng() < r.node.scrap) this.scrap(job); else survivors.push(job);
+      }
+      m.busy = false; m.batch = survivors.length ? survivors : null; m.blocked = survivors.length > 0;
+      return;                                      // settle() boards survivors and frees the machine
+    }
     if (r.node.scrap && this.rng() < r.node.scrap) {  // Bernoulli scrap fallout
-      ev.m.busy = false; ev.m.blocked = false; ev.m.job = null;
+      m.busy = false; m.blocked = false; m.job = null;
       this.scrap(ev.job);
     } else {
-      ev.m.busy = false; ev.m.blocked = true;      // hold finished job until it can move
+      m.busy = false; m.blocked = true;            // hold finished job until it can move
     }
     // settle() (called by step) boards the job (if any) and frees the machine
   }
@@ -383,12 +404,38 @@ export class FloorSim {
         this.schedule(tt, { t: 'MOVE_END', job, step: req.step }); changed = true; }
       // 5. resources: board finished (blocked) jobs, then start new services
       for (const id in this.res) { const r = this.res[id];
-        for (const m of r.machines) { if (m.blocked && m.job) { if (this.board(m.job)) { m.blocked = false; m.job = null; changed = true; } } }
-        for (const m of r.machines) { if (!m.busy && !m.blocked && !m.down && r.queue.length) {
-          const job = r.queue.shift(); m.busy = true; m.job = job; job.loc = { k: 'service', node: id };
-          const st = Math.max(0, sample(r.node.service, this.rng));
-          m.depSeq++; m.startTime = this.now; m.depTime = this.now + st;
-          this.schedule(st, { t: 'COMPLETE', node: id, m, job, seq2: m.depSeq }); changed = true; } } }
+        // board finished work — a batch machine holds B finished jobs; free it only when all have left
+        for (const m of r.machines) {
+          if (!m.blocked) continue;
+          if (m.batch) {
+            for (let i = 0; i < m.batch.length; i++) if (this.board(m.batch[i])) { m.batch.splice(i, 1); i--; changed = true; }
+            if (m.batch.length === 0) { m.batch = null; m.blocked = false; changed = true; }
+          } else if (m.job) {
+            if (this.board(m.job)) { m.blocked = false; m.job = null; changed = true; }
+          }
+        }
+        // start new services — batch resources wait until B jobs are present and seize them as one
+        for (const m of r.machines) {
+          if (m.busy || m.blocked || m.down) continue;
+          if (r.batch) {
+            if (r.queue.length >= r.batch.size) {
+              const group = r.queue.splice(0, r.batch.size);
+              m.busy = true; m.batch = group;
+              for (const j of group) j.loc = { k: 'service', node: id };
+              const proc = Math.max(0, sample(r.node.service, this.rng));   // whole-batch process time
+              m.depSeq++; m.startTime = this.now; m.setupEnd = this.now + r.batch.setup;
+              m.depTime = this.now + r.batch.setup + proc;                  // setup once, then process
+              r.batchesStarted++;
+              this.schedule(r.batch.setup + proc, { t: 'COMPLETE', node: id, m, seq2: m.depSeq });
+              changed = true;
+            }
+          } else if (r.queue.length) {
+            const job = r.queue.shift(); m.busy = true; m.job = job; job.loc = { k: 'service', node: id };
+            const st = Math.max(0, sample(r.node.service, this.rng));
+            m.depSeq++; m.startTime = this.now; m.depTime = this.now + st;
+            this.schedule(st, { t: 'COMPLETE', node: id, m, job, seq2: m.depSeq }); changed = true;
+          }
+        } }
       // 6. holding nodes (source/storage): push head jobs onward
       for (const id in this.hold) { const h = this.hold[id];
         while (h.items.length) { const job = h.items[0]; if (this.board(job)) { h.items.shift(); changed = true; } else break; } }
@@ -410,7 +457,13 @@ export class FloorSim {
       util[id] = this.res[id].aBusy / (m * T); blocked[id] = this.res[id].aBlk / (m * T); down[id] = this.res[id].aDown / (m * T); }
     const conveyors = {};
     for (const k in this.conv) conveyors[k] = { utilisation: this.conv[k].aBusy / ((this.conv[k].cap === Infinity ? 1 : this.conv[k].cap) * T) };
+    // batch diagnostics: how many batches each batch resource started, and how many parts are
+    // stranded below B at the horizon (a starvation surface — never let the model silently hang).
+    const batch = {};
+    for (const id in this.res) { const r = this.res[id];
+      if (r.batch) batch[id] = { size: r.batch.size, setup: r.batch.setup, batchesStarted: r.batchesStarted, waitingForBatch: r.queue.length }; }
     return {
+      deadlock: !!this.deadlocked, batch,
       time: this.now, entered: this.entered, completed: this.completed, scrapped: this.scrapped, inSystem: this.wip,
       throughput: this.completed / T,
       yield: (this.completed + this.scrapped) ? this.completed / (this.completed + this.scrapped) : 1,

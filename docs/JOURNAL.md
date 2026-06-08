@@ -634,3 +634,18 @@ output advancing, no console errors.
   the build): setups inflate effective process time `te = t0 + ts/Ns`; wait-to-batch is *control*
   variability (theory-notes §4.6). **No engine/UI/test code yet — PAUSED for stakeholder confirmation of the
   semantics and deadlock handling before Milestone 1.**
+
+## 2026-06-08 — Phase 3.4.1: batch processing in the engine
+
+- Stakeholder ratified the Milestone-0 design (setup = constant; build as proposed). Implemented batch mode
+  in `src/floor-engine.js` only — legacy engines and the single-job path untouched.
+- A resource with `batch:{size B, setup ts}` accumulates jobs; `settle()` seizes B at once when
+  `queue ≥ B`, pays `ts` then a whole-batch process time `sample(service)` (one COMPLETE per batch via
+  `m.batch[]` + `m.setupEnd`), then `onComplete` rolls scrap per-part and the board loop releases each
+  survivor individually (machine freed only when all have left). `occ()` now counts actual jobs present so
+  finite buffers account for a B-unit in-process batch (non-batch unchanged → regression).
+- Deadlock surfaced, never hung: `run()` sets `metrics.deadlock` when the FEL drains with WIP>0; `metrics`
+  reports per-resource `batch:{size,setup,batchesStarted,waitingForBatch}`.
+- New `tests/floor-batch.test.js` (7 tests): full-batch start + capacity-limited throughput, setup-once,
+  finish-together, conservation, Little's Law (wait-to-batch counted), no-batch regression, starvation
+  deadlock surface. Added to the `npm test` list. **`npm test` → 84/84.**
