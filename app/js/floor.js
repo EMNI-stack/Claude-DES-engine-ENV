@@ -792,6 +792,11 @@ function activateTab(name) {
   document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
   document.querySelectorAll('.tabbody').forEach((b) => { b.hidden = (b.id !== 'tab-' + name); });
 }
+// Model sub-sections: BOM & Parts | Defaults | Control & Demand
+function activateSubTab(name) {
+  document.querySelectorAll('.subtab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.sub === name)));
+  document.querySelectorAll('.subpanel').forEach((p) => { p.hidden = (p.dataset.sub !== name); });
+}
 
 function addNode(kind, x, y) {
   const idp = { resource: 'res', storage: 'sto', source: 'src', sink: 'snk' }[kind] || 'n';
@@ -1177,6 +1182,7 @@ function init() {
   svg.addEventListener('wheel', (e) => { e.preventDefault(); zoomBy(e.deltaY < 0 ? 1.12 : 1 / 1.12, svgPoint(e)); }, { passive: false });
   // tabs
   document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => activateTab(b.dataset.tab)));
+  document.querySelectorAll('.subtab').forEach((b) => b.addEventListener('click', () => activateSubTab(b.dataset.sub)));
 
   let startTab = 'model';
   if (location.hash === '#example' && model.nodes.length === 0) { loadExample(); const r = model.nodes.find((n) => n.kind === 'resource'); if (r) { selected = { kind: 'node', id: r.id }; startTab = 'inspect'; } }

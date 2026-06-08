@@ -15,6 +15,14 @@
 .tabs .tab[aria-selected="true"] { color: var(--primary); border-bottom-color: var(--primary); font-weight: 500; }
 .tabbody { padding: var(--s-5); max-height: 70vh; overflow: auto; }
 .tabbody .section-label { margin-bottom: var(--s-2); }
+/* Model sub-sections (BOM & Parts / Defaults / Control & Demand) */
+.subtabs { display: flex; gap: 4px; margin-bottom: var(--s-4); }
+.subtabs .subtab { flex: 1; appearance: none; cursor: pointer; font-family: var(--sans); font-size: 12px;
+  color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px;
+  padding: 7px 6px; }
+.subtabs .subtab:hover { color: var(--ink); border-color: var(--line-strong); }
+.subtabs .subtab[aria-selected="true"] { color: var(--primary); border-color: var(--primary);
+  background: var(--surface); font-weight: 500; }
 
 /* playback bar + clock */
 .playbar { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; margin-top: var(--s-3);
