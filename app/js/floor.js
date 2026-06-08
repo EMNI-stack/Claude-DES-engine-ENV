@@ -51,7 +51,7 @@ let drag = null;
 
 // playback + animation state
 let sim = null, simCursor = 0, playing = false, lastTs = 0, speed = 6, needsBuild = true, finished = false, raf = 0;
-let tokenEls = new Map(), tokenLayer = null;
+let tokenEls = new Map(), queueEls = new Map(), tokenLayer = null;
 let scrapSeen = 0;            // index into sim.scrapLog of the last scrap we've animated
 let hoverNodeId = null;       // node currently hovered, for the live count tooltip
 
@@ -251,7 +251,7 @@ function render() {
   }
   svg.append(legG);
   for (const n of model.nodes) svg.append(nodeEl(n));
-  tokenLayer = E('g', {}); svg.append(tokenLayer); tokenEls = new Map();   // fresh token layer
+  tokenLayer = E('g', {}); svg.append(tokenLayer); tokenEls = new Map(); queueEls = new Map();   // fresh token layer
   if (sim && !needsBuild) renderFrame(simCursor);                           // repaint live state onto the rebuilt scene
 }
 
@@ -278,20 +278,39 @@ function renderFrame(cursor) {
       cell.setAttribute('class', 'cap-cell' + (m ? (m.down ? ' down' : m.busy ? ' busy' : m.blocked ? ' blocked' : '') : ''));
     });
   }
-  // tokens — capped so a runaway WIP (e.g. an unstable line) can never freeze the
-  // animation by drawing tens of thousands of circles; the clock's WIP shows the truth.
+  // units in service / transit → individual moving dots (capped so nothing floods
+  // the view). Queued / stored / finished units → ONE grey dot + "×N" per location,
+  // so a long queue or a full storage reads at a glance instead of a cloud of dots.
   const TOK_CAP = 150;
-  const seen = new Set(), buckets = new Map(); let drawn = 0;
+  const seen = new Set(); let drawn = 0;
+  const queues = new Map();
   for (const job of sim.jobs.values()) {
-    if (drawn >= TOK_CAP) break;
-    const p = jobPos(job, cursor, buckets); if (!p) continue;
-    seen.add(job.id); drawn++;
-    let c = tokenEls.get(job.id);
-    if (!c) { c = E('circle', { class: 'tok' }); tokenLayer.append(c); tokenEls.set(job.id, c); }
-    c.setAttribute('cx', p.x.toFixed(1)); c.setAttribute('cy', p.y.toFixed(1)); c.setAttribute('r', p.r);
-    c.setAttribute('class', 'tok' + (p.q ? ' q' : ''));
+    const loc = job.loc; if (!loc) continue;
+    if (loc.k === 'service' || loc.k === 'transit') {
+      if (drawn >= TOK_CAP) continue;
+      const p = jobPos(job, cursor); if (!p) continue;
+      seen.add(job.id); drawn++;
+      let c = tokenEls.get(job.id);
+      if (!c) { c = E('circle', { class: 'tok' }); tokenLayer.append(c); tokenEls.set(job.id, c); }
+      c.setAttribute('cx', p.x.toFixed(1)); c.setAttribute('cy', p.y.toFixed(1)); c.setAttribute('r', p.r);
+    } else {
+      const a = queueLoc(loc); if (!a) continue;
+      let q = queues.get(a.key);
+      if (!q) { q = { x: a.x, y: a.y, anchor: a.anchor, n: 0 }; queues.set(a.key, q); }
+      q.n++;
+    }
   }
   for (const [id, c] of tokenEls) if (!seen.has(id)) { c.remove(); tokenEls.delete(id); }
+  const qSeen = new Set();
+  for (const [key, q] of queues) {
+    qSeen.add(key);
+    let el = queueEls.get(key);
+    if (!el) { const g = E('g', { class: 'qmark' }); const dot = E('circle', { class: 'tok q', r: 6 }); const lbl = E('text', { class: 'qcount' }); g.append(dot, lbl); tokenLayer.append(g); el = { dot, lbl, g }; queueEls.set(key, el); }
+    el.dot.setAttribute('cx', q.x.toFixed(1)); el.dot.setAttribute('cy', q.y.toFixed(1));
+    el.lbl.setAttribute('x', (q.anchor === 'end' ? q.x - 10 : q.x + 10).toFixed(1)); el.lbl.setAttribute('y', (q.y + 3.5).toFixed(1)); el.lbl.setAttribute('text-anchor', q.anchor);
+    el.lbl.textContent = q.n > 1 ? '×' + q.n : '';
+  }
+  for (const [key, el] of queueEls) if (!qSeen.has(key)) { el.g.remove(); queueEls.delete(key); }
   // scrapped parts: drop-and-fade where they were destroyed (only when watching live)
   let spawned = 0;
   while (scrapSeen < sim.scrapLog.length && sim.scrapLog[scrapSeen].t <= cursor) {
@@ -347,19 +366,24 @@ function onHover(e) {
   if (id && sim && !needsBuild) { hoverNodeId = id; showTip(id, e); }
   else { hoverNodeId = null; hideTip(); }
 }
-function jobPos(job, cursor, buckets) {
+function jobPos(job, cursor) {
   const loc = job.loc; if (!loc) return null;
   if (loc.k === 'transit') {
     const f = node(loc.from), t = node(loc.to); if (!f || !t) return null;
     const p = Math.min(1, Math.max(0, (cursor - loc.t0) / ((loc.t1 - loc.t0) || 1)));
-    return { x: px(f.x + (t.x - f.x) * p), y: px(f.y + (t.y - f.y) * p), r: 6.5, q: false };
+    return { x: px(f.x + (t.x - f.x) * p), y: px(f.y + (t.y - f.y) * p), r: 6.5 };
   }
   const n = node(loc.node); if (!n) return null;
-  if (loc.k === 'service') return { x: px(n.x), y: px(n.y) - 2, r: 8, q: false };
-  const key = loc.node + loc.k, i = buckets.get(key) || 0; buckets.set(key, i + 1);
-  if (loc.k === 'fg') return { x: px(n.x) + 28 + i * 11, y: px(n.y), r: 6, q: true };
-  if (loc.k === 'hold') return { x: px(n.x) + i * 11, y: px(n.y) - 28, r: 6, q: true };
-  return { x: px(n.x) - 54 - i * 11, y: px(n.y), r: 6, q: true };     // queue / pending: stack to the left
+  if (loc.k === 'service') return { x: px(n.x), y: px(n.y) - 2, r: 8 };
+  return null;   // queued / staged / held / finished units are aggregated by queueLoc(), not drawn per-job
+}
+/* where a queued / stored / finished unit's single count marker sits: incoming
+   side (left) for queue/hold, outgoing side (right) for finished goods */
+function queueLoc(loc) {
+  const n = node(loc.node); if (!n) return null;
+  const half = n.kind === 'resource' ? 46 : n.kind === 'storage' ? 38 : 18;
+  if (loc.k === 'fg') return { key: loc.node + ':fg', x: px(n.x) + half + 14, y: px(n.y), anchor: 'start' };
+  return { key: loc.node + ':q', x: px(n.x) - half - 14, y: px(n.y), anchor: 'end' };   // queue / pending / hold
 }
 function symG(key, cls, tx, ty, scale) {
   const g = E('g', { class: cls, transform: `translate(${tx},${ty}) scale(${scale})` });

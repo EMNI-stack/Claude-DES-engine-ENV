@@ -71,6 +71,23 @@
             </div>
           </div>
           <p class="floor-hint" id="floorHint" style="margin-top:var(--s-3)">Pick a tool and click to place a node. In <em>Move</em>, drag to reposition; click a node or leg to edit it. Press Play to watch jobs flow.</p>
+
+          <div class="floor-legend" aria-label="What the colours and shapes mean">
+            <span class="lg"><span class="lg-box machine"></span>Machine</span>
+            <span class="lg"><span class="lg-box store"></span>Storage</span>
+            <span class="lg-sep"></span>
+            <span class="lg"><span class="lg-cell busy"></span>Busy</span>
+            <span class="lg"><span class="lg-cell blocked"></span>Blocked</span>
+            <span class="lg"><span class="lg-cell down"></span>Down</span>
+            <span class="lg"><span class="lg-cell"></span>Free</span>
+            <span class="lg-sep"></span>
+            <span class="lg"><span class="lg-dot"></span>Unit (in process / moving)</span>
+            <span class="lg"><span class="lg-dot q"></span>Waiting / stored (×N)</span>
+            <span class="lg"><span class="lg-dot scrap"></span>Scrapped</span>
+            <span class="lg"><span class="lg-line"></span>Transport</span>
+            <span class="lg-sep"></span>
+            <span class="lg lg-hint">Hover a station for live counts (queue, in service, …)</span>
+          </div>
         </div>
 
         <div class="panel" id="tablePanel" hidden>

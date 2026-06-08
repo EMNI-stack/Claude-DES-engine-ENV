@@ -28,6 +28,23 @@
 .floor-toolbar .spacer { margin-left: auto; }
 .floor-hint { font-size: var(--fs-small); color: var(--faint); }
 
+/* legend — a small, intuitive key to the colours and shapes on the floor */
+.floor-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+  margin-top: var(--s-3); padding-top: var(--s-3); border-top: 1px solid var(--line); }
+.floor-legend .lg { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-2); }
+.floor-legend .lg-sep { width: 1px; height: 13px; background: var(--line); }
+.floor-legend .lg-hint { color: var(--faint); }
+.floor-legend .lg-box { width: 16px; height: 12px; border-radius: 2px; border: 1.5px solid var(--line-strong); background: var(--surface); }
+.floor-legend .lg-box.store { background: var(--surface-2); border-style: dashed; }
+.floor-legend .lg-cell { width: 11px; height: 11px; border-radius: 2px; border: 1px solid var(--line-strong); background: var(--surface); }
+.floor-legend .lg-cell.busy { background: var(--busy); border-color: var(--busy); }
+.floor-legend .lg-cell.blocked { background: var(--blocked); border-color: var(--blocked); }
+.floor-legend .lg-cell.down { background: var(--down); border-color: var(--down); }
+.floor-legend .lg-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--busy); }
+.floor-legend .lg-dot.q { background: var(--idle); }
+.floor-legend .lg-dot.scrap { background: var(--scrap); }
+.floor-legend .lg-line { width: 18px; height: 0; border-top: 2px solid var(--ink-2); opacity: .4; }
+
 /* canvas */
 .canvas-card { padding: var(--s-3); }
 svg.floor { width: 100%; height: auto; display: block; background: var(--surface);
@@ -118,6 +135,9 @@ svg.floor .node.sel .cap-cell { stroke: var(--primary); }
 /* job tokens */
 svg.floor .tok { fill: var(--busy); pointer-events: none; }
 svg.floor .tok.q { fill: var(--idle); }
+/* queue / storage count marker: one grey dot + "×N" */
+svg.floor .qmark { pointer-events: none; }
+svg.floor .qcount { font-family: var(--mono); font-size: 10px; font-weight: 500; fill: var(--ink-2); }
 /* scrapped part: red-ish, a brief pop then a long drop while shrinking + fading
    out (DESIGN-LANGUAGE §6 "scrapped dot fades out on drop") */
 svg.floor .tok-scrap { fill: var(--scrap); transform-box: fill-box; transform-origin: center;

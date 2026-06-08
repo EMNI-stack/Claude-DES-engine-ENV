@@ -110,5 +110,30 @@ plus a small, test-covered fix in the floor engine. The legacy demo (`index.html
   Puppeteer installed) and a local static server (`python -m http.server` from the repo root, needed
   because the pages use native ES-module imports).
 
+---
+
+## Continued — 2026-06-08 (later): on-canvas legend + collapsed queue marker
+
+> From here on, new changes are logged in THIS document (per stakeholder request),
+> in addition to the commit history.
+
+### Legend under the canvas (`app/floor.html` + `app/styles/floor.css`)
+- A small, intuitive key sits below the floor (`.floor-legend`): **Machine** (solid box) ·
+  **Storage** (dashed box) · capacity-cell states **Busy / Blocked / Down / Free** ·
+  **Unit** (teal dot) · **Waiting / stored (×N)** (grey dot) · **Scrapped** (red dot) ·
+  **Transport** (faint line) · and a "hover a station for live counts" hint. Pure markup + tokens,
+  no JS.
+
+### Queued / stored units → one grey dot + "×N" (`app/js/floor.js`)
+- Previously every waiting/stored unit was its own grey dot, so a long queue or a full storage
+  painted the canvas with dots. Now `renderFrame()` aggregates them: units **in service / transit**
+  still draw as individual teal dots (`jobPos`, capped at 150), while **queued / pending / held /
+  finished** units collapse to a **single grey dot + a `×N` count** per location (new `queueLoc()`;
+  `queueEls` state; `.qmark` / `.qcount` styles). Count shows only when N > 1.
+- Side effect (good): a flooded/unstable line no longer floods the view with dots — it reads as
+  e.g. "• ×18". The true WIP is still on the clock and via hover.
+- **Verified** (headless): a built-up queue of 20 rendered as 2 active dots + one grey "×18" marker;
+  legend = 11 items; no console errors. `npm test` → 76/76 (UI-only change).
+
 ## Live site
 After this session is pushed: https://emni-stack.github.io/Claude-DES-engine-ENV/app/floor.html
