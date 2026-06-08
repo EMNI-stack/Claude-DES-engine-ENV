@@ -535,3 +535,36 @@ reviewed screenshots — legs are faint and in the background, the WIP storage r
 the inventory triangle, distinct from the solid machine boxes.
 
 **Decision logged:** `docs/DECISIONS.md` (2026-06-08).
+
+---
+
+## 2026-06-08 — Fix: "simulation stops generating after ~200 t" (limitless-supply flood + token-render cap)
+
+**Trigger:** stakeholder reported the floor sim suddenly stops generating units from the input after
+~200 time units.
+
+**Diagnosis (empirical).** Traced the engine headlessly: with the **stream** example, arrivals never
+stop — `entered` climbs steadily (62 at t=200 → 703 at t=2000) and an `ARRIVE` is always queued; the live
+UI ran smoothly past t=200 with no stall or console error. The fault appeared only with **Raw supply =
+Limitless**: with `push` control and an **infinite first buffer**, `firstCanAccept` allowed a release on
+essentially every event (the "one staged at source" gate is emptied immediately by instant boarding into
+the unbounded buffer), so WIP exploded — `entered` hit the 5,000,000 guard with WIP ≈ 4,999,330. In the
+browser that means the animation tries to draw tens of thousands of tokens and chokes, which reads as
+"it stopped." (limitless + worker transport flooded similarly.)
+
+**Fixes (engine + UI).**
+- **`src/floor-engine.js` — bound limitless release.** `firstCanAccept` now, under non-CONWIP control
+  with an infinite first buffer, only releases while the first station's occupancy is below
+  `machines + 1` — a shallow ready queue that keeps it fed without flooding. Finite buffers are respected
+  as before; CONWIP is exempt (its cap already bounds WIP). After the fix all limitless variants are
+  bounded (limitless+push: entered 1498 / WIP 4 over t=3000, was 5 000 000 / ~5 000 000).
+- **`app/js/floor.js` — cap rendered tokens.** `renderFrame` draws at most 150 job tokens regardless of
+  WIP, so a runaway or merely unstable line can never freeze the animation; the clock's WIP still shows
+  the true count.
+
+**Verification:** `npm test` → **76/76** (new regression test: limitless+push on an infinite buffer keeps
+`maxLineWip ≤ 8` while still producing; existing CONWIP/limitless tests unchanged). Re-ran the multi-config
+diagnostic — every supply/control/transport combination now stays bounded. UI smoke test (2.5 s of play):
+output advancing, no console errors.
+
+**Decision logged:** `docs/DECISIONS.md` (2026-06-08).

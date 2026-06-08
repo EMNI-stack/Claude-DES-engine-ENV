@@ -278,11 +278,14 @@ function renderFrame(cursor) {
       cell.setAttribute('class', 'cap-cell' + (m ? (m.down ? ' down' : m.busy ? ' busy' : m.blocked ? ' blocked' : '') : ''));
     });
   }
-  // tokens
-  const seen = new Set(), buckets = new Map();
+  // tokens — capped so a runaway WIP (e.g. an unstable line) can never freeze the
+  // animation by drawing tens of thousands of circles; the clock's WIP shows the truth.
+  const TOK_CAP = 150;
+  const seen = new Set(), buckets = new Map(); let drawn = 0;
   for (const job of sim.jobs.values()) {
+    if (drawn >= TOK_CAP) break;
     const p = jobPos(job, cursor, buckets); if (!p) continue;
-    seen.add(job.id);
+    seen.add(job.id); drawn++;
     let c = tokenEls.get(job.id);
     if (!c) { c = E('circle', { class: 'tok' }); tokenLayer.append(c); tokenEls.set(job.id, c); }
     c.setAttribute('cx', p.x.toFixed(1)); c.setAttribute('cy', p.y.toFixed(1)); c.setAttribute('r', p.r);

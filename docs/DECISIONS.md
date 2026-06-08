@@ -383,3 +383,24 @@ Entry format:
 - Governing principle / source: Stakeholder direction (2026-06-08); DESIGN-LANGUAGE §7 (light canvas,
   faint low-contrast grid; storage as a distinct quiet shape; quiet diagrammatic transport), §0/§8 (quiet,
   legible, no glow). UI-only; engine untouched (Charter §4.2).
+
+## [2026-06-08] — Bound limitless-supply release (anti-flood) + cap animation tokens
+- Decision: Under limitless supply with non-CONWIP control and an infinite first buffer, the release gate
+  (`firstCanAccept`) admits new jobs only while the first station's occupancy is below `machines + 1`
+  (a shallow ready queue). Finite buffers are still respected; CONWIP is exempt (its cap bounds WIP). In
+  the UI, `renderFrame` draws at most 150 job tokens irrespective of WIP.
+- Rationale: With push (no WIP cap) and an unbounded first buffer, limitless supply released a job on
+  nearly every event — WIP grew without bound (observed 5,000,000) and the animation froze, which the
+  stakeholder experienced as "the input stops generating after ~200 t". Gating to `machines + 1` keeps the
+  pacemaker station fed (no starvation, since one job is always ready) without flooding; capping tokens
+  makes the view robust to any high-WIP situation (flood or a genuinely unstable line).
+- Alternatives considered: gating on a *free machine* at release time (rejected — settle() ordering frees
+  machines after release runs, risking under-feeding or an emptied event list); leaving the engine and
+  only capping tokens (rejected — the 5,000,000-job WIP is itself wrong, not just a rendering problem);
+  removing the limitless option (rejected — it is a legitimate JIT/limitless-raw teaching case, just
+  needs a sane bound). Note: a balanced *downstream* station under limitless can still legitimately grow
+  its queue (critical loading) — that is correct physics, not the flood, and is left as-is.
+- Governing principle / source: Stakeholder bug report (2026-06-08); the original demo's intent that
+  limitless feeds "the moment a machine frees up" (release constrained by capacity); Charter §4.2
+  (the engine is the validated foundation — fix with a regression test). Engine change covered by
+  `tests/floor-engine.test.js` (76/76).

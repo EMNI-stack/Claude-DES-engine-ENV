@@ -203,8 +203,17 @@ export class FloorSim {
   firstCanAccept() {
     const r = this.mainPart && this.mainPart.routing; if (!r) return false;
     const srcHold = this.hold[r[0]];
-    if (srcHold && srcHold.items.length > 0) return false;     // one in flight from the source at a time
-    for (const id of r) if (this.res[id]) return this.occ(id) < this.res[id].cap;
+    if (srcHold && srcHold.items.length > 0) return false;     // one staged at the source at a time
+    for (const id of r) if (this.res[id]) {
+      const R = this.res[id];
+      if (this.occ(id) >= R.cap) return false;                 // respect a finite input buffer
+      // Push has no WIP cap, so an INFINITE first buffer would let limitless supply
+      // release a job on essentially every event and flood the line (WIP → ∞). Keep
+      // only a shallow ready queue (machines + 1) so the first station stays fed
+      // without WIP exploding. CONWIP bounds WIP via its cap, so it is exempt.
+      if (this.control !== 'conwip' && R.cap === Infinity && this.occ(id) >= R.machines.length + 1) return false;
+      return true;
+    }
     return false;
   }
   releaseJob() {

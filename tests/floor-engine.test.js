@@ -186,6 +186,28 @@ test('CONWIP + limitless holds the line full at the cap', () => {
   assert.ok(r.avgWIP > 2.5, `limitless CONWIP should keep the line near full, avgWIP ${r.avgWIP.toFixed(2)}`);
 });
 
+test('limitless + push does not flood an infinite first buffer (bounded WIP)', () => {
+  // Single resource with an infinite input buffer. Limitless + push used to release
+  // a job on nearly every event (WIP → millions); it must now hold only a shallow
+  // ready queue so the station stays fed without WIP exploding.
+  const m = {
+    schema: 'des-floor/v1', units: { time: 'min', distance: 'm', speed: 'm/min' },
+    transport: { default: 'instant', speed: 100 },
+    control: 'push', supply: 'limitless',
+    nodes: [
+      { kind: 'source', id: 'src', x: 0, y: 0 },
+      { kind: 'resource', id: 'A', x: 10, y: 0, machines: 1, service: newDist('exp', { mean: 1 }), bufferCap: Infinity },
+      { kind: 'sink', id: 'snk', x: 20, y: 0 },
+    ],
+    parts: [{ id: 'p', kind: 'product', routing: ['src', 'A', 'snk'], demand: newDist('exp', { mean: 1 }) }],
+  };
+  const sim = new FloorSim(m, 7);
+  sim.run({ until: 3000 });
+  const r = sim.metrics();
+  assert.ok(r.maxLineWip <= 8, `limitless+push line WIP must stay a shallow ready queue, got ${r.maxLineWip}`);
+  assert.ok(r.completed > 100, `the line should still produce, completed ${r.completed}`);
+});
+
 /* ---- scrap & breakdowns (ported from the original engine) -------------- */
 // Single saturated resource: source -> A -> sink, fast arrivals so A is busy.
 function oneResource({ service = 1, scrap = 0, brk = null, interarrival = 0.5 } = {}) {
