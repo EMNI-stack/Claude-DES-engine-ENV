@@ -425,3 +425,35 @@ Screenshots reviewed.
 
 **Decision logged:** `docs/DECISIONS.md` (2026-06-08) — incl. the minor, recorded deviation from
 DESIGN-LANGUAGE §7's literal "dotted grid" (now a faint *line* grid using the same hairline tokens).
+
+---
+
+## 2026-06-08 — Phase 3: clearer running parts — bigger tokens, live count tooltip, scrap drop animation
+
+Stakeholder asked to make parts moving through the system clearer while a run plays. Three changes
+(design rules preserved); one small additive engine hook, the rest UI.
+
+- **Larger tokens.** Bumped the job-token radii in `jobPos` (service 5→8, transit 4→6.5, queued/held
+  6) and widened their stacking offsets, so parts read clearly at a glance. Tokens are now
+  `pointer-events: none` so they never block hovering the node beneath.
+- **Live count tooltip.** Hovering any node *while a built run exists* shows a quiet raised-surface
+  tooltip (`#floorTip`) with live counts, refreshed every animation frame: for a resource — **here**
+  (queue + in-service + blocked), **being processed** (busy / machines), **waiting** (queue), plus
+  blocked/down when non-zero; for source/storage — staged/holding vs capacity; for the sink — shipped.
+  A second `pointermove` listener (`onHover`) reads the live `sim` state; it bails during drag/pan and
+  while the model is dirty (`needsBuild`).
+- **Scrap drop animation.** A scrapped part now turns red and **falls straight down, fading out**
+  (DESIGN-LANGUAGE §6 "scrapped dot fades out on drop"), instead of vanishing. The engine
+  (`floor-engine.js`) gained an additive `scrapLog` of `{node, t}` recorded in `scrap()` from the job's
+  service location — **no count/logic change**. The animation layer spawns a `.tok-scrap` circle
+  (`--scrap` red, CSS `scrap-drop` keyframe, self-removes on `animationend`) for each new scrap as the
+  cursor passes it, **only during live playback** (bulk scraps from *Run to end* are skipped, capped at
+  12/frame), and honours `prefers-reduced-motion`.
+
+**Verification:** `npm test` → **75/75** (engine change additive; existing scrap/conservation tests
+green). Drove the page headless via CDP with the example's Press set to scrap 0.6 at 45× speed:
+confirmed up to 10 `.tok-scrap` drop tokens spawning live, and the Press hover tooltip reading
+"here 4 · being processed 1/1 · waiting 3" and updating. Screenshots reviewed — red parts drop below the
+machine and fade; tooltip is on-brand (serif name, mono figures, hairline + barely-there shadow).
+
+**Decision logged:** `docs/DECISIONS.md` (2026-06-08).

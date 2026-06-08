@@ -39,6 +39,7 @@ export class FloorSim {
     this.sumCycle = 0; this.sumJobTransit = 0;
     this.pid = 0; this.events = 0;
     this.jobs = new Map();                  // live jobs in system, for animation
+    this.scrapLog = [];                     // {node, t} per scrap event, for the drop animation
     this.arrivalBlocked = [];               // instant-delivered jobs awaiting a full buffer
 
     // node index + runtime state
@@ -368,7 +369,11 @@ export class FloorSim {
   }
 
   exit(job) { this.wip--; this.completed++; this.sumCycle += this.now - job.entry; this.sumJobTransit += job.transit; this.jobs.delete(job.id); }
-  scrap(job) { this.wip--; this.scrapped++; this.jobs.delete(job.id); }   // leaves as scrap (not completed)
+  scrap(job) {                                                            // leaves as scrap (not completed)
+    this.wip--; this.scrapped++;
+    if (job.loc && job.loc.node != null) this.scrapLog.push({ node: job.loc.node, t: this.now });
+    this.jobs.delete(job.id);
+  }
 
   /* ---- metrics ---------------------------------------------------------- */
   metrics() {

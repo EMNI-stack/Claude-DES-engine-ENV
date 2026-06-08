@@ -25,6 +25,7 @@ const SYMBOL_KEYS = Object.keys(SYMBOLS);
 const SVGNS = 'http://www.w3.org/2000/svg';
 const S = 10;                 // px per metre (display); model coords are metres
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 let project = load();
 let model = ensureModel(project.model);
@@ -35,6 +36,8 @@ let drag = null;
 // playback + animation state
 let sim = null, simCursor = 0, playing = false, lastTs = 0, speed = 6, needsBuild = true, finished = false, raf = 0;
 let tokenEls = new Map(), tokenLayer = null;
+let scrapSeen = 0;            // index into sim.scrapLog of the last scrap we've animated
+let hoverNodeId = null;       // node currently hovered, for the live count tooltip
 
 // view (zoom / pan). Base coordinate space is 820×480 px (= 82×48 m at S=10).
 const BASE_W = 820, BASE_H = 480;
@@ -248,20 +251,74 @@ function renderFrame(cursor) {
     c.setAttribute('class', 'tok' + (p.q ? ' q' : ''));
   }
   for (const [id, c] of tokenEls) if (!seen.has(id)) { c.remove(); tokenEls.delete(id); }
+  // scrapped parts: drop-and-fade where they were destroyed (only when watching live)
+  let spawned = 0;
+  while (scrapSeen < sim.scrapLog.length && sim.scrapLog[scrapSeen].t <= cursor) {
+    const s = sim.scrapLog[scrapSeen++];
+    if (playing && spawned < 12) { spawnScrapAnim(s.node); spawned++; }   // skip animating bulk (run-to-end) scraps
+  }
+  if (hoverNodeId && !$('floorTip').hidden) $('floorTip').innerHTML = tipHTML(hoverNodeId);   // keep counts live
+}
+/* a scrapped part: a red-ish token at the machine that drops straight down and fades out */
+function spawnScrapAnim(nodeId) {
+  const n = node(nodeId); if (!n || !tokenLayer) return;
+  const c = E('circle', { class: 'tok tok-scrap', cx: px(n.x), cy: px(n.y) - 2, r: 8 });
+  c.addEventListener('animationend', () => c.remove());
+  tokenLayer.append(c);
+}
+
+/* ---- live count tooltip (hover a node while a run exists) --------------- */
+function tipHTML(id) {
+  const n = node(id); if (!n || !sim) return '';
+  const rows = [];
+  if (n.kind === 'resource' && sim.res[id]) {
+    const r = sim.res[id];
+    const busy = r.machines.filter((m) => m.busy).length;
+    const blocked = r.machines.filter((m) => m.blocked).length;
+    const down = r.machines.filter((m) => m.down).length;
+    const waiting = r.queue.length;
+    rows.push(['here', waiting + busy + blocked], ['being processed', busy + ' / ' + r.machines.length], ['waiting', waiting]);
+    if (blocked) rows.push(['blocked', blocked]);
+    if (down) rows.push(['down', down]);
+  } else if (sim.hold[id]) {
+    const h = sim.hold[id];
+    rows.push([n.kind === 'source' ? 'staged' : 'holding', h.items.length + (h.cap === Infinity ? '' : ' / ' + h.cap)]);
+  } else if (n.kind === 'sink') {
+    rows.push(['shipped', sim.completed]);
+  }
+  const name = n.name || (n.kind[0].toUpperCase() + n.kind.slice(1));
+  return `<div class="tip-name">${esc(name)}</div>` + rows.map(([k, v]) => `<div class="tip-row"><span>${k}</span><span class="v num">${v}</span></div>`).join('');
+}
+function showTip(id, e) {
+  const tip = $('floorTip'); tip.innerHTML = tipHTML(id); tip.hidden = false;
+  const stage = tip.parentElement.getBoundingClientRect();
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let x = e.clientX - stage.left + 16, y = e.clientY - stage.top + 16;
+  if (x + tw > stage.width - 4) x = e.clientX - stage.left - tw - 12;
+  if (y + th > stage.height - 4) y = stage.height - th - 4;
+  tip.style.left = Math.max(4, x) + 'px'; tip.style.top = Math.max(4, y) + 'px';
+}
+function hideTip() { const t = $('floorTip'); if (t) t.hidden = true; }
+function onHover(e) {
+  if (drag || panning) { hoverNodeId = null; hideTip(); return; }
+  const grp = e.target.closest('[data-node]');
+  const id = grp && grp.getAttribute('data-node');
+  if (id && sim && !needsBuild) { hoverNodeId = id; showTip(id, e); }
+  else { hoverNodeId = null; hideTip(); }
 }
 function jobPos(job, cursor, buckets) {
   const loc = job.loc; if (!loc) return null;
   if (loc.k === 'transit') {
     const f = node(loc.from), t = node(loc.to); if (!f || !t) return null;
     const p = Math.min(1, Math.max(0, (cursor - loc.t0) / ((loc.t1 - loc.t0) || 1)));
-    return { x: px(f.x + (t.x - f.x) * p), y: px(f.y + (t.y - f.y) * p), r: 4, q: false };
+    return { x: px(f.x + (t.x - f.x) * p), y: px(f.y + (t.y - f.y) * p), r: 6.5, q: false };
   }
   const n = node(loc.node); if (!n) return null;
-  if (loc.k === 'service') return { x: px(n.x), y: px(n.y) - 2, r: 5, q: false };
+  if (loc.k === 'service') return { x: px(n.x), y: px(n.y) - 2, r: 8, q: false };
   const key = loc.node + loc.k, i = buckets.get(key) || 0; buckets.set(key, i + 1);
-  if (loc.k === 'fg') return { x: px(n.x) + 26 + i * 9, y: px(n.y), r: 4, q: true };
-  if (loc.k === 'hold') return { x: px(n.x) + i * 9, y: px(n.y) - 26, r: 4, q: true };
-  return { x: px(n.x) - 52 - i * 9, y: px(n.y), r: 4, q: true };     // queue / pending: stack to the left
+  if (loc.k === 'fg') return { x: px(n.x) + 28 + i * 11, y: px(n.y), r: 6, q: true };
+  if (loc.k === 'hold') return { x: px(n.x) + i * 11, y: px(n.y) - 28, r: 6, q: true };
+  return { x: px(n.x) - 54 - i * 11, y: px(n.y), r: 6, q: true };     // queue / pending: stack to the left
 }
 function symG(key, cls, tx, ty, scale) {
   const g = E('g', { class: cls, transform: `translate(${tx},${ty}) scale(${scale})` });
@@ -521,7 +578,7 @@ function buildRunModel() {
 function buildSim() {
   if (model.routeOrder.length < 2) { sim = null; needsBuild = true; return false; }
   sim = new FloorSim(buildRunModel(), 1);
-  simCursor = 0; needsBuild = false; finished = false;
+  simCursor = 0; needsBuild = false; finished = false; scrapSeen = 0;
   render(); updateClock();
   return true;
 }
@@ -648,6 +705,8 @@ function init() {
   const svg = $('svg');
   svg.addEventListener('pointerdown', onPointerDown);
   svg.addEventListener('pointermove', onPointerMove);
+  svg.addEventListener('pointermove', onHover);
+  svg.addEventListener('pointerleave', () => { hoverNodeId = null; hideTip(); });
   window.addEventListener('pointerup', onPointerUp);
   $('palette').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; tool = b.dataset.tool; $('palette').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); });
   $('btnExample').addEventListener('click', loadExample);

@@ -57,6 +57,15 @@ svg.floor .grid-line.major { stroke: var(--line-strong); stroke-width: 1; }
   border: 1.5px solid var(--ink-2); border-top: 0; }
 .scalebar .scalelabel { font-size: 10px; color: var(--ink-2); line-height: 1; }
 
+/* live count tooltip (hover a node during/after a run) */
+.floor-tip { position: absolute; z-index: 6; pointer-events: none; min-width: 124px; max-width: 190px;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-control);
+  box-shadow: var(--shadow-raised); padding: 8px 10px; }
+.floor-tip .tip-name { font-family: var(--serif); font-size: 13px; color: var(--ink); margin-bottom: 5px; }
+.floor-tip .tip-row { display: flex; justify-content: space-between; gap: 14px; font-size: 11px;
+  color: var(--ink-2); line-height: 1.5; }
+.floor-tip .tip-row .v { color: var(--ink); }
+
 /* symbol picker (inspector) */
 .symrow { display: flex; flex-wrap: wrap; gap: 6px; }
 .symbtn { width: 38px; height: 34px; border: 1px solid var(--line-strong); border-radius: var(--r-control);
@@ -92,8 +101,12 @@ svg.floor .node-rect.blocked { stroke: var(--blocked); fill: rgba(194,118,46,.07
 svg.floor .node-rect.down { stroke: var(--down); fill: rgba(181,70,47,.07); }
 svg.floor .prog { fill: var(--busy); opacity: .55; }
 /* job tokens */
-svg.floor .tok { fill: var(--busy); }
+svg.floor .tok { fill: var(--busy); pointer-events: none; }
 svg.floor .tok.q { fill: var(--idle); }
+/* scrapped part: red-ish, drops straight down and fades out (DESIGN-LANGUAGE §6) */
+svg.floor .tok-scrap { fill: var(--scrap); animation: scrap-drop 700ms var(--ease) forwards; }
+@keyframes scrap-drop { from { transform: translateY(0); opacity: 1; } to { transform: translateY(46px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { svg.floor .tok-scrap { animation-duration: 1ms; } }
 svg.floor .node.sel .bracket { stroke: var(--primary); }
 svg.floor .node-label { font-family: var(--sans); font-size: 13px; font-weight: 500; fill: var(--ink); }
 svg.floor .node-kind { font-family: var(--mono); font-size: 9px; letter-spacing: .08em;
