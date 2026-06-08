@@ -87,6 +87,7 @@ function ensureModel(m) {
       if (typeof n.scrap !== 'number') n.scrap = 0;
       if (!n.symbol) n.symbol = 'box';
       if (!n.brk) n.brk = { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) };
+      if (!n.batch) n.batch = { on: false, size: 2, setup: 0 };
     } else if (n.kind === 'source') {
       if (!n.interarrival) n.interarrival = newDist('exp', { mean: arr });
     } else if (n.kind === 'storage') {
@@ -268,6 +269,16 @@ function renderFrame(cursor) {
       const anyDown = r.machines.some((m) => m.down), anyBusy = r.machines.some((m) => m.busy), anyBlk = r.machines.some((m) => m.blocked);
       cls += anyDown ? ' down' : anyBusy ? ' busy' : anyBlk ? ' blocked' : '';
       for (const m of r.machines) if (m.busy && m.depTime > m.startTime) frac = Math.max(frac, Math.min(1, Math.max(0, (cursor - m.startTime) / (m.depTime - m.startTime))));
+      // batch resource: badge shows accumulate (N/B) → setup → processing; the progress
+      // sliver tracks the PROCESSING phase only (0 during setup). Quiet, no glow (DESIGN-LANG §7).
+      const badgeEl = g.querySelector('.batch-badge');
+      if (badgeEl && r.batch) {
+        const bm = r.machines.find((m) => m.busy && m.batch);
+        if (bm) {
+          if (cursor < bm.setupEnd) { frac = 0; badgeEl.textContent = 'setup'; }
+          else { frac = bm.depTime > bm.setupEnd ? Math.min(1, Math.max(0, (cursor - bm.setupEnd) / (bm.depTime - bm.setupEnd))) : 1; badgeEl.textContent = 'processing ' + bm.batch.length; }
+        } else { frac = 0; badgeEl.textContent = r.queue.length + '/' + r.batch.size; }
+      }
     }
     if (selected && selected.kind === 'node' && selected.id === n.id) cls += ' sel';
     rect.setAttribute('class', cls);
@@ -340,6 +351,11 @@ function tipHTML(id) {
     rows.push(['here', waiting + busy + blocked], ['being processed', busy + ' / ' + r.machines.length], ['waiting', waiting]);
     if (blocked) rows.push(['blocked', blocked]);
     if (down) rows.push(['down', down]);
+    if (r.batch) {
+      const bm = r.machines.find((m) => m.busy && m.batch);
+      rows.push(['batch (B=' + r.batch.size + ')',
+        bm ? (simCursor < bm.setupEnd ? 'setup' : 'processing ' + bm.batch.length) : 'accumulating ' + r.queue.length + '/' + r.batch.size]);
+    }
   } else if (sim.hold[id]) {
     const h = sim.hold[id];
     rows.push([n.kind === 'source' ? 'staged' : 'holding', h.items.length + (h.cap === Infinity ? '' : ' / ' + h.cap)]);
@@ -406,6 +422,8 @@ function nodeEl(n) {
     g.append(cells);
     if (M > 8) g.append(E('text', { class: 'node-badge', x: 44, y: -20, 'text-anchor': 'end' }, '×' + M));
     g.append(E('rect', { class: 'prog', x: -44, y: 25, width: 0, height: 3, rx: 1.5 }));
+    // batch resource: a quiet status badge above the box (accumulating N/B → setup → processing)
+    if (n.batch && n.batch.on) g.append(E('text', { class: 'batch-badge', x: 0, y: -40, 'text-anchor': 'middle' }, 'batch ' + Math.max(2, n.batch.size | 0)));
   } else if (n.kind === 'storage') {
     g.append(E('rect', { class: 'store-rect', x: -38, y: -32, width: 76, height: 64, rx: 9 }));
     g.append(symG(n.symbol || 'triangle', 'node-sym', -10, -27, 0.82));    // chosen shape, centred top
@@ -466,16 +484,46 @@ function symbolPicker(n) {
   }
   return wrap;
 }
+/* Static deadlock guards for a batch resource: cases where B can provably never be reached, so
+   the model would jam. Surfaced in the inspector (and block Play — see buildSim). */
+function batchWarning(n) {
+  if (!n.batch || !n.batch.on) return null;
+  const B = Math.max(2, n.batch.size | 0);
+  if (n.buffer && n.buffer.finite && n.buffer.cap < B)
+    return `Input buffer capacity (${n.buffer.cap}) is below the batch size (${B}) — a full batch can never accumulate, so this station would jam. Raise the capacity to at least ${B}, or lower B.`;
+  if (model.control === 'conwip' && model.conwipCap < B)
+    return `The CONWIP cap (${model.conwipCap}) is below the batch size (${B}) — at most ${model.conwipCap} parts can ever be in the line, so a batch of ${B} can never form. Raise the cap to at least ${B}, or lower B.`;
+  return null;
+}
+function firstBatchDeadlock() {
+  for (const n of model.nodes) if (n.kind === 'resource') { const w = batchWarning(n); if (w) return { n, w }; }
+  return null;
+}
 function inspectNode(n, body) {
   if (!n) { selected = null; renderInspector(); return; }
   $('propKind').textContent = n.kind;
   $('propTitle').textContent = n.name || n.kind[0].toUpperCase() + n.kind.slice(1);
   body.append(field('Name', textInput(n.name || '', (v) => { n.name = v; persist(); render(); renderRoute(); })));
   if (n.kind === 'resource') {
+    if (!n.batch) n.batch = { on: false, size: 2, setup: 0 };
     body.append(H('p', { class: 'subhead' }, 'Symbol / shape'));
     body.append(symbolPicker(n));
     body.append(field('Machines (parallel)', numInput(n.machines || 1, 1, 1, (v) => { n.machines = Math.max(1, v | 0); persist(); render(); })));
-    body.append(H('p', { class: 'subhead' }, 'Service time'));
+    // Batch mode — the machine waits for a full batch of B, pays one setup, then processes the batch together.
+    body.append(H('p', { class: 'subhead' }, 'Batch processing'));
+    const batchChk = H('input', { type: 'checkbox' }); batchChk.checked = !!n.batch.on;
+    batchChk.addEventListener('change', () => { n.batch.on = batchChk.checked; persist(); render(); renderInspector(); });
+    body.append(H('label', { class: 'toggle-row' }, [batchChk, 'Process parts in batches']));
+    if (n.batch.on) {
+      body.append(field('Batch size B', numInput(n.batch.size, 2, 1, (v) => { n.batch.size = Math.max(2, v | 0); persist(); render(); renderInspector(); })));
+      body.append(field('Setup time (once per batch)', numInput(n.batch.setup, 0, 0.1, (v) => { n.batch.setup = Math.max(0, v || 0); persist(); render(); })));
+      body.append(H('p', { class: 'floor-hint', style: 'margin:var(--s-2) 0 0' },
+        `The machine waits for a full batch of ${n.batch.size}, pays the setup once, then processes the batch together — all ${n.batch.size} finish at the same moment and continue on individually.`));
+      const w = batchWarning(n);
+      if (w) body.append(H('p', { class: 'floor-warn', style: 'margin:var(--s-2) 0 0' }, w));
+    }
+    body.append(H('p', { class: 'subhead' }, n.batch.on ? 'Whole-batch process time' : 'Service time'));
+    if (n.batch.on) body.append(H('p', { class: 'floor-hint', style: 'margin:0 0 var(--s-2)' }, 'This distribution is now the time to process the WHOLE batch, not one part.'));
     body.append(distEditor(n.service, persist));
     body.append(H('p', { class: 'subhead' }, 'Input buffer'));
     const finChk = H('input', { type: 'checkbox' }); finChk.checked = !!n.buffer.finite;
@@ -579,7 +627,7 @@ function renderTable() {
   const rb = H('tbody', {});
   model.routeOrder.map(node).filter(Boolean).forEach((n) => {
     const tr = H('tr', { class: 'click' });
-    const svc = n.kind === 'resource' ? `${DISTS[n.service.type].label} · μ=${distMean(n.service).toFixed(2)}${n.scrap ? ` · scrap ${(n.scrap * 100).toFixed(0)}%` : ''}${n.brk.on ? ' · brk' : ''}` : n.kind === 'storage' ? `cap ${n.cap}` : n.kind === 'source' ? `${DISTS[n.interarrival.type].label} · μ=${distMean(n.interarrival).toFixed(2)}` : '—';
+    const svc = n.kind === 'resource' ? `${DISTS[n.service.type].label} · μ=${distMean(n.service).toFixed(2)}${(n.batch && n.batch.on) ? ` · batch ${n.batch.size}${n.batch.setup ? `+setup ${n.batch.setup}` : ''}` : ''}${n.scrap ? ` · scrap ${(n.scrap * 100).toFixed(0)}%` : ''}${n.brk.on ? ' · brk' : ''}` : n.kind === 'storage' ? `cap ${n.cap}` : n.kind === 'source' ? `${DISTS[n.interarrival.type].label} · μ=${distMean(n.interarrival).toFixed(2)}` : '—';
     const buf = n.kind === 'resource' ? (n.buffer.finite ? String(n.buffer.cap) : '∞') : '—';
     tr.innerHTML = `<td></td><td>${n.kind}</td><td class="num">${n.kind === 'resource' ? (n.machines || 1) : '—'}</td><td class="sum"></td><td class="num">${buf}</td>`;
     tr.children[0].textContent = n.name || n.kind; tr.children[3].textContent = svc;
@@ -618,7 +666,7 @@ function activateTab(name) {
 function addNode(kind, x, y) {
   const idp = { resource: 'res', storage: 'sto', source: 'src', sink: 'snk' }[kind] || 'n';
   const n = { kind, id: uid(idp), name: '', x, y };
-  if (kind === 'resource') { n.machines = 1; n.symbol = 'box'; n.service = newDist('exp', { mean: 1 }); n.buffer = { finite: false, cap: 10, init: 0, target: 8 }; n.scrap = 0; n.brk = { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) }; }
+  if (kind === 'resource') { n.machines = 1; n.symbol = 'box'; n.service = newDist('exp', { mean: 1 }); n.buffer = { finite: false, cap: 10, init: 0, target: 8 }; n.scrap = 0; n.brk = { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) }; n.batch = { on: false, size: 2, setup: 0 }; }
   if (kind === 'storage') { n.cap = 10; n.symbol = 'triangle'; }
   if (kind === 'source') n.interarrival = newDist('exp', { mean: 3 });
   model.nodes.push(n); model.routeOrder.push(n.id);
@@ -647,7 +695,7 @@ function ensureWorkerAssumption() {
 /* ---- run ---------------------------------------------------------------- */
 function buildRunModel() {
   const nodes = model.nodes.map((n) => n.kind === 'resource'
-    ? { kind: 'resource', id: n.id, name: n.name, x: n.x, y: n.y, machines: n.machines || 1, service: n.service, bufferCap: n.buffer.finite ? n.buffer.cap : Infinity, scrap: n.scrap || 0, brk: n.brk }
+    ? { kind: 'resource', id: n.id, name: n.name, x: n.x, y: n.y, machines: n.machines || 1, service: n.service, bufferCap: n.buffer.finite ? n.buffer.cap : Infinity, scrap: n.scrap || 0, brk: n.brk, batch: (n.batch && n.batch.on) ? { size: Math.max(2, n.batch.size | 0), setup: Math.max(0, n.batch.setup || 0) } : null }
     : { kind: n.kind, id: n.id, name: n.name, x: n.x, y: n.y, cap: n.cap });
   const src = model.nodes.find((n) => n.kind === 'source');
   const demand = src ? src.interarrival : newDist('exp', { mean: 3 });

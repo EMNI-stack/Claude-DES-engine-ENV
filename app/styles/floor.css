@@ -27,6 +27,8 @@
 .floor-toolbar { display: flex; gap: var(--s-3); align-items: center; flex-wrap: wrap; margin-bottom: var(--s-4); }
 .floor-toolbar .spacer { margin-left: auto; }
 .floor-hint { font-size: var(--fs-small); color: var(--faint); }
+.floor-warn { font-size: var(--fs-small); color: var(--down); border-left: 2px solid var(--down);
+  padding: 4px 0 4px var(--s-2); background: rgba(181,70,47,.05); }
 
 /* legend — a small, intuitive key to the colours and shapes on the floor */
 .floor-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
@@ -121,6 +123,8 @@ svg.floor .node-sym { stroke: var(--ink-2); stroke-width: 1.6; fill: none; strok
 svg.floor .node-sym .fillsym { fill: var(--ink-2); stroke: none; }
 svg.floor .node.sel .node-sym { stroke: var(--primary); }
 svg.floor .node-badge { font-family: var(--mono); font-size: 10px; fill: var(--faint); }
+/* batch status badge above a batch resource — quiet, mono, diagrammatic (no glow) */
+svg.floor .batch-badge { font-family: var(--mono); font-size: 10px; font-weight: 500; fill: var(--ink-2); letter-spacing: .04em; }
 /* live station states (fill + border, no glow) */
 svg.floor .node-rect.busy { fill: var(--primary-tint); stroke: var(--busy); }
 svg.floor .node-rect.blocked { stroke: var(--blocked); fill: rgba(194,118,46,.07); }

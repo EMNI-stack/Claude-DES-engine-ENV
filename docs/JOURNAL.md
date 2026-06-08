@@ -649,3 +649,16 @@ output advancing, no console errors.
 - New `tests/floor-batch.test.js` (7 tests): full-batch start + capacity-limited throughput, setup-once,
   finish-together, conservation, Little's Law (wait-to-batch counted), no-batch regression, starvation
   deadlock surface. Added to the `npm test` list. **`npm test` → 84/84.**
+
+## 2026-06-08 — Phase 3.4.2: batch processing UI and floor visualisation
+
+- Inspector (`app/js/floor.js` `inspectNode`): a "Process parts in batches" toggle on a resource; when on,
+  exposes **Batch size B** (min 2) and **Setup time (once per batch)**, relabels the service editor
+  **"Whole-batch process time"** with plain-language helper text, and shows a static-guard **warning** when
+  a batch can provably never form (finite input buffer < B, or CONWIP cap < B).
+- Floor (DESIGN-LANGUAGE §7, quiet/diagrammatic, no glow): a batch resource carries a small mono badge above
+  the box that reads **N/B while accumulating → "setup" → "processing N"**; the progress sliver tracks the
+  processing phase only (flat during setup). Hover tooltip and the table-view summary also show batch state.
+- Plumbing: `batch:{on,size,setup}` added to resource node defaults (creation + migration, defensive in the
+  inspector for example nodes) and threaded through `buildRunModel()` to the engine. New CSS `.batch-badge`
+  and `.floor-warn`. No build step (Charter §4). `npm test` → **84/84** (engine unchanged this milestone).
