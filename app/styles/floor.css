@@ -29,6 +29,21 @@
 .floor-hint { font-size: var(--fs-small); color: var(--faint); }
 .floor-warn { font-size: var(--fs-small); color: var(--down); border-left: 2px solid var(--down);
   padding: 4px 0 4px var(--s-2); background: rgba(181,70,47,.05); }
+/* parts panel (Phase 3.5) */
+.part-row { display: flex; align-items: center; gap: var(--s-2); padding: 6px 8px; border: 1px solid var(--line);
+  border-radius: 4px; cursor: pointer; margin-bottom: 4px; background: var(--surface); }
+.part-row.active { border-color: var(--primary); background: var(--surface-2); }
+.part-row .part-dot { width: 10px; height: 10px; border-radius: 2px; flex: 0 0 auto; }
+.part-row .part-name { flex: 1 1 auto; font-size: var(--fs-small); color: var(--ink); }
+.part-row .mini { flex: 0 0 auto; }
+.bom-row { display: flex; align-items: center; gap: var(--s-2); margin-bottom: 4px; }
+.bom-row select.inp { flex: 1 1 auto; }
+.route-add { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.route-add .chip { font-family: var(--mono); font-size: 11px; padding: 2px 8px; border: 1px solid var(--line-strong);
+  border-radius: 4px; background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.route-add .chip:hover { border-color: var(--primary); color: var(--primary); }
+/* legs not on the active part's route — quieter, so the active route reads first */
+svg.floor .leg.leg-off { opacity: .35; }
 
 /* legend — a small, intuitive key to the colours and shapes on the floor */
 .floor-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;

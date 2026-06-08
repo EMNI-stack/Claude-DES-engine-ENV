@@ -65,15 +65,15 @@ let panning = null;
 function ensureModel(m) {
   const base = {
     schema: 'des-floor/v1', scale: S, units: { time: 'min', distance: 'm', speed: 'm/min' },
-    nodes: [], routeOrder: [],
+    nodes: [], parts: [], activePart: null,
     defaultMover: 'instant', defaultSpeed: 40,
     conveyor: { cap: 3, speed: 30 }, workers: { count: 2, speed: 40 },
     legs: {},
     control: 'push', conwipCap: 10, supply: 'stream',
     demand: { mode: 'instant', dist: newDist('exp', { mean: 2 }) },
   };
-  if (!m || m.schema !== 'des-floor/v1') return base;
-  m.nodes = m.nodes || []; m.routeOrder = m.routeOrder || [];
+  if (!m || m.schema !== 'des-floor/v1') m = base;
+  m.nodes = m.nodes || [];
   m.defaultMover = m.defaultMover || 'instant';
   m.defaultSpeed = m.defaultSpeed || (m.params && m.params.speed) || 40;
   m.conveyor = m.conveyor || base.conveyor; m.workers = m.workers || base.workers;
@@ -95,7 +95,24 @@ function ensureModel(m) {
       if (typeof n.cap !== 'number') n.cap = 10;
       if (!n.symbol) n.symbol = 'triangle';      // VSM inventory triangle by default
     }
+    if (n.kind === 'resource' && typeof n.assembly !== 'boolean') n.assembly = false;   // Phase 3.5
   }
+  // Phase 3.5 — parts: migrate the legacy single `routeOrder` to one product part.
+  if (!Array.isArray(m.parts) || !m.parts.length) {
+    const route = (Array.isArray(m.routeOrder) && m.routeOrder.length) ? m.routeOrder.slice() : m.nodes.map((n) => n.id);
+    m.parts = [{ id: uid('part'), name: 'Part', kind: 'product', route, bom: [],
+      demand: { on: !!(m.demand && m.demand.mode === 'stream'), dist: (m.demand && m.demand.dist) || newDist('exp', { mean: 2 }), qty: 1, conwip: m.conwipCap || 5 } }];
+  }
+  for (const p of m.parts) {
+    if (!p.id) p.id = uid('part');
+    if (!p.name) p.name = 'Part';
+    if (!p.kind) p.kind = 'product';
+    if (!Array.isArray(p.route)) p.route = [];
+    if (!Array.isArray(p.bom)) p.bom = [];
+    if (!p.demand) p.demand = { on: false, dist: newDist('exp', { mean: 2 }), qty: 1, conwip: 5 };
+  }
+  delete m.routeOrder;
+  if (!m.activePart || !m.parts.some((p) => p.id === m.activePart)) m.activePart = m.parts[0].id;
   return m;
 }
 function persist() { project.model = model; save(project); needsBuild = true; finished = false; }
@@ -103,7 +120,17 @@ function persist() { project.model = model; save(project); needsBuild = true; fi
 /* ---- geometry ----------------------------------------------------------- */
 const px = (mm) => mm * S;
 function node(id) { return model.nodes.find((n) => n.id === id); }
-function legKeyAt(i) { return `${model.routeOrder[i]}>${model.routeOrder[i + 1]}`; }
+/* ---- parts / routes (Phase 3.5) ---------------------------------------- */
+function activePart() { return model.parts.find((p) => p.id === model.activePart) || model.parts[0]; }
+function aRoute() { const p = activePart(); return p ? p.route : []; }   // the active part's ordered route
+function partColor(idx) { const cs = ['--c1', '--c2', '--c3', '--c4', '--c5', '--c6']; return `var(${cs[idx % cs.length]})`; }
+// every transport leg used by ANY part (union of consecutive pairs) — shared physical edges = one leg
+function allLegKeys() {
+  const set = new Set();
+  for (const p of model.parts) for (let i = 0; i < p.route.length - 1; i++) set.add(`${p.route[i]}>${p.route[i + 1]}`);
+  return [...set];
+}
+function legKeyAt(i) { const r = aRoute(); return `${r[i]}>${r[i + 1]}`; }
 function effMover(key) { return (model.legs[key] && model.legs[key].mover) || model.defaultMover; }
 function legSpeedFor(key, mover) {
   const o = model.legs[key] || {};
@@ -241,11 +268,13 @@ function render() {
   updateGrid();
 
   const legG = E('g', {});
-  for (let i = 0; i < model.routeOrder.length - 1; i++) {
-    const a = node(model.routeOrder[i]), b = node(model.routeOrder[i + 1]); if (!a || !b) continue;
-    const key = legKeyAt(i), mover = effMover(key);
+  const activeKeys = new Set(); { const r = aRoute(); for (let i = 0; i < r.length - 1; i++) activeKeys.add(`${r[i]}>${r[i + 1]}`); }
+  for (const key of allLegKeys()) {
+    const [aid, bid] = key.split('>'); const a = node(aid), b = node(bid); if (!a || !b) continue;
+    const mover = effMover(key);
     const ax = px(a.x), ay = px(a.y), bx = px(b.x), by = px(b.y);
-    const cls = 'leg ' + (mover === 'conveyor' ? 'leg-conv' : mover === 'worker' ? 'leg-worker' : '') + (selected && selected.kind === 'leg' && selected.key === key ? ' sel' : '');
+    const onActive = activeKeys.has(key);
+    const cls = 'leg ' + (mover === 'conveyor' ? 'leg-conv' : mover === 'worker' ? 'leg-worker' : '') + (selected && selected.kind === 'leg' && selected.key === key ? ' sel' : '') + (onActive ? '' : ' leg-off');
     legG.append(E('line', { class: cls.trim(), x1: ax, y1: ay, x2: bx, y2: by }));
     legG.append(E('line', { class: 'leg-hit', 'data-leg': key, x1: ax, y1: ay, x2: bx, y2: by }));
     const far = legDistance(a, b) > 0.5, mx = (ax + bx) / 2, my = (ay + by) / 2;
@@ -439,20 +468,102 @@ function nodeEl(n) {
   return g;
 }
 
-/* ---- route list --------------------------------------------------------- */
+/* ---- parts panel (Phase 3.5) ------------------------------------------- */
+function renderParts() {
+  const host = $('partsBody'); if (!host) return; host.innerHTML = '';
+  model.parts.forEach((p, idx) => {
+    const row = H('div', { class: 'part-row' + (p.id === model.activePart ? ' active' : '') });
+    const dot = H('span', { class: 'part-dot' }); dot.style.background = partColor(idx);
+    const nm = H('span', { class: 'part-name' }); nm.textContent = `${p.name} · ${p.kind}${p.bom.length ? ' · assembled' : ''}`;
+    row.append(dot, nm);
+    if (model.parts.length > 1) row.append(mini('✕', () => removePart(p.id)));
+    row.addEventListener('click', (e) => { if (!e.target.classList.contains('mini')) { model.activePart = p.id; persist(); refreshAll(); } });
+    host.append(row);
+  });
+  const addBtn = H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-2)' }, '+ Add part');
+  addBtn.disabled = model.parts.length >= 10;
+  addBtn.addEventListener('click', addPart);
+  host.append(addBtn);
+  if (model.parts.length >= 10) host.append(H('p', { class: 'floor-hint' }, 'Limit of 10 parts (kept simple).'));
+
+  // editor for the ACTIVE part
+  const p = activePart(); if (!p) return;
+  host.append(H('hr', { class: 'muted-rule' }));
+  host.append(field('Part name', textInput(p.name, (v) => { p.name = v || 'Part'; persist(); refreshAll(); })));
+  host.append(field('Type', segmented(
+    [{ value: 'product', label: 'Product' }, { value: 'fabricated', label: 'Made' }, { value: 'purchased', label: 'Bought' }],
+    p.kind, (v) => { p.kind = v; persist(); renderParts(); }, 'Type')));
+  host.append(H('p', { class: 'floor-hint', style: 'margin:0' }, p.kind === 'purchased'
+    ? 'Bought-in: appears at a source and travels to where it is used.'
+    : p.kind === 'fabricated' ? 'Made on the line, then used as a component.' : 'A finished product (may be assembled from components).'));
+
+  // BOM editor — turning a part into an assembly
+  host.append(H('p', { class: 'subhead' }, 'Bill of materials'));
+  if (!p.bom.length) host.append(H('p', { class: 'floor-hint', style: 'margin:0 0 var(--s-2)' }, 'No components — made/bought directly. Add a component to assemble this part from others (its route must start at an assembly station).'));
+  p.bom.forEach((b, bi) => {
+    const sel = H('select', { class: 'inp' });
+    model.parts.filter((o) => o.id !== p.id).forEach((o) => { const opt = H('option', { value: o.id }, o.name); if (o.id === b.partId) opt.selected = true; sel.append(opt); });
+    sel.addEventListener('change', () => { b.partId = sel.value; persist(); });
+    const qty = numInput(b.qty, 1, 1, (v) => { b.qty = Math.max(1, v | 0); persist(); });
+    host.append(H('div', { class: 'bom-row' }, [sel, H('span', { class: 'faint' }, '×'), qty, mini('✕', () => { p.bom.splice(bi, 1); persist(); renderParts(); render(); })]));
+  });
+  if (model.parts.length > 1) {
+    const ab = H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-1)' }, '+ component');
+    ab.addEventListener('click', () => { const other = model.parts.find((o) => o.id !== p.id && !p.bom.some((b) => b.partId === o.id)) || model.parts.find((o) => o.id !== p.id); if (other) { p.bom.push({ partId: other.id, qty: 1 }); ensureProcessAssumption(); persist(); renderParts(); render(); } });
+    host.append(ab);
+  }
+
+  // per-product customer demand (each its OWN interarrival distribution)
+  host.append(H('p', { class: 'subhead' }, 'Customer demand'));
+  const dchk = H('input', { type: 'checkbox' }); dchk.checked = !!p.demand.on;
+  dchk.addEventListener('change', () => { p.demand.on = dchk.checked; persist(); renderParts(); });
+  host.append(H('label', { class: 'toggle-row' }, [dchk, 'Sold to customers (a demand stream)']));
+  if (p.demand.on) {
+    host.append(H('p', { class: 'subhead' }, 'Time between orders'));
+    host.append(distEditor(p.demand.dist, persist));
+    host.append(field('Order quantity', numInput(p.demand.qty, 1, 1, (v) => { p.demand.qty = Math.max(1, v | 0); persist(); })));
+    if (model.control === 'conwip') host.append(field('CONWIP limit (this product)', numInput(p.demand.conwip, 1, 1, (v) => { p.demand.conwip = Math.max(1, v | 0); persist(); })));
+  }
+}
+function addPart() {
+  if (model.parts.length >= 10) return;
+  const id = uid('part');
+  model.parts.push({ id, name: 'Part ' + (model.parts.length + 1), kind: 'product', route: [], bom: [],
+    demand: { on: false, dist: newDist('exp', { mean: 3 }), qty: 1, conwip: 5 } });
+  model.activePart = id; ensureProcessAssumption(); persist(); refreshAll();
+}
+function removePart(id) {
+  if (model.parts.length <= 1) return;
+  model.parts = model.parts.filter((p) => p.id !== id);
+  for (const p of model.parts) p.bom = p.bom.filter((b) => b.partId !== id);
+  if (model.activePart === id) model.activePart = model.parts[0].id;
+  persist(); refreshAll();
+}
+
+/* ---- route list (active part's route) ---------------------------------- */
 function renderRoute() {
   const ul = $('routeList'); ul.innerHTML = '';
-  model.routeOrder.forEach((id, i) => {
+  const r = aRoute();
+  r.forEach((id, i) => {
     const n = node(id); if (!n) return;
     const li = H('li', { class: (selected && selected.kind === 'node' && selected.id === id) ? 'sel' : '' });
-    li.innerHTML = `<span class="rn">${i + 1}</span><span class="rname"></span><span class="rk">${n.kind}</span>`;
+    li.innerHTML = `<span class="rn">${i + 1}</span><span class="rname"></span><span class="rk">${n.kind}${n.assembly ? ' · assy' : ''}</span>`;
     li.querySelector('.rname').textContent = n.name || n.kind;
-    li.append(mini('↑', () => moveInRoute(i, -1)), mini('↓', () => moveInRoute(i, +1)), mini('✕', () => removeNode(id)));
+    li.append(mini('↑', () => moveInRoute(i, -1)), mini('↓', () => moveInRoute(i, +1)), mini('✕', () => removeFromRoute(i)));
     li.addEventListener('click', (e) => { if (!e.target.classList.contains('mini')) selectNode(id); });
     ul.append(li);
   });
-  $('routeHint').textContent = model.nodes.length ? 'Order = flow direction. First node = entry, last = exit.' : 'No nodes yet. Pick a tool above and click the canvas.';
+  const hint = $('routeHint'); hint.innerHTML = '';
+  if (!model.nodes.length) { hint.textContent = 'No nodes yet. Pick a tool above and click the canvas.'; return; }
+  hint.textContent = `Route of “${activePart().name}”. Order = flow direction; first = entry, last = exit.`;
+  const missing = model.nodes.filter((n) => !r.includes(n.id));
+  if (missing.length) {
+    const add = H('div', { class: 'route-add' });
+    missing.forEach((n) => { const b = H('button', { class: 'chip' }, '+ ' + (n.name || n.kind)); b.addEventListener('click', () => { aRoute().push(n.id); persist(); refreshAll(); }); add.append(b); });
+    hint.append(H('div', { class: 'small faint', style: 'margin-top:var(--s-2)' }, 'Add a placed node to this route:'), add);
+  }
 }
+function removeFromRoute(i) { const r = aRoute(); r.splice(i, 1); persist(); refreshAll(); }
 function mini(label, on) { const b = H('button', { class: 'mini' }, label); b.addEventListener('click', (e) => { e.stopPropagation(); on(); }); return b; }
 
 /* ---- inspector (node OR leg) ------------------------------------------- */
@@ -510,6 +621,12 @@ function inspectNode(n, body) {
     body.append(H('p', { class: 'subhead' }, 'Symbol / shape'));
     body.append(symbolPicker(n));
     body.append(field('Machines (parallel)', numInput(n.machines || 1, 1, 1, (v) => { n.machines = Math.max(1, v | 0); persist(); render(); })));
+    // Assembly station — a product whose route STARTS here is assembled from its bill of materials.
+    body.append(H('p', { class: 'subhead' }, 'Assembly'));
+    const asyChk = H('input', { type: 'checkbox' }); asyChk.checked = !!n.assembly;
+    asyChk.addEventListener('change', () => { n.assembly = asyChk.checked; persist(); render(); renderInspector(); });
+    body.append(H('label', { class: 'toggle-row' }, [asyChk, 'Assembly station (consumes a product’s BOM)']));
+    if (n.assembly) body.append(H('p', { class: 'floor-hint', style: 'margin:var(--s-2) 0 0' }, 'A product whose route starts here is assembled when all its bill-of-materials components have arrived; components routed here are consumed. Set the BOM in the Model tab’s Parts panel.'));
     // Batch mode — the machine waits for a full batch of B, pays one setup, then processes the batch together.
     body.append(H('p', { class: 'subhead' }, 'Batch processing'));
     const batchChk = H('input', { type: 'checkbox' }); batchChk.checked = !!n.batch.on;
@@ -558,6 +675,10 @@ function inspectNode(n, body) {
     body.append(H('p', { class: 'subhead' }, 'Interarrival time'));
     body.append(distEditor(n.interarrival, persist));
   }
+  // remove the node from the floor (and every part's route) — route ✕ only removes from a route
+  const del = H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-4)' }, 'Delete node');
+  del.addEventListener('click', () => removeNode(n.id));
+  body.append(del);
 }
 function inspectLeg(key, body) {
   const [fromId, toId] = key.split('>'); const from = node(fromId), to = node(toId);
@@ -610,19 +731,15 @@ function renderControl() {
   b.append(field('Release control', segmented(
     [{ value: 'push', label: 'Push' }, { value: 'conwip', label: 'CONWIP (pull)' }],
     model.control, (v) => { model.control = v; persist(); renderControl(); }, 'Control')));
-  if (model.control === 'conwip') b.append(field('WIP cap (cards)', numInput(model.conwipCap, 1, 1, (v) => { model.conwipCap = Math.max(1, v | 0); persist(); })));
+  if (model.control === 'conwip') b.append(H('p', { class: 'floor-hint', style: 'margin:0' }, 'Pull (CONWIP): each product is released against its own demand, capped by its CONWIP limit — set per product in the Parts panel above.'));
   b.append(field('Raw supply', segmented(
     [{ value: 'stream', label: 'Arrival stream' }, { value: 'limitless', label: 'Limitless' }],
     model.supply, (v) => { model.supply = v; persist(); renderControl(); }, 'Supply')));
   b.append(H('p', { class: 'floor-hint', style: 'margin:0' }, model.supply === 'stream'
-    ? 'Raw arrives per the Source node’s interarrival distribution.'
-    : 'Raw is always available — release is limited by capacity (and the WIP cap, if CONWIP).'));
+    ? 'Raw/bought parts arrive per each part’s Source interarrival (set on the Source node).'
+    : 'Raw is always available — release is limited by capacity (and CONWIP, if pull).'));
   b.append(H('p', { class: 'subhead' }, 'Customer demand'));
-  b.append(field('Consumption', segmented(
-    [{ value: 'instant', label: 'Instant' }, { value: 'stream', label: 'Demand stream' }],
-    model.demand.mode, (v) => { model.demand.mode = v; persist(); renderControl(); }, 'Demand')));
-  if (model.demand.mode === 'stream') { b.append(H('p', { class: 'subhead' }, 'Interdemand time')); b.append(distEditor(model.demand.dist, persist)); }
-  else b.append(H('p', { class: 'floor-hint', style: 'margin:0' }, 'Every finished unit is consumed immediately (push to sink).'));
+  b.append(H('p', { class: 'floor-hint', style: 'margin:0' }, 'Demand is per product — turn on “Sold to customers” for a part in the Parts panel and give it its own order interarrival. With no demand set, finished units simply accumulate (throughput is the output rate).'));
 }
 
 /* ---- table overview ----------------------------------------------------- */
@@ -633,9 +750,9 @@ function renderTable() {
   wrap.append(H('h3', {}, 'Resources & storage'));
   const rt = H('table', { class: 'table' }); rt.innerHTML = '<thead><tr><th>Node</th><th>Kind</th><th class="num">Machines</th><th>Service / cap</th><th class="num">Buffer</th></tr></thead>';
   const rb = H('tbody', {});
-  model.routeOrder.map(node).filter(Boolean).forEach((n) => {
+  model.nodes.forEach((n) => {
     const tr = H('tr', { class: 'click' });
-    const svc = n.kind === 'resource' ? `${DISTS[n.service.type].label} · μ=${distMean(n.service).toFixed(2)}${(n.batch && n.batch.on) ? ` · batch ${n.batch.size}${n.batch.setup ? `+setup ${n.batch.setup}` : ''}` : ''}${n.scrap ? ` · scrap ${(n.scrap * 100).toFixed(0)}%` : ''}${n.brk.on ? ' · brk' : ''}` : n.kind === 'storage' ? `cap ${n.cap}` : n.kind === 'source' ? `${DISTS[n.interarrival.type].label} · μ=${distMean(n.interarrival).toFixed(2)}` : '—';
+    const svc = n.kind === 'resource' ? `${DISTS[n.service.type].label} · μ=${distMean(n.service).toFixed(2)}${n.assembly ? ' · assembly' : ''}${(n.batch && n.batch.on) ? ` · batch ${n.batch.size}${n.batch.setup ? `+setup ${n.batch.setup}` : ''}` : ''}${n.scrap ? ` · scrap ${(n.scrap * 100).toFixed(0)}%` : ''}${n.brk.on ? ' · brk' : ''}` : n.kind === 'storage' ? `cap ${n.cap}` : n.kind === 'source' ? `${DISTS[n.interarrival.type].label} · μ=${distMean(n.interarrival).toFixed(2)}` : '—';
     const buf = n.kind === 'resource' ? (n.buffer.finite ? String(n.buffer.cap) : '∞') : '—';
     tr.innerHTML = `<td></td><td>${n.kind}</td><td class="num">${n.kind === 'resource' ? (n.machines || 1) : '—'}</td><td class="sum"></td><td class="num">${buf}</td>`;
     tr.children[0].textContent = n.name || n.kind; tr.children[3].textContent = svc;
@@ -647,9 +764,9 @@ function renderTable() {
   wrap.append(H('h3', {}, 'Transport legs'));
   const lt = H('table', { class: 'table' }); lt.innerHTML = '<thead><tr><th>From → To</th><th>Mover</th><th>Params</th></tr></thead>';
   const lb = H('tbody', {});
-  for (let i = 0; i < model.routeOrder.length - 1; i++) {
-    const key = legKeyAt(i), mover = effMover(key), o = model.legs[key] || {};
-    const from = node(model.routeOrder[i]), to = node(model.routeOrder[i + 1]);
+  for (const key of allLegKeys()) {
+    const mover = effMover(key), o = model.legs[key] || {};
+    const [fromId, toId] = key.split('>'); const from = node(fromId), to = node(toId);
     const params = mover === 'conveyor' ? `cap ${o.cap != null ? o.cap : model.conveyor.cap}, ${o.speed != null ? o.speed : model.conveyor.speed} m/min`
       : mover === 'worker' ? `pool ${model.workers.count} @ ${model.workers.speed} m/min` : `${o.speed != null ? o.speed : model.defaultSpeed} m/min`;
     const tr = H('tr', { class: 'click' });
@@ -665,7 +782,7 @@ function renderTable() {
 /* ---- selection + mutations --------------------------------------------- */
 function selectNode(id) { selected = { kind: 'node', id }; activateTab('inspect'); refreshAll(); }
 function selectLeg(key) { selected = { kind: 'leg', key }; activateTab('inspect'); refreshAll(); }
-function refreshAll() { render(); renderRoute(); renderInspector(); if (!$('tablePanel').hidden) renderTable(); }
+function refreshAll() { render(); renderParts(); renderRoute(); renderInspector(); if (!$('tablePanel').hidden) renderTable(); }
 function activateTab(name) {
   document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
   document.querySelectorAll('.tabbody').forEach((b) => { b.hidden = (b.id !== 'tab-' + name); });
@@ -676,18 +793,19 @@ function addNode(kind, x, y) {
   const n = { kind, id: uid(idp), name: '', x, y };
   if (kind === 'resource') { n.machines = 1; n.symbol = 'box'; n.service = newDist('exp', { mean: 1 }); n.buffer = { finite: false, cap: 10, init: 0, target: 8 }; n.scrap = 0; n.brk = { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) }; n.batch = { on: false, size: 2, setup: 0 }; }
   if (kind === 'storage') { n.cap = 10; n.symbol = 'triangle'; }
+  if (kind === 'resource') n.assembly = false;
   if (kind === 'source') n.interarrival = newDist('exp', { mean: 3 });
-  model.nodes.push(n); model.routeOrder.push(n.id);
+  model.nodes.push(n); aRoute().push(n.id);          // append to the ACTIVE part's route
   selected = { kind: 'node', id: n.id }; activateTab('inspect'); persist(); refreshAll();
 }
 function removeNode(id) {
   model.nodes = model.nodes.filter((n) => n.id !== id);
-  model.routeOrder = model.routeOrder.filter((x) => x !== id);
+  for (const p of model.parts) p.route = p.route.filter((x) => x !== id);   // drop from every part's route
   for (const k of Object.keys(model.legs)) if (k.startsWith(id + '>') || k.endsWith('>' + id)) delete model.legs[k];
   if (selected && ((selected.kind === 'node' && selected.id === id) || (selected.kind === 'leg' && selected.key.includes(id)))) selected = null;
   persist(); refreshAll();
 }
-function moveInRoute(i, d) { const j = i + d; if (j < 0 || j >= model.routeOrder.length) return; const a = model.routeOrder; [a[i], a[j]] = [a[j], a[i]]; persist(); refreshAll(); }
+function moveInRoute(i, d) { const a = aRoute(); const j = i + d; if (j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]]; persist(); refreshAll(); }
 
 /* ---- worker simplification auto-log ------------------------------------ */
 function ensureWorkerAssumption() {
@@ -696,6 +814,19 @@ function ensureWorkerAssumption() {
       description: 'Worker empty-return travel is ignored — only one-way loaded trips are modelled.',
       rationale: 'Out of v1 scope (Charter §6). Ignoring it understates worker utilisation, so it is flagged for sensitivity analysis later.',
       data: 'C', uncertainty: 'Real empty-return time depends on layout and dispatch.', sensitivity: true }));
+    save(project);
+  }
+}
+
+/* ---- assembly / process modelling-note auto-log ------------------------ */
+// When the model gains a BOM, record fork-join assembly synchronisation as a stated behaviour
+// (theory-notes §4.6 Law of Assembly Operations): an assembly waits for ALL its components.
+function ensureProcessAssumption() {
+  if (!project.assumptions.some((a) => a.id === 'a_assembly_sync')) {
+    project.assumptions.push(newAssumption({ id: 'a_assembly_sync', kind: 'assumption',
+      description: 'Assembly is fork-join synchronised: a product starts only when ALL its bill-of-materials components are on hand (and have travelled to the assembly station), consuming them.',
+      rationale: 'Factory-physics Law of Assembly Operations (theory-notes §4.6); reproduces the validated multi-part engine. The slowest/farthest component paces the product.',
+      data: 'B', uncertainty: 'Component supply variability and layout (travel) drive assembly starvation.', sensitivity: true }));
     save(project);
   }
 }
@@ -729,21 +860,46 @@ function addBatchFactor(n) {
 }
 
 /* ---- run ---------------------------------------------------------------- */
+// True when the model needs the process engine (multi-part / BOM / pull / per-product demand).
+// A single produced part with no BOM, push control, and no demand stays on the byte-identical
+// single-part path — the basics-first default behaves exactly as it did pre-3.5.
+function isProcessModel() {
+  return model.parts.length > 1 || model.parts.some((p) => p.bom && p.bom.length)
+    || model.control === 'conwip' || model.parts.some((p) => p.demand && p.demand.on);
+}
+function nodeForRun(n) {
+  return n.kind === 'resource'
+    ? { kind: 'resource', id: n.id, name: n.name, x: n.x, y: n.y, machines: n.machines || 1, service: n.service, bufferCap: n.buffer.finite ? n.buffer.cap : Infinity, scrap: n.scrap || 0, brk: n.brk, assembly: !!n.assembly, batch: (n.batch && n.batch.on) ? { size: Math.max(2, n.batch.size | 0), setup: Math.max(0, n.batch.setup || 0) } : null }
+    : { kind: n.kind, id: n.id, name: n.name, x: n.x, y: n.y, cap: n.cap };
+}
 function buildRunModel() {
-  const nodes = model.nodes.map((n) => n.kind === 'resource'
-    ? { kind: 'resource', id: n.id, name: n.name, x: n.x, y: n.y, machines: n.machines || 1, service: n.service, bufferCap: n.buffer.finite ? n.buffer.cap : Infinity, scrap: n.scrap || 0, brk: n.brk, batch: (n.batch && n.batch.on) ? { size: Math.max(2, n.batch.size | 0), setup: Math.max(0, n.batch.setup || 0) } : null }
-    : { kind: n.kind, id: n.id, name: n.name, x: n.x, y: n.y, cap: n.cap });
-  const src = model.nodes.find((n) => n.kind === 'source');
-  const demand = src ? src.interarrival : newDist('exp', { mean: 3 });
+  const nodes = model.nodes.map(nodeForRun);
   const transport = { default: model.defaultMover, speed: model.defaultSpeed, conveyor: model.conveyor, workers: model.workers, legs: model.legs };
-  return { schema: 'des-floor/v1', scale: S, units: model.units, nodes,
-    parts: [{ id: 'p', kind: 'product', routing: model.routeOrder.slice(), demand }], transport,
-    control: model.control, conwipCap: model.conwipCap, supply: model.supply,
-    demand: model.demand.mode === 'stream' ? { mode: 'stream', dist: model.demand.dist } : { mode: 'instant' } };
+  const head = { schema: 'des-floor/v1', scale: S, units: model.units, nodes, transport, control: model.control, supply: model.supply };
+  if (!isProcessModel()) {
+    // legacy single-part shape (exact pre-3.5 behaviour for the basics-first default)
+    const p = model.parts[0];
+    const src = node((p.route || [])[0]);
+    const demand = (src && src.kind === 'source') ? src.interarrival : (model.nodes.find((n) => n.kind === 'source') || {}).interarrival || newDist('exp', { mean: 3 });
+    return { ...head, conwipCap: model.conwipCap,
+      parts: [{ id: p.id, kind: 'product', routing: p.route.slice(), demand }],
+      demand: { mode: 'instant' } };
+  }
+  // process shape — each part carries its route, arrival (from its source node), and BOM;
+  // demand[] holds the per-product customer demand (each with its own interarrival distribution).
+  const parts = model.parts.map((p) => {
+    const src = node((p.route || [])[0]);
+    return { id: p.id, name: p.name, kind: p.kind, routing: p.route.slice(),
+      arrival: (src && src.kind === 'source') ? src.interarrival : undefined,
+      bom: (p.bom || []).map((b) => ({ partId: b.partId, qty: Math.max(1, b.qty | 0) })) };
+  });
+  const demand = model.parts.filter((p) => p.demand && p.demand.on)
+    .map((p) => ({ partId: p.id, dist: p.demand.dist, qty: Math.max(1, p.demand.qty | 0), conwip: Math.max(1, p.demand.conwip | 0) }));
+  return { ...head, parts, demand };
 }
 /* ---- playback ----------------------------------------------------------- */
 function buildSim() {
-  if (model.routeOrder.length < 2) { sim = null; needsBuild = true; lastBuildError = 'Add at least a source, a resource and a sink, then press Play.'; return false; }
+  if (!model.parts.some((p) => p.route.length >= 2)) { sim = null; needsBuild = true; lastBuildError = 'Add at least a source, a resource and a sink to a part’s route, then press Play.'; return false; }
   // static deadlock guard: a batch that can provably never form would jam the model — refuse and explain
   const dl = firstBatchDeadlock();
   if (dl) { sim = null; needsBuild = true; lastBuildError = `Cannot run — ${dl.n.name || 'a batch station'}: ${dl.w}`; return false; }
@@ -831,16 +987,31 @@ function showResults() {
       bRows.push(`<tr><td>${esc(nm)} (B=${b.size})</td><td class="num">${b.batchesStarted} batches done${b.waitingForBatch ? `, ${b.waitingForBatch} waiting for a batch` : ''}</td></tr>`); }
     results.append(H('div', { html: `<p class="section-label" style="margin:var(--s-4) 0 var(--s-2)">Batching${r.deadlock ? ' — deadlock detected' : ''}</p><table class="table"><tbody>${bRows.join('')}</tbody></table>` }));
   }
+  // process model: per-part production + per-product demand fill
+  if (r.multiPart && r.parts) {
+    const pr = Object.keys(r.parts).map((id) => { const p = r.parts[id]; const d = (r.demandByPart || {})[id];
+      return `<tr><td>${esc(p.name)}</td><td class="num">${fmtNum(p.throughput)}/min</td><td class="num">${fmtNum(p.avgCycleTime)} min</td><td class="num">${p.onHand}</td><td class="num">${d ? (100 * d.fillRate).toFixed(0) + '%' : '—'}</td></tr>`; });
+    results.append(H('div', { html: `<p class="section-label" style="margin:var(--s-4) 0 var(--s-2)">Parts</p><table class="table"><thead><tr><th>Part</th><th class="num">TH</th><th class="num">Cycle</th><th class="num">On hand</th><th class="num">Fill</th></tr></thead><tbody>${pr.join('')}</tbody></table>` }));
+  }
   // control & demand summary
-  const cRows = [`<tr><td>Control</td><td class="num">${r.control === 'conwip' ? `CONWIP (cap ${r.conwipCap})` : 'push'}</td></tr>`,
-    `<tr><td>Max line WIP</td><td class="num">${r.maxLineWip}</td></tr>`,
+  const cRows = [`<tr><td>Control</td><td class="num">${r.control === 'conwip' ? 'CONWIP (pull)' : 'push'}</td></tr>`,
     `<tr><td>Raw supply</td><td class="num">${r.supply}</td></tr>`];
-  if (r.demand === 'stream') cRows.push(`<tr><td>Fill rate</td><td class="num">${(100 * r.fillRate).toFixed(1)}%</td></tr>`,
-    `<tr><td>Stockouts / avg FG</td><td class="num">${r.stockouts} / ${r.avgFG.toFixed(2)}</td></tr>`);
+  if (!r.multiPart) {
+    cRows.push(`<tr><td>Max line WIP</td><td class="num">${r.maxLineWip}</td></tr>`);
+    if (r.demand === 'stream') cRows.push(`<tr><td>Fill rate</td><td class="num">${(100 * r.fillRate).toFixed(1)}%</td></tr>`,
+      `<tr><td>Stockouts / avg FG</td><td class="num">${r.stockouts} / ${r.avgFG.toFixed(2)}</td></tr>`);
+  }
   results.append(H('div', { html: `<p class="section-label" style="margin:var(--s-4) 0 var(--s-2)">Control &amp; demand</p><table class="table"><tbody>${cRows.join('')}</tbody></table>` }));
 }
 
 /* ---- example + clear ---------------------------------------------------- */
+// reset model.parts to a single product part whose route is all placed nodes in order
+function setSinglePartRoute(name = 'Part') {
+  const id = uid('part');
+  model.parts = [{ id, name, kind: 'product', route: model.nodes.map((n) => n.id), bom: [],
+    demand: { on: false, dist: newDist('exp', { mean: 2 }), qty: 1, conwip: 5 } }];
+  model.activePart = id;
+}
 function loadExample() {
   const mk = (kind, name, x, extra = {}) => Object.assign({ kind, id: uid(kind.slice(0, 3)), name, x, y: 26 }, extra);
   model.nodes = [
@@ -850,7 +1021,7 @@ function loadExample() {
     mk('resource', 'Inspect', 62, { machines: 1, symbol: 'inspect', service: newDist('triangular', { min: 0.8, mode: 1.2, max: 2 }), buffer: { finite: false, cap: 10, init: 0, target: 8 }, scrap: 0, brk: { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) } }),
     mk('sink', 'Ship', 78),
   ];
-  model.routeOrder = model.nodes.map((n) => n.id); model.legs = {}; selected = null; sim = null;
+  setSinglePartRoute(); model.legs = {}; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
 }
 /* Bottleneck-and-buffer demo: a fast Cut feeds a WIP buffer (storage, cap 8) ahead
@@ -867,7 +1038,7 @@ function loadExample2() {
     mk('resource', 'Press', 62, { machines: 1, symbol: 'press', service: newDist('lognormal', { mean: 3, sd: 0.6 }), buffer: { finite: true, cap: 2, init: 0, target: 8 }, scrap: 0, brk: brk() }),
     mk('sink', 'Ship', 78),
   ];
-  model.routeOrder = model.nodes.map((n) => n.id); model.legs = {}; selected = null; sim = null;
+  setSinglePartRoute(); model.legs = {}; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
   $('floorHint').textContent = 'Bottleneck demo: the slow Press has a finite input buffer (cap 2), so stock piles up in the WIP buffer ahead of it (fills to cap 8) and backs up. Hover any node for live counts.';
 }
@@ -885,13 +1056,38 @@ function loadExample3() {
     mk('resource', 'Heat-treat', 54, { machines: 1, symbol: 'furnace', service: newDist('lognormal', { mean: 5, sd: 1 }), buffer: buf(), scrap: 0, brk: brk(), batch: { on: true, size: 4, setup: 3 } }),
     mk('sink', 'Ship', 78),
   ];
-  model.routeOrder = model.nodes.map((n) => n.id); model.legs = {}; selected = null; sim = null;
+  setSinglePartRoute(); model.legs = {}; selected = null; sim = null;
   model.control = 'push'; model.supply = 'stream';   // clean defaults so a leftover CONWIP<B can't block the demo
   ensureBatchAssumption();   // log the "requires a full batch to start" simplification, as in real use
   persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
   $('floorHint').textContent = 'Batch demo: the Heat-treat furnace runs batches of 4 — it waits for a full batch (watch the N/4 badge), pays one setup, then cooks all 4 together. Hover it for live counts; press Play.';
 }
-function clearFloor() { model.nodes = []; model.routeOrder = []; model.legs = {}; selected = null; sim = null;
+/* Assembly demo (#example4): a Widget = 1 Body + 4 Bolts. The Body is fabricated
+   (Raw → Cut → Assy), Bolts are bought-in (Bolt store → Assy). The Assy station waits
+   for a full set (1 body + 4 bolts) before it can build a widget — fork-join synchronisation;
+   the slower component paces the product. */
+function loadExample4() {
+  const mk = (kind, name, x, y, extra = {}) => Object.assign({ kind, id: uid(kind.slice(0, 3)), name, x, y }, extra);
+  const brk = () => ({ on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) });
+  const buf = () => ({ finite: false, cap: 10, init: 0, target: 8 });
+  const srcBody = mk('source', 'Raw', 8, 16, { interarrival: newDist('exp', { mean: 2 }) });
+  const cut = mk('resource', 'Cut', 26, 16, { machines: 1, symbol: 'cut', service: newDist('lognormal', { mean: 1, sd: 0.3 }), buffer: buf(), scrap: 0, brk: brk(), batch: { on: false, size: 2, setup: 0 }, assembly: false });
+  const srcBolt = mk('source', 'Bolt store', 26, 40, { interarrival: newDist('exp', { mean: 0.4 }) });
+  const assy = mk('resource', 'Assemble', 50, 28, { machines: 1, symbol: 'assemble', service: newDist('lognormal', { mean: 1.5, sd: 0.4 }), buffer: buf(), scrap: 0, brk: brk(), batch: { on: false, size: 2, setup: 0 }, assembly: true });
+  const ship = mk('sink', 'Ship', 74, 28);
+  model.nodes = [srcBody, cut, srcBolt, assy, ship];
+  const body = { id: uid('part'), name: 'Body', kind: 'fabricated', route: [srcBody.id, cut.id, assy.id], bom: [], demand: { on: false, dist: newDist('exp', { mean: 3 }), qty: 1, conwip: 5 } };
+  const bolt = { id: uid('part'), name: 'Bolt', kind: 'purchased', route: [srcBolt.id, assy.id], bom: [], demand: { on: false, dist: newDist('exp', { mean: 3 }), qty: 1, conwip: 5 } };
+  const widget = { id: uid('part'), name: 'Widget', kind: 'product', route: [assy.id, ship.id],
+    bom: [{ partId: body.id, qty: 1 }, { partId: bolt.id, qty: 4 }], demand: { on: false, dist: newDist('exp', { mean: 2 }), qty: 1, conwip: 5 } };
+  model.parts = [body, bolt, widget]; model.activePart = widget.id;
+  model.legs = {}; selected = { kind: 'node', id: assy.id }; sim = null;
+  model.control = 'push'; model.supply = 'stream';
+  ensureProcessAssumption();
+  persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
+  $('floorHint').textContent = 'Assembly demo: a Widget needs 1 Body + 4 Bolts. The Assemble station waits for a full set before building one — the slower-supplied component paces output. Hover Assemble for live counts; press Play.';
+}
+function clearFloor() { model.nodes = []; setSinglePartRoute(); model.legs = {}; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel();
   $('results').innerHTML = '<p class="results-empty">Press Play, then “End” when you’ve seen enough, to see results.</p>'; }
 
@@ -951,10 +1147,11 @@ function init() {
   if (location.hash === '#example' && model.nodes.length === 0) { loadExample(); const r = model.nodes.find((n) => n.kind === 'resource'); if (r) { selected = { kind: 'node', id: r.id }; startTab = 'inspect'; } }
   else if (location.hash === '#example2') { loadExample2(); const b = model.nodes.find((n) => n.kind === 'storage'); if (b) { selected = { kind: 'node', id: b.id }; startTab = 'inspect'; } }   // bottleneck + buffer demo
   else if (location.hash === '#example3') { loadExample3(); const b = model.nodes.find((n) => n.kind === 'resource' && n.batch && n.batch.on); if (b) { selected = { kind: 'node', id: b.id }; startTab = 'inspect'; } }   // batch-processing demo
+  else if (location.hash === '#example4') { loadExample4(); startTab = 'model'; }   // assembly / multi-part demo
   if (model.defaultMover === 'worker' || Object.values(model.legs).some((l) => l.mover === 'worker')) ensureWorkerAssumption();
-  render(); renderRoute(); renderInspector(); renderTransport(); renderControl();
+  render(); renderParts(); renderRoute(); renderInspector(); renderTransport(); renderControl();
   activateTab(startTab); setPlayLabel(); updateClock(); zoomFit();
-  if (location.hash === '#play' || location.hash === '#example2' || location.hash === '#example3') { if (model.routeOrder.length < 2) loadExample(); play(); }   // deep-link: open running
+  if (location.hash === '#play' || location.hash === '#example2' || location.hash === '#example3' || location.hash === '#example4') { if (!model.parts.some((p) => p.route.length >= 2)) loadExample(); play(); }   // deep-link: open running
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
 else init();

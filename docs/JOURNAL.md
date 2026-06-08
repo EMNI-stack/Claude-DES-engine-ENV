@@ -730,3 +730,23 @@ output advancing, no console errors.
   bounds, shared-component fairness, Little's Law incl. transport, **multi-level dependent demand**
   (product-and-component not starved), and a single-part-with-demand[] regression. Added to `npm test`.
   **`npm test` → 93/93** (84 prior unchanged + 9 new).
+
+## 2026-06-08 — Phase 3.5.2: guided model-builder UI
+
+- Authoring UX confirmed (per-part ordered routes + Parts panel + BOM editor). Refactored `app/js/floor.js`
+  from a single `routeOrder` to **per-part routes**: `model.parts[]` each with `{name, kind, route, bom,
+  demand}` + an `activePart`; legacy single-route models migrate to one product part (basics-first default
+  unchanged). The active part's route uses the existing route-list UI; the floor draws the **union** of all
+  parts' legs (off-active-route legs dimmed).
+- New **Parts panel** (Model tab): add/select/remove parts (capped at 10), set name + kind
+  (Product/Made/Bought), a **BOM editor** (component × qty rows → turns a part into an assembly), and
+  **per-product demand** (own interarrival, order qty, and CONWIP limit under pull). A resource inspector
+  gains an **Assembly station** toggle and a **Delete node** button; the route ✕ now removes a node from
+  *this* part's route (node stays placed; add it back via "+" chips).
+- `buildRunModel` emits the legacy single-part shape for the basics-first case (1 part, no BOM, push, no
+  demand → byte-identical pre-3.5 behaviour) and the multi-part process shape otherwise (per-part routing +
+  arrival from the source node + BOM; `demand[]` per product). Control panel: push/CONWIP + supply, with
+  demand moved per-product. Results panel gains a per-part table (TH / cycle / on-hand / fill).
+- New assembly demo `#example4` (Widget = 1 Body + 4 Bolts; fork-join at Assemble). Headless check of the
+  emitted run-model: 1960 widgets, bolts consumed = 4× widgets, conservation holds, no deadlock. Engine
+  unchanged → `npm test` **93/93**. CSS for the parts panel / BOM rows / route chips / dimmed legs.
