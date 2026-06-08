@@ -507,3 +507,31 @@ glyph); the WIP storage renders the inventory triangle. Screenshots reviewed —
 shape are on-brand.
 
 **Decision logged:** `docs/DECISIONS.md` (2026-06-08).
+
+---
+
+## 2026-06-08 — Phase 3: translucent transport legs, viewBox-filling grid, visible storage box
+
+Three floor-visual refinements (UI-only; 75/75 tests green).
+
+- **Transport legs recede.** The movement lines are now translucent (instant opacity .3, conveyor .4,
+  worker .45) and thinner, so they sit quietly behind nodes, tokens, and text instead of competing with
+  them (they were already behind in z-order; this is the visual weight). A selected leg brightens to the
+  petrol primary at .85 for editing.
+- **Grid fills the whole canvas.** Replaced the fixed 820×480 line grid (which left empty space when
+  zoomed/panned) with SVG tiling **patterns** (5 m minor / 10 m major) painted onto two background rects
+  whose geometry is updated to the live viewBox in `updateGrid()` (called from `setViewBox`). Because the
+  patterns are anchored to user space, the grid stays aligned while always filling whatever is visible —
+  verified the rect grows from 860×503 at 100 % to 2050×1200 when zoomed out.
+- **Storage looks like a (distinct) machine box.** Storage was just two bracket strokes — faint and a
+  poor click/hover target. It now renders a filled rounded rect like a resource but **distinct: subtle
+  `surface-2` fill + a dashed border** (solid petrol when selected), with the chosen shape, name, and
+  `cap N` inside. Full surface = easy to see, click, and hover (the live-count tooltip already handles
+  storage).
+
+**Verification:** `npm test` → **75/75**. Drove the page headless via CDP: confirmed the grid background
+rect tracks the viewBox at 100 % and zoomed-out (fills the canvas, scale bar auto-set to 50 m), and
+reviewed screenshots — legs are faint and in the background, the WIP storage reads as a dashed box with
+the inventory triangle, distinct from the solid machine boxes.
+
+**Decision logged:** `docs/DECISIONS.md` (2026-06-08).

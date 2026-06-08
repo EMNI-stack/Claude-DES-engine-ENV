@@ -363,3 +363,23 @@ Entry format:
 - Governing principle / source: Stakeholder direction (2026-06-08); DESIGN-LANGUAGE §7 (diagrammatic
   floor), §4 (line icons); value-stream-mapping conventions (inventory triangle, process box). UI-only;
   engine untouched (Charter §4.2).
+
+## [2026-06-08] — Floor legibility: translucent legs, pattern-tiled viewBox-filling grid, boxed storage
+- Decision: (1) Render transport legs translucent and thin so they recede behind nodes/tokens/text (a
+  selected leg brightens). (2) Draw the floor grid with SVG tiling patterns on background rects sized to
+  the live viewBox (updated on every zoom/pan), instead of a fixed-extent line grid, so it always fills
+  the canvas. (3) Render storage as a filled rounded box like a resource but visually distinct — subtle
+  `surface-2` fill with a dashed border — giving it a proper click/hover surface (it was previously just
+  two faint bracket strokes).
+- Rationale: Stakeholder feedback — movement lines blocked the view of objects/text; the grid was
+  confined to the 100 % extent and left blank space when zoomed/panned; the storage shape was hard to see
+  and hard to click or hover. Patterns anchored to user space keep the grid aligned while filling any
+  view. A dashed box reads as "buffer/stock" vs a solid machine, satisfying "like a resource box but not
+  identical."
+- Alternatives considered: regenerating explicit grid lines across the viewBox on each zoom/pan (rejected
+  — more nodes/among more work than a tiled pattern); keeping storage as brackets but enlarging the hit
+  area only (rejected — still visually faint; the box also improves legibility); group-opacity on legs
+  (rejected — would dim the selected leg too; per-class opacity keeps selection legible).
+- Governing principle / source: Stakeholder direction (2026-06-08); DESIGN-LANGUAGE §7 (light canvas,
+  faint low-contrast grid; storage as a distinct quiet shape; quiet diagrammatic transport), §0/§8 (quiet,
+  legible, no glow). UI-only; engine untouched (Charter §4.2).

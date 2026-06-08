@@ -117,7 +117,18 @@ function setViewBox() {
   const w = BASE_W / view.z, h = BASE_H / view.z;
   $('svg').setAttribute('viewBox', `${(view.cx - w / 2).toFixed(1)} ${(view.cy - h / 2).toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}`);
   const zl = $('zLabel'); if (zl) zl.textContent = Math.round(view.z * 100) + '%';
+  updateGrid();
   updateScaleBar();
+}
+/* size the grid background rects to the current viewBox (patterns are anchored to
+   user space, so the grid stays aligned while filling whatever is visible) */
+function updateGrid() {
+  const w = BASE_W / view.z, h = BASE_H / view.z, x0 = view.cx - w / 2, y0 = view.cy - h / 2;
+  for (const idr of ['gridMinor', 'gridMajor']) {
+    const r = $(idr); if (!r) continue;
+    r.setAttribute('x', x0.toFixed(1)); r.setAttribute('y', y0.toFixed(1));
+    r.setAttribute('width', w.toFixed(1)); r.setAttribute('height', h.toFixed(1));
+  }
 }
 /* zoom-aware scale bar: pick a "nice" world length whose on-screen size is a
    sensible fraction of the canvas, and label it in metres. */
@@ -216,11 +227,16 @@ function distEditor(dist, onChange) {
 /* ---- canvas render ------------------------------------------------------ */
 function render() {
   const svg = $('svg'); svg.innerHTML = ''; setViewBox();
+  // grid as tiling patterns (5 m minor / 10 m major) + background rects sized to
+  // the live viewBox in updateGrid(), so it always fills the canvas at any zoom/pan
+  const defs = E('defs', {});
+  const mk = (idp, sz, cls) => { const p = E('pattern', { id: idp, width: sz, height: sz, patternUnits: 'userSpaceOnUse' }); p.append(E('path', { class: cls, d: `M ${sz} 0 H 0 V ${sz}` })); return p; };
+  defs.append(mk('grid-minor', 5 * S, 'grid-line'), mk('grid-major', 10 * S, 'grid-line major'));
+  svg.append(defs);
   const grid = E('g', { class: 'grid' });
-  const step = 5 * S;                                   // minor grid every 5 m; major every 10 m
-  for (let x = 0; x <= BASE_W; x += step) grid.append(E('line', { class: 'grid-line' + ((x / step) % 2 ? '' : ' major'), x1: x, y1: 0, x2: x, y2: BASE_H }));
-  for (let y = 0; y <= BASE_H; y += step) grid.append(E('line', { class: 'grid-line' + ((y / step) % 2 ? '' : ' major'), x1: 0, y1: y, x2: BASE_W, y2: y }));
+  grid.append(E('rect', { id: 'gridMinor', fill: 'url(#grid-minor)' }), E('rect', { id: 'gridMajor', fill: 'url(#grid-major)' }));
   svg.append(grid);
+  updateGrid();
 
   const legG = E('g', {});
   for (let i = 0; i < model.routeOrder.length - 1; i++) {
@@ -364,11 +380,10 @@ function nodeEl(n) {
     if (M > 8) g.append(E('text', { class: 'node-badge', x: 44, y: -20, 'text-anchor': 'end' }, '×' + M));
     g.append(E('rect', { class: 'prog', x: -44, y: 25, width: 0, height: 3, rx: 1.5 }));
   } else if (n.kind === 'storage') {
-    g.append(E('path', { class: 'bracket', d: 'M -28 -24 l -9 0 l 0 48 l 9 0' }));
-    g.append(E('path', { class: 'bracket', d: 'M 28 -24 l 9 0 l 0 48 l -9 0' }));
-    g.append(symG(n.symbol || 'triangle', 'node-sym', -10, -22, 0.85));   // chosen shape, centred top
-    g.append(E('text', { class: 'node-label', x: 0, y: 14, 'text-anchor': 'middle' }, n.name || 'Storage'));
-    g.append(E('text', { class: 'node-kind', x: 0, y: 36, 'text-anchor': 'middle' }, 'cap ' + (n.cap ?? '—')));
+    g.append(E('rect', { class: 'store-rect', x: -38, y: -32, width: 76, height: 64, rx: 9 }));
+    g.append(symG(n.symbol || 'triangle', 'node-sym', -10, -27, 0.82));    // chosen shape, centred top
+    g.append(E('text', { class: 'node-label', x: 0, y: 8, 'text-anchor': 'middle' }, n.name || 'Storage'));
+    g.append(E('text', { class: 'node-kind', x: 0, y: 24, 'text-anchor': 'middle' }, 'cap ' + (n.cap ?? '—')));
   } else {
     g.append(E('circle', { class: 'endpoint', r: 18 }));
     g.append(E('circle', { class: 'endpoint-dot', r: 5 }));
