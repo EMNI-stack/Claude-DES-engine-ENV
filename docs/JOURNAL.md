@@ -763,3 +763,18 @@ output advancing, no console errors.
 - PRINCIPLES.md: assembly = fork-join (Law of Assembly Operations, §4.6); dependent demand propagates
   through the BOM with fair sharing of scarce components (§4.6–4.7); each demand stream is independent (§4).
 - `npm test` → **93/93** (engine unchanged this milestone).
+
+## 2026-06-08 — Floor UX: explicit click-to-route + Parts manager modal
+
+- **Bug:** placing any node auto-appended it to the active part's route, so dropping multiple sources
+  (for different purchased components) chained them into one route with spurious legs — "they just link
+  together." **Fix:** placement no longer routes anything.
+- **Routing is now explicit (stakeholder pick): click nodes on the canvas in order.** A new **Route**
+  palette tool — while active, clicking placed nodes appends them to the *active part's* route (click the
+  last again to undo); nodes show their route-order number; legs draw as you click. Plus an
+  **Auto-route ↦** shortcut (all placed nodes, left→right) for the simple single-line case, and the
+  existing +chips. Each part's route is independent, so separate sources never auto-connect.
+- **Parts manager modal (stakeholder pick):** the cramped inline Parts editor moved into a roomy
+  pop-up (parts list + per-part editor: name, type, BOM rows, demand, route summary). The side panel is
+  now a compact parts summary with **+ Add part** and **Manage parts…**. Name fields update in place
+  (no focus-stealing rebuild). Engine untouched → `npm test` 93/93.

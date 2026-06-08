@@ -465,73 +465,110 @@ function nodeEl(n) {
     g.append(E('text', { class: 'node-kind', x: 0, y: 35, 'text-anchor': 'middle' }, n.kind.toUpperCase()));
     g.append(E('text', { class: 'node-label', x: 0, y: 51, 'text-anchor': 'middle' }, n.name || (n.kind === 'source' ? 'In' : 'Out')));
   }
+  // Route tool: show this node's position(s) in the ACTIVE part's route, so "click in order" is legible.
+  if (tool === 'route') {
+    const r = aRoute(); const half = n.kind === 'resource' ? 46 : n.kind === 'storage' ? 38 : 18;
+    const seq = []; r.forEach((id, i) => { if (id === n.id) seq.push(i + 1); });
+    if (seq.length) { const b = E('g', { class: 'route-seq' });
+      b.append(E('circle', { cx: -half + 8, cy: -half + 8, r: 9 }));
+      b.append(E('text', { x: -half + 8, y: -half + 11.5, 'text-anchor': 'middle' }, seq.join(',')));
+      g.append(b); }
+  }
   return g;
 }
 
 /* ---- parts panel (Phase 3.5) ------------------------------------------- */
 function partLabel(p) { return `${p.name} · ${p.kind}${p.bom.length ? ' · assembled' : ''}`; }
+// Compact side-panel parts summary: pick the active part, add, or open the Parts manager modal.
+// Full definition (name, type, BOM, demand) lives in the modal; the route is built on the canvas.
 function renderParts() {
   const host = $('partsBody'); if (!host) return; host.innerHTML = '';
-  let activeRowLabel = null;
   model.parts.forEach((p, idx) => {
     const row = H('div', { class: 'part-row' + (p.id === model.activePart ? ' active' : '') });
     const dot = H('span', { class: 'part-dot' }); dot.style.background = partColor(idx);
     const nm = H('span', { class: 'part-name' }); nm.textContent = partLabel(p);
-    if (p.id === model.activePart) activeRowLabel = nm;          // updated live while typing the name
     row.append(dot, nm);
-    if (model.parts.length > 1) row.append(mini('✕', () => removePart(p.id)));
-    row.addEventListener('click', (e) => { if (!e.target.classList.contains('mini')) { model.activePart = p.id; persist(); refreshAll(); } });
+    row.addEventListener('click', () => { model.activePart = p.id; persist(); refreshAll(); });
     host.append(row);
   });
-  const addBtn = H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-2)' }, '+ Add part');
-  addBtn.disabled = model.parts.length >= 10;
-  addBtn.addEventListener('click', addPart);
-  host.append(addBtn);
+  const acts = H('div', { class: 'part-actions' });
+  const addBtn = H('button', { class: 'btn btn-ghost' }, '+ Add part'); addBtn.disabled = model.parts.length >= 10; addBtn.addEventListener('click', addPart);
+  const manageBtn = H('button', { class: 'btn btn-ghost' }, 'Manage parts…'); manageBtn.addEventListener('click', openPartsModal);
+  acts.append(addBtn, manageBtn); host.append(acts);
   if (model.parts.length >= 10) host.append(H('p', { class: 'floor-hint' }, 'Limit of 10 parts (kept simple).'));
-
-  // editor for the ACTIVE part
   const p = activePart(); if (!p) return;
-  host.append(H('hr', { class: 'muted-rule' }));
-  // name updates in place — do NOT refreshAll() here (it would rebuild this very input and steal focus)
-  host.append(field('Part name', textInput(p.name, (v) => { p.name = v || 'Part'; if (activeRowLabel) activeRowLabel.textContent = partLabel(p); persist(); })));
-  host.append(field('Type', segmented(
+  host.append(H('p', { class: 'floor-hint', style: 'margin-top:var(--s-2)' },
+    `Active: “${p.name}” (${p.kind})${p.bom.length ? `, assembled from ${p.bom.length} component${p.bom.length > 1 ? 's' : ''}` : ''}${p.demand.on ? ', sold to customers' : ''}. “Manage parts…” sets type, BOM & demand; build its route below.`));
+}
+
+/* ---- Parts manager modal (full definition: name, type, BOM, demand) ---- */
+let pmSel = null;   // part id selected in the modal (defaults to the active part)
+function openPartsModal() { pmSel = model.activePart; $('partsModal').hidden = false; renderPartsModal(); }
+function closePartsModal() { $('partsModal').hidden = true; persist(); refreshAll(); }
+function renderPartsModal() {
+  const listH = $('pmList'), edH = $('pmEditor'); if (!listH || !edH) return;
+  if (!model.parts.some((p) => p.id === pmSel)) pmSel = (activePart() || {}).id;
+  // left: parts list
+  listH.innerHTML = '';
+  model.parts.forEach((p, idx) => {
+    const row = H('div', { class: 'pm-item' + (p.id === pmSel ? ' active' : '') });
+    const dot = H('span', { class: 'part-dot' }); dot.style.background = partColor(idx);
+    const nm = H('span', { class: 'part-name' }); nm.textContent = partLabel(p);
+    row.append(dot, nm);
+    if (model.parts.length > 1) row.append(mini('✕', () => { removePart(p.id); pmSel = model.activePart; renderPartsModal(); }));
+    row.addEventListener('click', (e) => { if (!e.target.classList.contains('mini')) { pmSel = p.id; model.activePart = p.id; renderPartsModal(); } });
+    listH.append(row);
+  });
+  const addBtn = H('button', { class: 'btn btn-ghost', style: 'width:100%;margin-top:var(--s-2)' }, '+ Add part');
+  addBtn.disabled = model.parts.length >= 10;
+  addBtn.addEventListener('click', () => { addPart(); pmSel = model.activePart; renderPartsModal(); });
+  listH.append(addBtn);
+
+  // right: editor for the selected part
+  edH.innerHTML = '';
+  const p = model.parts.find((x) => x.id === pmSel); if (!p) return;
+  const listLabel = listH.querySelector('.pm-item.active .part-name');
+  edH.append(field('Part name', textInput(p.name, (v) => { p.name = v || 'Part'; if (listLabel) listLabel.textContent = partLabel(p); persist(); })));
+  edH.append(field('Type', segmented(
     [{ value: 'product', label: 'Product' }, { value: 'fabricated', label: 'Made' }, { value: 'purchased', label: 'Bought' }],
-    p.kind, (v) => { p.kind = v; persist(); renderParts(); }, 'Type')));
-  host.append(H('p', { class: 'floor-hint', style: 'margin:0' }, p.kind === 'purchased'
+    p.kind, (v) => { p.kind = v; persist(); renderPartsModal(); }, 'Type')));
+  edH.append(H('p', { class: 'floor-hint', style: 'margin:0' }, p.kind === 'purchased'
     ? 'Bought-in: appears at a source and travels to where it is used.'
     : p.kind === 'fabricated' ? 'Made on the line, then used as a component.' : 'A finished product (may be assembled from components).'));
 
-  // BOM editor — turning a part into an assembly
-  host.append(H('p', { class: 'subhead' }, 'Bill of materials'));
-  if (!p.bom.length) host.append(H('p', { class: 'floor-hint', style: 'margin:0 0 var(--s-2)' }, 'No components — made/bought directly. Add a component to assemble this part from others (its route must start at an assembly station).'));
+  edH.append(H('p', { class: 'subhead' }, 'Bill of materials'));
+  if (!p.bom.length) edH.append(H('p', { class: 'floor-hint', style: 'margin:0 0 var(--s-2)' }, 'No components — made/bought directly. Add a component to assemble this part (its route must start at an assembly station).'));
   p.bom.forEach((b, bi) => {
-    const sel = H('select', { class: 'inp' });
+    const sel = H('select', { class: 'input' });
     model.parts.filter((o) => o.id !== p.id).forEach((o) => { const opt = H('option', { value: o.id }, o.name); if (o.id === b.partId) opt.selected = true; sel.append(opt); });
     sel.addEventListener('change', () => { b.partId = sel.value; persist(); });
     const qty = numInput(b.qty, 1, 1, (v) => { b.qty = Math.max(1, v | 0); persist(); });
-    host.append(H('div', { class: 'bom-row' }, [sel, H('span', { class: 'faint' }, '×'), qty, mini('✕', () => { p.bom.splice(bi, 1); persist(); renderParts(); render(); })]));
+    edH.append(H('div', { class: 'bom-row' }, [sel, H('span', { class: 'faint' }, '×'), qty, mini('✕', () => { p.bom.splice(bi, 1); persist(); renderPartsModal(); })]));
   });
   if (model.parts.length > 1) {
     const ab = H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-1)' }, '+ component');
-    ab.addEventListener('click', () => { const other = model.parts.find((o) => o.id !== p.id && !p.bom.some((b) => b.partId === o.id)) || model.parts.find((o) => o.id !== p.id); if (other) { p.bom.push({ partId: other.id, qty: 1 }); ensureProcessAssumption(); persist(); renderParts(); render(); } });
-    host.append(ab);
+    ab.addEventListener('click', () => { const other = model.parts.find((o) => o.id !== p.id && !p.bom.some((b) => b.partId === o.id)) || model.parts.find((o) => o.id !== p.id); if (other) { p.bom.push({ partId: other.id, qty: 1 }); ensureProcessAssumption(); persist(); renderPartsModal(); } });
+    edH.append(ab);
   }
 
-  // per-product customer demand (each its OWN interarrival distribution)
-  host.append(H('p', { class: 'subhead' }, 'Customer demand'));
+  edH.append(H('p', { class: 'subhead' }, 'Customer demand'));
   const dchk = H('input', { type: 'checkbox' }); dchk.checked = !!p.demand.on;
-  dchk.addEventListener('change', () => { p.demand.on = dchk.checked; persist(); renderParts(); });
-  host.append(H('label', { class: 'toggle-row' }, [dchk, 'Sold to customers (a demand stream)']));
+  dchk.addEventListener('change', () => { p.demand.on = dchk.checked; persist(); renderPartsModal(); });
+  edH.append(H('label', { class: 'toggle-row' }, [dchk, 'Sold to customers (a demand stream)']));
   if (p.demand.on) {
-    host.append(H('p', { class: 'subhead' }, 'Time between orders'));
-    host.append(distEditor(p.demand.dist, persist));
-    host.append(field('Order quantity', numInput(p.demand.qty, 1, 1, (v) => { p.demand.qty = Math.max(1, v | 0); persist(); })));
-    host.append(factorButton(`part:${p.id}:demand.mean`, { name: `Demand rate — ${p.name}`, unit: 'min between orders', baseline: distMean(p.demand.dist).toFixed(2), description: 'Mean time between customer orders for this product. Vary to study load vs service level.' }));
+    edH.append(H('p', { class: 'subhead' }, 'Time between orders'));
+    edH.append(distEditor(p.demand.dist, persist));
+    edH.append(field('Order quantity', numInput(p.demand.qty, 1, 1, (v) => { p.demand.qty = Math.max(1, v | 0); persist(); })));
+    edH.append(factorButton(`part:${p.id}:demand.mean`, { name: `Demand rate — ${p.name}`, unit: 'min between orders', baseline: distMean(p.demand.dist).toFixed(2), description: 'Mean time between customer orders for this product. Vary to study load vs service level.' }));
     if (model.control === 'conwip') {
-      host.append(field('CONWIP limit (this product)', numInput(p.demand.conwip, 1, 1, (v) => { p.demand.conwip = Math.max(1, v | 0); persist(); })));
-      host.append(factorButton(`part:${p.id}:conwip`, { name: `CONWIP — ${p.name}`, unit: 'cards', baseline: String(p.demand.conwip || 5), description: 'Work-in-process cap for this product under pull. Vary to study the WIP–throughput–cycle-time trade-off.' }));
+      edH.append(field('CONWIP limit (this product)', numInput(p.demand.conwip, 1, 1, (v) => { p.demand.conwip = Math.max(1, v | 0); persist(); })));
+      edH.append(factorButton(`part:${p.id}:conwip`, { name: `CONWIP — ${p.name}`, unit: 'cards', baseline: String(p.demand.conwip || 5), description: 'WIP cap for this product under pull. Vary to study the WIP–throughput–cycle-time trade-off.' }));
     }
   }
+  // route summary (built on the canvas)
+  edH.append(H('p', { class: 'subhead' }, 'Route'));
+  const rnames = p.route.map((id) => (node(id) || {}).name || '?').join('  →  ') || '(empty)';
+  edH.append(H('p', { class: 'floor-hint', style: 'margin:0' }, `${rnames}. Close this and use the Route tool to click nodes in order on the floor.`));
 }
 function addPart() {
   if (model.parts.length >= 10) return;
@@ -562,8 +599,16 @@ function renderRoute() {
     ul.append(li);
   });
   const hint = $('routeHint'); hint.innerHTML = '';
-  if (!model.nodes.length) { hint.textContent = 'No nodes yet. Pick a tool above and click the canvas.'; return; }
-  hint.textContent = `Route of “${activePart().name}”. Order = flow direction; first = entry, last = exit.`;
+  if (!model.nodes.length) { hint.textContent = 'No nodes yet. Pick a tool above and click the canvas to place sources, machines and a sink — then build this part’s route.'; return; }
+  // build-route controls: the Route tool (click nodes on the canvas) + a left→right auto-route shortcut
+  const ctrls = H('div', { class: 'route-ctrls' });
+  const rt = H('button', { class: 'btn btn-ghost' + (tool === 'route' ? ' on' : '') }, tool === 'route' ? '✓ Routing on canvas' : '✎ Route on canvas');
+  rt.addEventListener('click', () => { setTool(tool === 'route' ? 'move' : 'route'); });
+  const auto = H('button', { class: 'btn btn-ghost' }, 'Auto-route ↦');
+  auto.title = 'Set this route to all placed nodes ordered left→right';
+  auto.addEventListener('click', () => { const p = activePart(); p.route = model.nodes.slice().sort((a, b) => a.x - b.x).map((n) => n.id); persist(); refreshAll(); });
+  ctrls.append(rt, auto); hint.append(ctrls);
+  hint.append(H('p', { class: 'floor-hint', style: 'margin:var(--s-2) 0 0' }, `Route of “${activePart().name}”. Order = flow direction; first = entry, last = exit. Build it with the Route tool, or use the chips below.`));
   const missing = model.nodes.filter((n) => !r.includes(n.id));
   if (missing.length) {
     const add = H('div', { class: 'route-add' });
@@ -572,6 +617,14 @@ function renderRoute() {
   }
 }
 function removeFromRoute(i) { const r = aRoute(); r.splice(i, 1); persist(); refreshAll(); }
+// switch the active tool from code (mirrors clicking the palette), keeping the floor + hint in sync
+function setTool(t) {
+  tool = t;
+  $('palette').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.tool === t)));
+  $('svg').classList.toggle('routing', t === 'route');
+  refreshAll();
+  if (t === 'route') setRouteHint();
+}
 function mini(label, on) { const b = H('button', { class: 'mini' }, label); b.addEventListener('click', (e) => { e.stopPropagation(); on(); }); return b; }
 
 /* ---- inspector (node OR leg) ------------------------------------------- */
@@ -809,7 +862,7 @@ function addNode(kind, x, y) {
   if (kind === 'storage') { n.cap = 10; n.symbol = 'triangle'; }
   if (kind === 'resource') n.assembly = false;
   if (kind === 'source') n.interarrival = newDist('exp', { mean: 3 });
-  model.nodes.push(n); aRoute().push(n.id);          // append to the ACTIVE part's route
+  model.nodes.push(n);          // placement no longer auto-routes — routes are built explicitly (Route tool)
   selected = { kind: 'node', id: n.id }; activateTab('inspect'); persist(); refreshAll();
 }
 function removeNode(id) {
@@ -880,7 +933,7 @@ function factorButton(binding, fields) {
   const have = hasFactor(binding);
   const b = H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-2)' }, have ? '✓ experimental factor' : '+ as experimental factor');
   b.disabled = have;
-  b.addEventListener('click', () => { if (addFactorByBinding(binding, fields)) renderInspector(); renderParts(); });
+  b.addEventListener('click', () => { addFactorByBinding(binding, fields); renderInspector(); renderParts(); if (!$('partsModal').hidden) renderPartsModal(); });
   return b;
 }
 // declare the standard floor responses the analysis phase will measure
@@ -1147,7 +1200,22 @@ function onPointerDown(e) {
     if (grp) { const id = grp.getAttribute('data-node'); selectNode(id); drag = { id, moved: false }; svg.setPointerCapture(e.pointerId); }
     else if (legHit) selectLeg(legHit.getAttribute('data-leg'));
     else { panning = { sx: e.clientX, sy: e.clientY, cx: view.cx, cy: view.cy }; svg.classList.add('panning'); svg.setPointerCapture(e.pointerId); }
+  } else if (tool === 'route') {
+    if (grp) routeClick(grp.getAttribute('data-node'));   // append this node to the active part's route
   } else if (!grp && !legHit) addNode(tool, p.x / S, p.y / S);
+}
+// Route tool: clicking a placed node appends it to the active part's route (in click order).
+// Clicking the current last node again removes it (lets you back out a misclick).
+function routeClick(id) {
+  const r = aRoute();
+  if (r[r.length - 1] === id) r.pop();
+  else r.push(id);
+  persist(); refreshAll();
+  setRouteHint();
+}
+function setRouteHint() {
+  const p = activePart();
+  $('floorHint').innerHTML = `<strong>Route tool</strong> — building the route of “${esc(p ? p.name : '')}”. Click placed nodes in flow order (source → … → sink). Click the last one again to undo; switch to <em>Move</em> when done.`;
 }
 function onPointerMove(e) {
   if (panning) { const r = $('svg').getBoundingClientRect();
@@ -1169,7 +1237,11 @@ function init() {
   svg.addEventListener('pointermove', onHover);
   svg.addEventListener('pointerleave', () => { hoverNodeId = null; hideTip(); });
   window.addEventListener('pointerup', onPointerUp);
-  $('palette').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; tool = b.dataset.tool; $('palette').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); });
+  $('palette').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; tool = b.dataset.tool; $('palette').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); $('svg').classList.toggle('routing', tool === 'route'); if (tool === 'route') { activateTab('model'); activateSubTab('parts'); setRouteHint(); render(); } else render(); });
+  // parts manager modal close (Done button, backdrop click, Escape)
+  $('pmDone').addEventListener('click', closePartsModal);
+  $('partsModal').addEventListener('click', (e) => { if (e.target.hasAttribute('data-close')) closePartsModal(); });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('partsModal').hidden) closePartsModal(); });
   $('btnExample').addEventListener('click', loadExample);
   $('btnClear').addEventListener('click', clearFloor);
   $('btnTable').addEventListener('click', () => { const p = $('tablePanel'); p.hidden = !p.hidden; $('btnTable').setAttribute('aria-pressed', String(!p.hidden)); if (!p.hidden) renderTable(); });

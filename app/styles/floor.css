@@ -52,6 +52,33 @@
 .route-add .chip:hover { border-color: var(--primary); color: var(--primary); }
 /* legs not on the active part's route — quieter, so the active route reads first */
 svg.floor .leg.leg-off { opacity: .35; }
+.part-actions { display: flex; gap: var(--s-2); margin-top: var(--s-2); }
+.part-actions .btn { flex: 1; }
+.route-ctrls { display: flex; gap: var(--s-2); }
+.route-ctrls .btn { flex: 1; }
+.route-ctrls .btn.on { border-color: var(--primary); color: var(--primary); background: var(--surface-2); }
+/* Route tool: order badge on nodes in the active route */
+svg.floor.routing { cursor: crosshair; }
+svg.floor .route-seq circle { fill: var(--primary); stroke: var(--surface); stroke-width: 1.5; }
+svg.floor .route-seq text { font-family: var(--mono); font-size: 9px; font-weight: 600; fill: var(--on-primary); }
+/* Parts manager modal */
+.modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; }
+.modal[hidden] { display: none; }
+.modal-backdrop { position: absolute; inset: 0; background: rgba(27,29,26,.38); }
+.modal-card { position: relative; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 12px 40px rgba(0,0,0,.16); width: min(760px, 92vw); max-height: 86vh;
+  display: flex; flex-direction: column; overflow: hidden; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4);
+  padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--line); }
+.modal-head .panel__title { margin: 2px 0 0; }
+.modal-body { padding: var(--s-5); overflow: auto; }
+.pm-grid { display: grid; grid-template-columns: 220px 1fr; gap: var(--s-5); align-items: start; }
+.pm-list-col { border-right: 1px solid var(--line); padding-right: var(--s-4); }
+.pm-item { display: flex; align-items: center; gap: var(--s-2); padding: 7px 8px; border: 1px solid var(--line);
+  border-radius: 4px; cursor: pointer; margin-bottom: 4px; background: var(--surface); }
+.pm-item.active { border-color: var(--primary); background: var(--surface-2); }
+.pm-item .part-name { flex: 1 1 auto; font-size: var(--fs-small); }
+@media (max-width: 560px) { .pm-grid { grid-template-columns: 1fr; } .pm-list-col { border-right: 0; border-bottom: 1px solid var(--line); padding: 0 0 var(--s-4); } }
 
 /* legend — a small, intuitive key to the colours and shapes on the floor */
 .floor-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
