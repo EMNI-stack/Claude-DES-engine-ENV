@@ -108,3 +108,28 @@
   a busy mover is felt up the line, not silently absorbed. (In the floor engine, even instant
   transport is capacity-aware so placed storage and finite buffers fill and block as they should.)
   — [HS] blocking / variability buffering (theory-notes §4.6); realised 2026-06-08.
+
+## Batch processing (a resource behaviour)
+
+- **Process batch vs transfer batch are distinct.** A *process batch* is the quantity run
+  between setups; a *transfer (move) batch* is the quantity moved together — they need not be
+  equal (lot-splitting). Phase 3.4 models the **process batch with a setup** only; transfer
+  batching / lot-splitting is explicitly out of v1 scope. — [HS] ch 9 (theory-notes §4.6; Charter §6.1)
+
+- **Setups inflate effective process time: `te = t0 + ts/Ns`.** A setup `ts` paid once per batch
+  of `Ns` parts adds `ts/Ns` to the per-part effective time `te` (here `t0 = whole-batch process
+  time ÷ B`, `Ns = B`). Bigger batches dilute the setup but enlarge wait-to-batch — the trade-off
+  the batch-size experimental factor lets a student explore. — [HS] ch 9 (theory-notes §4.6)
+
+- **Wait-to-batch is variability from *control*, not randomness.** The time a part waits for its
+  batch to fill carries no CV coefficient — it behaves like the worst case and comes from the
+  batching *policy*, not stochastic service. This is why the engine models setup as a constant and
+  the strict full-batch-start rule as a deliberate (sensitivity-flagged) simplification. — [HS]
+  ch 9 (theory-notes §4.6; Charter §6.1)
+
+> Phase 3.4 realises these: a resource flagged `batch={size B, setup}` accumulates parts, starts
+> only on a full batch of B, pays the setup once, processes the whole batch together (the service
+> distribution is the whole-batch time), and releases all B individually downstream. The strict
+> full-batch rule can jam a starved line, so the engine surfaces a deadlock (drained event list with
+> WIP > 0) and the UI guards the provably-unfillable cases (CONWIP < B, finite buffer < B) rather
+> than letting a model hang silently. Realised 2026-06-08.

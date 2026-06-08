@@ -662,3 +662,20 @@ output advancing, no console errors.
 - Plumbing: `batch:{on,size,setup}` added to resource node defaults (creation + migration, defensive in the
   inspector for example nodes) and threaded through `buildRunModel()` to the engine. New CSS `.batch-badge`
   and `.floor-warn`. No build step (Charter §4). `npm test` → **84/84** (engine unchanged this milestone).
+
+## 2026-06-08 — Phase 3.4.3: integrate batch into the study project
+
+- Persistence: `batch:{on,size,setup}` rides on the resource node, so it is saved/loaded with the
+  project (model is stored wholesale; `project.js` migrate passes `p.model` through; floor.js fills
+  defaults).
+- Assumptions log: toggling batch on (or changing B) auto-logs/refreshes a simplification
+  `a_batch_start` — "batch stations require a FULL batch to start (strict wait-to-batch, no timeout);
+  setup once per batch; process time is whole-batch" — with the control-variability rationale
+  (theory-notes §4.6), data category C, sensitivity-flagged (Robinson: document simplifications).
+- Experimental factor: an inspector button adds **batch size** as a conceptual-model experimental
+  factor (`newFactor`, bound by `resource:<id>:batch.size`, de-duped) for later analysis phases.
+- Static-deadlock guard now **blocks Play/Step**: `buildSim()` refuses with an explanation when a
+  batch can provably never form (finite buffer < B, or CONWIP < B); the results panel surfaces a
+  runtime **deadlock** (drained FEL with WIP>0) and per-station batch counts (batches done / waiting).
+- PRINCIPLES.md: added the batch theory (process vs transfer batch; `te = t0 + ts/Ns`; wait-to-batch
+  is control variability — theory-notes §4.6). `npm test` → **84/84**.

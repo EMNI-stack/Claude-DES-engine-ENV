@@ -4,7 +4,7 @@
    (des-floor/v1). Click any node or any leg to edit it; a table view gives an
    overview of every parameter. */
 
-import { load, save, uid, newAssumption } from './project.js';
+import { load, save, uid, newAssumption, newFactor } from './project.js';
 import { FloorSim, legDistance } from '../../src/floor-engine.js';
 import { DISTS, newDist, distMean, distScv, sample, mulberry32 } from '../../src/distributions.js';
 
@@ -51,6 +51,7 @@ let drag = null;
 
 // playback + animation state
 let sim = null, simCursor = 0, playing = false, lastTs = 0, speed = 6, needsBuild = true, finished = false, raf = 0;
+let lastBuildError = '';     // why buildSim() last refused (missing nodes, or a batch static deadlock)
 let tokenEls = new Map(), queueEls = new Map(), tokenLayer = null;
 let scrapSeen = 0;            // index into sim.scrapLog of the last scrap we've animated
 let hoverNodeId = null;       // node currently hovered, for the live count tooltip
@@ -512,15 +513,22 @@ function inspectNode(n, body) {
     // Batch mode — the machine waits for a full batch of B, pays one setup, then processes the batch together.
     body.append(H('p', { class: 'subhead' }, 'Batch processing'));
     const batchChk = H('input', { type: 'checkbox' }); batchChk.checked = !!n.batch.on;
-    batchChk.addEventListener('change', () => { n.batch.on = batchChk.checked; persist(); render(); renderInspector(); });
+    batchChk.addEventListener('change', () => { n.batch.on = batchChk.checked; persist(); if (n.batch.on) ensureBatchAssumption(); render(); renderInspector(); });
     body.append(H('label', { class: 'toggle-row' }, [batchChk, 'Process parts in batches']));
     if (n.batch.on) {
-      body.append(field('Batch size B', numInput(n.batch.size, 2, 1, (v) => { n.batch.size = Math.max(2, v | 0); persist(); render(); renderInspector(); })));
+      body.append(field('Batch size B', numInput(n.batch.size, 2, 1, (v) => { n.batch.size = Math.max(2, v | 0); persist(); ensureBatchAssumption(); render(); renderInspector(); })));
       body.append(field('Setup time (once per batch)', numInput(n.batch.setup, 0, 0.1, (v) => { n.batch.setup = Math.max(0, v || 0); persist(); render(); })));
       body.append(H('p', { class: 'floor-hint', style: 'margin:var(--s-2) 0 0' },
         `The machine waits for a full batch of ${n.batch.size}, pays the setup once, then processes the batch together — all ${n.batch.size} finish at the same moment and continue on individually.`));
       const w = batchWarning(n);
       if (w) body.append(H('p', { class: 'floor-warn', style: 'margin:var(--s-2) 0 0' }, w));
+      const binding = `resource:${n.id}:batch.size`;
+      const haveFactor = project.conceptual.factors.some((f) => f.bindingHint === binding);
+      const facBtn = H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-2)' },
+        haveFactor ? 'Batch size is an experimental factor ✓' : 'Add batch size as an experimental factor');
+      facBtn.disabled = haveFactor;
+      facBtn.addEventListener('click', () => { if (addBatchFactor(n)) renderInspector(); });
+      body.append(facBtn);
     }
     body.append(H('p', { class: 'subhead' }, n.batch.on ? 'Whole-batch process time' : 'Service time'));
     if (n.batch.on) body.append(H('p', { class: 'floor-hint', style: 'margin:0 0 var(--s-2)' }, 'This distribution is now the time to process the WHOLE batch, not one part.'));
@@ -692,6 +700,34 @@ function ensureWorkerAssumption() {
   }
 }
 
+/* ---- batch modelling-note auto-log ------------------------------------- */
+// Records the strict full-batch-start behaviour as a stated simplification (Robinson: document
+// assumptions/simplifications). Refreshed to list the current batch stations whenever one changes.
+function ensureBatchAssumption() {
+  const batched = model.nodes.filter((n) => n.kind === 'resource' && n.batch && n.batch.on);
+  const existing = project.assumptions.find((a) => a.id === 'a_batch_start');
+  if (!batched.length) return;   // leave any prior note in place if batching is later turned off
+  const names = batched.map((n) => `${n.name || 'a station'} (B=${Math.max(2, n.batch.size | 0)})`).join(', ');
+  const desc = `Batch stations require a FULL batch to start (strict wait-to-batch, no timeout); setup is incurred once per batch and the process time is for the whole batch: ${names}.`;
+  if (existing) { existing.description = desc; }
+  else project.assumptions.push(newAssumption({ id: 'a_batch_start', kind: 'simplification',
+    description: desc,
+    rationale: 'Charter §6.1 process-batch model. Wait-to-batch is variability from control, not randomness (theory-notes §4.6); the strict no-timeout rule is a deliberate simplification to flag for sensitivity analysis.',
+    data: 'C', uncertainty: 'Real batching policies may start partial batches after a timeout; that latency is excluded here.', sensitivity: true }));
+  save(project);
+}
+// Offer batch size as an experimental factor (Robinson: inputs you deliberately vary). De-duped by binding.
+function addBatchFactor(n) {
+  const binding = `resource:${n.id}:batch.size`;
+  if (project.conceptual.factors.some((f) => f.bindingHint === binding)) return false;
+  project.conceptual.factors.push(newFactor({
+    name: `Batch size — ${n.name || 'resource'}`, unit: 'parts', baseline: String(Math.max(2, n.batch.size | 0)),
+    description: 'Number of parts processed together as one batch (process batch). Vary to study the setup/wait-to-batch trade-off.',
+    bindingHint: binding }));
+  save(project);
+  return true;
+}
+
 /* ---- run ---------------------------------------------------------------- */
 function buildRunModel() {
   const nodes = model.nodes.map((n) => n.kind === 'resource'
@@ -707,7 +743,11 @@ function buildRunModel() {
 }
 /* ---- playback ----------------------------------------------------------- */
 function buildSim() {
-  if (model.routeOrder.length < 2) { sim = null; needsBuild = true; return false; }
+  if (model.routeOrder.length < 2) { sim = null; needsBuild = true; lastBuildError = 'Add at least a source, a resource and a sink, then press Play.'; return false; }
+  // static deadlock guard: a batch that can provably never form would jam the model — refuse and explain
+  const dl = firstBatchDeadlock();
+  if (dl) { sim = null; needsBuild = true; lastBuildError = `Cannot run — ${dl.n.name || 'a batch station'}: ${dl.w}`; return false; }
+  lastBuildError = '';
   sim = new FloorSim(buildRunModel(), 1);
   simCursor = 0; needsBuild = false; finished = false; scrapSeen = 0;
   render(); updateClock();
@@ -732,13 +772,13 @@ function loop(ts) {
 }
 function play() {
   if (needsBuild || !sim || finished || !sim.fel.length) {
-    if (!buildSim()) { $('floorHint').textContent = 'Add at least a source, a resource and a sink, then press Play.'; setPlayLabel(); return; }
+    if (!buildSim()) { $('floorHint').textContent = lastBuildError; setPlayLabel(); return; }
   }
   playing = true; finished = false; setPlayLabel(); lastTs = performance.now(); cancelAnimationFrame(raf); raf = requestAnimationFrame(loop);
 }
 function pause() { playing = false; cancelAnimationFrame(raf); setPlayLabel(); }
 function togglePlay() { playing ? pause() : play(); }
-function stepOne() { pause(); if (needsBuild || !sim) buildSim(); if (!sim) return; if (sim.fel.length) { simCursor = sim.fel[0].time; sim.step(); } renderFrame(simCursor); updateClock(); }
+function stepOne() { pause(); if (needsBuild || !sim) { if (!buildSim()) { $('floorHint').textContent = lastBuildError; return; } } if (!sim) return; if (sim.fel.length) { simCursor = sim.fel[0].time; sim.step(); } renderFrame(simCursor); updateClock(); }
 /* End the run at the moment currently on screen (the sim never empties its FEL on
    its own), freeze the time-average statistics there, and show the results. */
 function endRun() {
@@ -782,6 +822,15 @@ function showResults() {
   const conv = Object.values(r.conveyors || {}); if (conv.length) tRows.push(`<tr><td>Conveyor (busiest)</td><td class="num">${(100 * Math.max(...conv.map((c) => c.utilisation))).toFixed(1)}% full</td><td class="num">—</td></tr>`);
   const blk = Math.max(0, ...Object.values(r.blockedFraction || {})); if (blk > 0.001) tRows.push(`<tr><td>Most-blocked resource</td><td class="num">${(100 * blk).toFixed(1)}% blocked</td><td class="num">—</td></tr>`);
   if (tRows.length) results.append(H('div', { html: `<p class="section-label" style="margin:var(--s-4) 0 var(--s-2)">Transport</p><table class="table"><tbody>${tRows.join('')}</tbody></table>` }));
+  // batch + deadlock surface
+  const batchIds = Object.keys(r.batch || {});
+  if (r.deadlock || batchIds.length) {
+    const bRows = [];
+    if (r.deadlock) bRows.push('<tr><td>Deadlock</td><td class="num">model jammed — WIP stranded, no events left</td></tr>');
+    for (const id of batchIds) { const b = r.batch[id]; const nm = (node(id) && node(id).name) || id;
+      bRows.push(`<tr><td>${esc(nm)} (B=${b.size})</td><td class="num">${b.batchesStarted} batches done${b.waitingForBatch ? `, ${b.waitingForBatch} waiting for a batch` : ''}</td></tr>`); }
+    results.append(H('div', { html: `<p class="section-label" style="margin:var(--s-4) 0 var(--s-2)">Batching${r.deadlock ? ' — deadlock detected' : ''}</p><table class="table"><tbody>${bRows.join('')}</tbody></table>` }));
+  }
   // control & demand summary
   const cRows = [`<tr><td>Control</td><td class="num">${r.control === 'conwip' ? `CONWIP (cap ${r.conwipCap})` : 'push'}</td></tr>`,
     `<tr><td>Max line WIP</td><td class="num">${r.maxLineWip}</td></tr>`,
