@@ -274,7 +274,7 @@ function renderFrame(cursor) {
       // sliver tracks the PROCESSING phase only (0 during setup). Quiet, no glow (DESIGN-LANG §7).
       const badgeEl = g.querySelector('.batch-badge');
       if (badgeEl && r.batch) {
-        const bm = r.machines.find((m) => m.busy && m.batch);
+        const bm = r.machines.find((m) => m.batch);   // a machine holding a batch (busy, or blocked at hand-off)
         if (bm) {
           if (cursor < bm.setupEnd) { frac = 0; badgeEl.textContent = 'setup'; }
           else { frac = bm.depTime > bm.setupEnd ? Math.min(1, Math.max(0, (cursor - bm.setupEnd) / (bm.depTime - bm.setupEnd))) : 1; badgeEl.textContent = 'processing ' + bm.batch.length; }
