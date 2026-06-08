@@ -133,3 +133,27 @@
 > full-batch rule can jam a starved line, so the engine surfaces a deadlock (drained event list with
 > WIP > 0) and the UI guards the provably-unfillable cases (CONWIP < B, finite buffer < B) rather
 > than letting a model hang silently. Realised 2026-06-08.
+
+## The process model (parts, BOMs, dependent demand)
+
+- **Assembly is fork-join synchronisation.** An assembly operation starts a product only when **all**
+  its bill-of-materials components are simultaneously on hand, consuming them; it is degraded by more
+  components, more component-arrival variability, and worse coordination (Law of Assembly Operations).
+  On the floor this is *spatial*: a component is on hand only once it has **travelled** to the assembly
+  station, so the slowest/farthest component paces the product. — [HS] ch 9 (theory-notes §4.6)
+
+- **Demand propagates through the BOM (dependent demand).** A product's demand explodes into demand for
+  its components, level by level, netted against on-hand inventory and in-flight WIP and capped by each
+  part's pull (CONWIP) limit. A part that is both a finished product and a component of another product
+  must be produced to meet the dependent demand, not starved — and a scarce shared component is shared
+  fairly between the products that consume it (round-robin / turn-taking), never monopolised. — [HS]
+  ch 9–10 (theory-notes §4.6–4.7)
+
+- **Each demand stream is independent.** Every demand product is driven by its **own** interarrival
+  distribution; mixing products on shared workcenters is branching, and a station's load is the sum of
+  the parts that visit it. — [HS] (theory-notes §4)
+
+> Phase 3.5 realises these by porting the validated multi-part / BOM / assembly / supply-demand-control
+> logic from `src/advanced-engine.js` into the transport-aware `src/floor-engine.js` (one engine), so the
+> spatial floor now carries true multi-part flow with assembly synchronisation, per-product demand, and
+> per-product CONWIP. Realised 2026-06-08.

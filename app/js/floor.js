@@ -522,7 +522,11 @@ function renderParts() {
     host.append(H('p', { class: 'subhead' }, 'Time between orders'));
     host.append(distEditor(p.demand.dist, persist));
     host.append(field('Order quantity', numInput(p.demand.qty, 1, 1, (v) => { p.demand.qty = Math.max(1, v | 0); persist(); })));
-    if (model.control === 'conwip') host.append(field('CONWIP limit (this product)', numInput(p.demand.conwip, 1, 1, (v) => { p.demand.conwip = Math.max(1, v | 0); persist(); })));
+    host.append(factorButton(`part:${p.id}:demand.mean`, { name: `Demand rate — ${p.name}`, unit: 'min between orders', baseline: distMean(p.demand.dist).toFixed(2), description: 'Mean time between customer orders for this product. Vary to study load vs service level.' }));
+    if (model.control === 'conwip') {
+      host.append(field('CONWIP limit (this product)', numInput(p.demand.conwip, 1, 1, (v) => { p.demand.conwip = Math.max(1, v | 0); persist(); })));
+      host.append(factorButton(`part:${p.id}:conwip`, { name: `CONWIP — ${p.name}`, unit: 'cards', baseline: String(p.demand.conwip || 5), description: 'Work-in-process cap for this product under pull. Vary to study the WIP–throughput–cycle-time trade-off.' }));
+    }
   }
 }
 function addPart() {
@@ -621,6 +625,7 @@ function inspectNode(n, body) {
     body.append(H('p', { class: 'subhead' }, 'Symbol / shape'));
     body.append(symbolPicker(n));
     body.append(field('Machines (parallel)', numInput(n.machines || 1, 1, 1, (v) => { n.machines = Math.max(1, v | 0); persist(); render(); })));
+    body.append(factorButton(`resource:${n.id}:machines`, { name: `Capacity — ${n.name || 'resource'}`, unit: 'machines', baseline: String(n.machines || 1), description: 'Number of parallel machines at this workcenter. Vary to study capacity vs utilisation, WIP and cycle time.' }));
     // Assembly station — a product whose route STARTS here is assembled from its bill of materials.
     body.append(H('p', { class: 'subhead' }, 'Assembly'));
     const asyChk = H('input', { type: 'checkbox' }); asyChk.checked = !!n.assembly;
@@ -849,14 +854,38 @@ function ensureBatchAssumption() {
 }
 // Offer batch size as an experimental factor (Robinson: inputs you deliberately vary). De-duped by binding.
 function addBatchFactor(n) {
-  const binding = `resource:${n.id}:batch.size`;
-  if (project.conceptual.factors.some((f) => f.bindingHint === binding)) return false;
-  project.conceptual.factors.push(newFactor({
+  return addFactorByBinding(`resource:${n.id}:batch.size`, {
     name: `Batch size — ${n.name || 'resource'}`, unit: 'parts', baseline: String(Math.max(2, n.batch.size | 0)),
-    description: 'Number of parts processed together as one batch (process batch). Vary to study the setup/wait-to-batch trade-off.',
-    bindingHint: binding }));
+    description: 'Number of parts processed together as one batch (process batch). Vary to study the setup/wait-to-batch trade-off.' });
+}
+/* ---- experimental factors / responses (Phase 3.5.3 study integration) --- */
+function hasFactor(binding) { return project.conceptual.factors.some((f) => f.bindingHint === binding); }
+function addFactorByBinding(binding, fields) {
+  if (hasFactor(binding)) return false;
+  project.conceptual.factors.push(newFactor({ ...fields, bindingHint: binding }));
   save(project);
   return true;
+}
+// a small "declare as experimental factor" button (disabled once declared), reused across inspectors
+function factorButton(binding, fields) {
+  const have = hasFactor(binding);
+  const b = H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-2)' }, have ? '✓ experimental factor' : '+ as experimental factor');
+  b.disabled = have;
+  b.addEventListener('click', () => { if (addFactorByBinding(binding, fields)) renderInspector(); renderParts(); });
+  return b;
+}
+// declare the standard floor responses the analysis phase will measure
+function addStandardResponses() {
+  const want = [
+    { name: 'Throughput', unit: '/min', description: 'Finished units per unit time (the production rate).' },
+    { name: 'Average WIP', unit: 'units', description: 'Work-in-process held in the system on average.' },
+    { name: 'Cycle time', unit: 'min', description: 'Average time a unit spends from release to completion.' },
+    { name: 'Fill rate', unit: '%', description: 'Share of customer demand met from stock (service level).' },
+  ];
+  let added = 0;
+  for (const w of want) if (!project.conceptual.responses.some((r) => r.name === w.name)) { project.conceptual.responses.push(newResponse(w)); added++; }
+  if (added) save(project);
+  return added;
 }
 
 /* ---- run ---------------------------------------------------------------- */
@@ -1002,6 +1031,12 @@ function showResults() {
       `<tr><td>Stockouts / avg FG</td><td class="num">${r.stockouts} / ${r.avgFG.toFixed(2)}</td></tr>`);
   }
   results.append(H('div', { html: `<p class="section-label" style="margin:var(--s-4) 0 var(--s-2)">Control &amp; demand</p><table class="table"><tbody>${cRows.join('')}</tbody></table>` }));
+  // study integration: declare these outputs as conceptual-model responses for the analysis phase
+  const haveResp = ['Throughput', 'Average WIP', 'Cycle time', 'Fill rate'].every((nm) => project.conceptual.responses.some((x) => x.name === nm));
+  const rb = H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-4)' }, haveResp ? '✓ responses declared' : 'Declare these as study responses');
+  rb.disabled = haveResp;
+  rb.addEventListener('click', () => { addStandardResponses(); showResults(); });
+  results.append(rb);
 }
 
 /* ---- example + clear ---------------------------------------------------- */

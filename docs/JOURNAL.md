@@ -750,3 +750,16 @@ output advancing, no console errors.
 - New assembly demo `#example4` (Widget = 1 Body + 4 Bolts; fork-join at Assemble). Headless check of the
   emitted run-model: 1960 widgets, bolts consumed = 4× widgets, conservation holds, no deadlock. Engine
   unchanged → `npm test` **93/93**. CSS for the parts panel / BOM rows / route chips / dimmed legs.
+
+## 2026-06-08 — Phase 3.5.3: integrate process model into the study project
+
+- Persistence: the process model (`model.parts[]` with kind/route/bom/demand, assembly flags, activePart)
+  rides on `project.model`, saved/loaded with the Phase-2 study; `ensureModel` migrates older saves.
+- Conceptual-model binding (Robinson: declare what you'll vary and measure). Reusable "+ as experimental
+  factor" buttons (de-duped by a stable `bindingHint`) now sit on: resource **capacity** (machines), batch
+  size, per-product **demand rate**, and per-product **CONWIP** limit. A Results-panel button **declares the
+  standard responses** (throughput, avg WIP, cycle time, fill rate) so the analysis phase measures exactly
+  what the student declared. Adding a BOM auto-logs the fork-join **assembly-synchronisation** assumption.
+- PRINCIPLES.md: assembly = fork-join (Law of Assembly Operations, §4.6); dependent demand propagates
+  through the BOM with fair sharing of scarce components (§4.6–4.7); each demand stream is independent (§4).
+- `npm test` → **93/93** (engine unchanged this milestone).
