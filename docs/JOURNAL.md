@@ -691,3 +691,20 @@ output advancing, no console errors.
 - Verified headless through `FloorSim` (mirroring `buildRunModel`): 501 batches → 2004 completed (multiple
   of 4), throughput 0.40/min, furnace util 80.5%, deadlock false. Live at
   `app/floor.html#example3`. `npm test` → 84/84.
+
+## 2026-06-08 — Phase 3.5 · Milestone 0: process-model audit + engine-strategy design note (PAUSED for review)
+
+- Audited the new floor engine vs the validated `advanced-engine.js`: floor engine is **single-product**
+  (`mainPart`) with transport+batch+blocking+breakdowns+scrap but **no multi-part/BOM/assembly/per-product
+  demand/per-product CONWIP**; `advanced-engine` has all of those but is non-spatial. Confirmed with the
+  stakeholder that the prompt's **Phase 3.6 transport revision (AGV/operator coupling) does not exist** —
+  ignored; only the three movers (instant/conveyor/worker) + batch are preserved.
+- Proposed strategy (E1–E7): **port** advanced-engine's multi-part/BOM/assembly/supply-demand/control logic
+  **into** `floor-engine.js` additively (one engine), reusing the validated algorithms; transport **gates**
+  assembly (component on-hand only after its last leg arrives); per-product demand keeps its **own** dist;
+  dependent-demand explosion preserved; batch×assembly orthogonal but not combined on one node (v1); parts
+  capped at 10; backwards compatible with today's single-part model.
+- Wrote `docs/PHASE-3-5-DESIGN.md` (supersedes the never-built `PHASE-3B-DESIGN.md`) + a DECISIONS.md entry.
+  Theory link for PRINCIPLES (deferred to the build): §4.6 Law of Assembly Operations (fork-join); dependent
+  demand propagates through the BOM. **No engine/UI/test code yet — PAUSED for confirmation of the engine
+  strategy before Milestone 1.** `npm test` unchanged (84/84).

@@ -476,3 +476,40 @@ confirmation before any engine code is written.*
   (process vs transfer batch, setup inflation, wait-to-batch = control variability); Charter §4.2 (build on
   the validated engine; legacy engines untouched; regression-tested). To be covered by a new test file in
   `tests/` with existing suites staying green.
+
+## [2026-06-08] — Phase 3.5 process model: engine strategy (Milestone 0, PROPOSAL — awaiting ratification)
+*Full design note: `docs/PHASE-3-5-DESIGN.md` (supersedes/absorbs the never-built `PHASE-3B-DESIGN.md`).
+These choices are proposed and PAUSED for stakeholder confirmation before any code.*
+- Context/audit: the new floor engine (`src/floor-engine.js`) is **single-product** (`mainPart`); it has
+  transport (instant/conveyor/worker) + batch + blocking + breakdowns + scrap but **no multi-part, BOM,
+  assembly, per-product demand, or per-product CONWIP**. `src/advanced-engine.js` has all of those but is
+  **non-spatial** (no transport, no batch). Note: the prompt's "Phase 3.6 transport revision (AGV/Operator
+  coupling)" **does not exist in the repo** — stakeholder confirmed; ignored. Only the three existing movers
+  + batch are preserved.
+- Decision (E1): **port the proven multi-part / BOM / assembly / supply-demand / control logic from
+  `advanced-engine.js` INTO `floor-engine.js`, additively** — one engine drives the floor — reusing the
+  validated algorithms (`canAssemble`, consume-on-start, `buildPullOrder`, `computePullNeeds`,
+  `pullSatisfy`/`extTurn` fairness, round-robin, per-source/per-product streams) rather than reinventing
+  them. `advanced-engine.js` and `engine.js` stay **frozen**; their tests stay green.
+- Sub-decisions: **E2** transport gates assembly — a component is on-hand only after its last leg delivers
+  it to the assembly node (global per-part inventory pool, round-robin fairness); the farthest/slowest
+  component paces the product (§4.6 fork-join cost, made spatial). **E3** per-product CONWIP + per-product
+  demand each with its **own interarrival dist** (the historical bug — preserved); dependent-demand
+  explosion preserved; in-transit jobs count as that part's WIP. **E4** batch × assembly are orthogonal
+  flags but **not combined on one node in v1**. **E5** service/scrap stay on the resource for v1
+  (per-operation service deferred). **E6** parts **capped at 10**, surfaced not silently truncated. **E7**
+  backwards compatible — today's single-part model = one produced part, no BOM → identical (regression).
+- Rationale: transport, batch, and assembly must share one event loop / FEL / WIP accounting — the spatial
+  gating of assembly only exists if they live together (Charter §4.2 build-on-engine; the floor is the model
+  surface). Reusing the validated advanced-engine algorithms keeps the statistical/scheduling logic sound
+  (Charter §3 source hierarchy). Basics-first default (one produced part, serial line, push) protects the
+  learner (Charter §9).
+- Alternatives considered: **two engines side by side** (rejected — can't share the FEL/transport, and
+  spatial assembly gating becomes impossible); **rewrite multi-part logic from scratch in the floor engine**
+  (rejected — discards validated behaviour and its tests, Charter §4.2); **per-node component inventories**
+  (deferred — global per-part pool is simpler and matches advanced-engine for basics-first); **per-operation
+  service times now** (deferred to keep v1 simple). The **3.2b authoring-UX** choice is deferred to
+  Milestone 2.
+- Governing principle / source: Charter §2/§4/§9/§10; `Reference/theory-notes.md` §4.6 (Law of Assembly
+  Operations — fork-join matching), §5 (layout/flow); `src/advanced-engine.js` as the validated reference.
+  To be covered by a new `tests/floor-process.test.js` with existing suites staying green.

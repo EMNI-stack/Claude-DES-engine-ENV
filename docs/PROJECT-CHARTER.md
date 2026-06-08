@@ -131,19 +131,36 @@ The genuinely new, higher-risk capability. **v1 minimal definition:**
 
 - A **2D canvas** where students **drag and place** resources (machines /
   workcenters) and **storage positions** (buffers).
-- **Transport between placed elements** via two simple mover types:
-  - **Conveyor** — fixed path between two points; throughput/speed-limited.
-  - **People/worker** — moves loads point-to-point; a constrained resource with
-    a count and a speed.
-- **Travel time derives from 2D distance** between placed elements (× a speed),
-  so placement *matters* to performance — closing the loop between layout and
-  flow that the course is about.
+- **Transport between placed elements** uses one of four modes per link
+  *(taxonomy set in the Phase 3.6 revision; supersedes the original two movers)*:
+  - **Instant** — zero transport time; placement does not affect that link's time
+    (a baseline / simplification).
+  - **Conveyor (straight or bent)** — a fixed path between two points; may bend
+    through drawn waypoints; transit time = path length ÷ speed; has a capacity
+    and blocks when downstream is full.
+  - **AGV (flexible, transport-only)** — placed mover units that carry one load at
+    a time, travel to pick up and then deliver; transport only.
+  - **Operator (flexible)** — placed units that can **transport, operate a
+    machine, or both** (see operator↔machine coupling below). One load at a time.
+- **Travel time derives from 2D distance / path length** (× a speed), so placement
+  *matters* to performance — closing the loop between layout and flow.
+- Flexible movers (AGV / Operator) model **travel-to-pickup**; empty
+  repositioning after drop-off is **ignored and logged** as a simplification.
+  When several requests compete, a **minimal fixed dispatch rule** decides (e.g.
+  longest-waiting / nearest) — **no optimising dispatcher**.
+- **Operator ↔ machine coupling:** each machine has an **"operator required"**
+  flag. An operator-required machine cannot process without a free operator; an
+  automatic machine runs on its own. An operator busy moving a load cannot run a
+  machine and vice-versa — operators are one shared, constrained pool across
+  transport and processing. Operators are assigned to the machines/links they may
+  serve.
 - Transport is modelled as a **resource that can starve, queue, and delay** —
-  i.e. movement is non-value-adding time, the "best flow is no flow" idea.
+  movement is non-value-adding time, the "best flow is no flow" idea.
 
-**Explicitly NOT in v1:** routing/path-finding around obstacles, AGV fleets with
-dispatching logic, collision, multi-floor, optimisation/auto-layout. Keep it to
-"placement sets distances; distances set transport delays; movers are limited."
+**Explicitly NOT in v1:** path-finding/obstacle avoidance, collisions,
+multi-floor, automatic layout optimisation, optimising mover dispatch, empty
+repositioning, multi-load movers, operator jockeying. Dispatch stays a single
+fixed minimal rule.
 
 This connects to the layout theory (from-to logic, material handling, evaluate
 layout *dynamically by simulation*) without becoming a facilities-planning tool.
@@ -176,6 +193,31 @@ model silently deadlock.
 **Not in v1:** transfer/move batching (lot-splitting), mixed-part batches,
 sequence-dependent setups. A batch is B units accumulating at the resource (of
 the same part once multi-part exists).
+
+---
+
+## 6.2 Parallel resources — one operation, several machines
+
+An operation can be fulfilled by **any machine in a named resource group** — i.e.
+several copies of "the same machine" placed at different locations, sharing the
+load. This makes models more realistic (and ties to Factory Physics *pooling* and
+*parallel machines* — theory-notes §4.6, §5.5).
+
+**v1 definition (kept simple):**
+- A routing operation may target a **resource group** instead of a single
+  resource; any member machine can serve it. Members are distinct, individually
+  placed machines and **may differ** in their settings (service time, breakdowns,
+  batch, operator-required).
+- **Selection rule, set per group** — two options:
+  - **Even probabilistic split** (1 / N across members), or
+  - **Shortest queue** (send to the least-loaded member at decision time).
+- The choice considers only the members' own state (queue / availability), **not**
+  transport distance, in v1.
+- **No jockeying:** once a part is sent to a chosen machine it stays in that
+  machine's queue.
+
+**Not in v1:** transport-aware routing, custom split weights, jockeying,
+load-balancing across groups.
 
 ---
 
@@ -218,7 +260,12 @@ too playful, too "cyber" (neon accents, glowing grids). **Retire that look.**
 - No backend, accounts, or central data.
 - No simulation features beyond Robinson (no optimisation engines, no advanced
   variance-reduction beyond CRN/replications, no metamodelling).
-- No advanced transport (pathfinding, AGV dispatch, collisions).
+- **Scope expanded deliberately (review #2), kept minimal:** flexible movers
+  (AGV/operator), operator-operated machines, a single fixed minimal dispatch
+  rule, and state-dependent routing (shortest-queue) are now in scope — but
+  **only** in their simplest form. Still NOT in v1: path-finding/obstacle
+  avoidance, collisions, optimising dispatchers, empty repositioning, multi-load
+  movers, jockeying, multi-floor, auto-layout.
 - No multi-user *collaboration* on a single model (each model is one student's).
 - **No advanced extremities.** The app teaches the basics *well*; it does not
   chase edge-case fidelity, exotic scenarios, or "complete" generality. Every
@@ -243,6 +290,13 @@ too playful, too "cyber" (neon accents, glowing grids). **Retire that look.**
 - **Phase 3.5 — Process model.** Bring the engine's multi-part / BOM / routing /
   supply / demand / push-pull capability into the new app as a guided,
   basics-first model-builder, integrated with the floor and the conceptual model.
+- **Phase 3.6 — Transport revision.** Replace the two-mover model with the four
+  modes (Instant · Conveyor straight/bent · AGV · Operator), the operator↔machine
+  coupling, travel-to-pickup, and a minimal dispatch rule. (See §6.) Independent
+  of the process model; can precede or follow 3.5.
+- **Phase 3.7 — Parallel resources.** Operations served by a resource group with
+  even-split or shortest-queue selection. (See §6.2.) **Depends on the process
+  model (3.5) routing being in place.** Comes after the transport revision.
   *(Inserted after review — the original roadmap omitted an explicit
   model-definition phase; §4.2 had only assumed the engine's BOM/routing would
   carry through. Logically this precedes output analysis.)*
