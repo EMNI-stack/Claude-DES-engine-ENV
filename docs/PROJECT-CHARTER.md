@@ -45,8 +45,8 @@ models; experiment with, validate, and analyse results; and relate critically to
 results, uncertainty, and limitations.
 
 **Competence** — students can design & carry out simulation analyses and
-translate results into decision support with regard to efficiency and
-flexibility.
+translate results into decision support with regard to efficiency, flexibility,
+and sustainability.
 
 **Design rule:** if a proposed feature does not serve one of these, it is out of
 scope for v1.
@@ -140,22 +140,42 @@ The genuinely new, higher-risk capability. **v1 minimal definition:**
   flow that the course is about.
 - Transport is modelled as a **resource that can starve, queue, and delay** —
   i.e. movement is non-value-adding time, the "best flow is no flow" idea.
-- **Branching and assembly are in scope** (stakeholder decision 2026-06-07): the
-  floor is a **routing graph** where different products take different routes
-  (branching) and components **converge at assembly** nodes per a BOM (reusing the
-  validated advanced-engine's fork-join synchronisation). The data model is
-  graph-/assembly-capable from the start; it is built **incrementally** (Option B:
-  linear path → transport resources → branching/assembly → integration) so the
-  "kept simple" principle still governs the *build order*, not the final scope.
 
 **Explicitly NOT in v1:** routing/path-finding around obstacles, AGV fleets with
-dispatching logic, collision, multi-floor, optimisation/auto-layout, empty-travel
-modelling for workers. (These are *transport* exclusions; branching & assembly are
-modelling-domain capabilities and are included, per above.) Keep it to "placement
-sets distances; distances set transport delays; movers are limited."
+dispatching logic, collision, multi-floor, optimisation/auto-layout. Keep it to
+"placement sets distances; distances set transport delays; movers are limited."
 
 This connects to the layout theory (from-to logic, material handling, evaluate
 layout *dynamically by simulation*) without becoming a facilities-planning tool.
+
+---
+
+## 6.1 Batch processing (a resource behaviour)
+
+A resource/machine can be set to **Batch** mode (otherwise it processes jobs one
+at a time, as now). Batch mode models a machine that processes a group of parts
+together — an oven, a wash, a heat-treat, a transport-pallet operation.
+
+**v1 definition (kept simple):**
+- A batch resource has a **batch size B**. It **waits until B jobs are available
+  and needs all of them to begin** (wait-to-batch).
+- A **setup time** is incurred **once per batch**, before processing.
+- The **processing time applies to the whole batch** (all B parts are worked
+  together and finish together), not per part.
+- After completion the B parts are released and continue individually downstream.
+
+This is the Factory Physics **process batch** with a **setup** (theory-notes
+§4.6): setups inflate effective process time, and wait-to-batch time is
+variability that comes from *control*, not from randomness — a clean teaching
+point that the methodology log and (later) the Factory Physics overlay can use.
+
+**Consideration to handle:** with strict "needs all B to begin", a resource fed
+fewer than B parts can wait forever — surface/guard this rather than letting a
+model silently deadlock.
+
+**Not in v1:** transfer/move batching (lot-splitting), mixed-part batches,
+sequence-dependent setups. A batch is B units accumulating at the resource (of
+the same part once multi-part exists).
 
 ---
 
@@ -166,7 +186,7 @@ Factory Physics theory**:
 - Overlay theoretical references (best/worst/practical-worst-case curves, VUT
   prediction, Little's Law consistency) on simulated output.
 - Qualitative interpretation in the Managers' vocabulary (buffers, the
-  efficiency/flexibility lens).
+  efficiency/flexibility/sustainability lens).
 - The teaching payoff: see *where simulation and closed-form theory agree, and
   where the simulation is needed because the formulas stop applying* (blocking,
   non-exponential service, breakdowns) — which is the whole reason DES exists.
@@ -216,13 +236,24 @@ too playful, too "cyber" (neon accents, glowing grids). **Retire that look.**
   log, V&V framing — the Robinson backbone.
 - **Phase 3 — 2D layout & transport engine.** Drag-place canvas + conveyor/people
   movers + distance-based transport, with validation tests.
+- **Phase 3.4 — Batch processing.** A resource can be set to Batch mode (size B,
+  setup time per batch, process time for the whole batch, requires a full batch
+  to start). Engine + UI + tests. Comes before the process model so the multi-part
+  work inherits batch behaviour. (See §6.1.)
+- **Phase 3.5 — Process model.** Bring the engine's multi-part / BOM / routing /
+  supply / demand / push-pull capability into the new app as a guided,
+  basics-first model-builder, integrated with the floor and the conceptual model.
+  *(Inserted after review — the original roadmap omitted an explicit
+  model-definition phase; §4.2 had only assumed the engine's BOM/routing would
+  carry through. Logically this precedes output analysis.)*
 - **Phase 4 — Output analysis & rigour.** Warm-up, replications, confidence
   intervals; integrate the analysis/visualisation work.
 - **Phase 5 — Factory Physics overlays.** Theory-vs-results comparison; the
   intuition layer.
 
-(Phase ordering is fixed: methodology scaffolding is Phase 2, the 2D layout &
-transport engine is Phase 3 — no swap.)
+(Ordering note: the process model (3.5) should really have come before the floor
+(3); we built the floor first, so 3.5 also reconciles the engine. Output analysis
+and Factory Physics overlays remain last.)
 
 ---
 
@@ -232,6 +263,9 @@ transport engine is Phase 3 — no swap.)
   definition in §6 is the right floor.
 - **Distribution/units conventions** must be fixed once and enforced everywhere
   (the theory-notes already start this).
+- **Sustainability** is the thinnest-covered objective in the source material —
+  decide what it concretely means in the app (energy/utilisation? scrap/yield?
+  transport distance? obsolescence?).
 
 > **Resolved in review #1:** the methodology scaffolding favours **guided rails
 > over open sandbox** — the priority is learning the basics correctly, so the app

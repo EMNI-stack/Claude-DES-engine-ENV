@@ -437,3 +437,42 @@ Entry format:
   up here" cue).
 - Governing principle / source: Stakeholder direction (2026-06-08); DESIGN-LANGUAGE §7 (quiet, diagrammatic,
   legible at a glance).
+
+## [2026-06-08] — Phase 3.4 batch processing: model & semantics (Milestone 0, PROPOSAL — awaiting ratification)
+*Full design note: `docs/PHASE-3-4-DESIGN.md`. These choices are proposed and PAUSED for stakeholder
+confirmation before any engine code is written.*
+- Decision: A floor resource may be flagged **batch** with **batch size B** (integer ≥ 2) and a **setup
+  time `ts`**. The resource's existing **service distribution is reinterpreted as the WHOLE-BATCH process
+  time** `T_batch` (not per part). The machine **waits until B jobs are accumulated and needs all B to
+  start** (strict wait-to-batch, no timeout), pays **setup once per batch** before processing, works all B
+  together for `ts + T_batch`, and releases the B parts to continue **individually** downstream. Specific
+  sub-decisions:
+  - **D2 Setup is a constant** (not a distribution) — simpler and pedagogically faithful: setup/wait-to-batch
+    is variability from *control*, not randomness (theory-notes §4.6). Can become a dist later non-breakingly.
+  - **D3** One COMPLETE event per batch; `service` sampled once; the setup sub-phase is tracked by a
+    timestamp (`m.setupEnd`), needing no extra event, so the floor can show *accumulate → setup → process*.
+  - **D4 Scrap is per-part within a batch** (each of B rolls `node.scrap` independently; they finish
+    together, then are inspected individually).
+  - **D5 Breakdowns** preempt-resume the **combined** setup+process remainder (v1 simplification).
+  - **D6 Deadlock/starvation is surfaced, never silently hung:** engine reports `metrics.deadlock` when the
+    event list drains with WIP still in system, plus per-resource `batchesStarted`/`waitingForBatch`
+    diagnostics; the UI adds **static guards** that block Play for the two provably-unfillable cases —
+    **CONWIP cap < B** and **finite input buffer cap < B**. Under stream supply a batch always fills
+    eventually (correct control latency, not deadlock).
+  - **D7 `occ()` is redefined to count actual jobs present** (a busy batch machine holds B), so finite
+    buffers account correctly; non-batch behaviour is byte-for-byte unchanged (regression).
+- Rationale: Charter §6.1 defines batch as the Factory Physics **process batch with a setup**; this is the
+  minimal faithful model (setups inflate effective process time `te = t0 + ts/Ns`; wait-to-batch is control
+  variability — §4.6). Reinterpreting the existing service dist as whole-batch time avoids adding a parallel
+  "per-part vs batch" time concept (clarity-for-a-learner, Charter §1). Branching only when `r.batch` is set
+  preserves the validated single-job engine exactly.
+- Alternatives considered: **setup as a distribution** (rejected for v1 — adds noise to a control quantity
+  and more UI; deferred); **per-part process time × B inside the engine** (rejected — the charter fixes
+  whole-batch semantics and it muddies the teaching point); **a separate per-part COMPLETE for each of B**
+  (rejected — they finish together by definition; one event is correct and cheaper); **partial-batch timeout
+  to avoid starvation** (rejected — explicitly out of scope §6.1; deadlock is surfaced/guarded instead);
+  **silently letting an unfillable model hang** (rejected — must surface, per §6.1).
+- Governing principle / source: Charter §6.1 (batch definition + non-goals); `Reference/theory-notes.md` §4.6
+  (process vs transfer batch, setup inflation, wait-to-batch = control variability); Charter §4.2 (build on
+  the validated engine; legacy engines untouched; regression-tested). To be covered by a new test file in
+  `tests/` with existing suites staying green.

@@ -616,3 +616,21 @@ output advancing, no console errors.
   buffer is finite, so stock piles in the WIP buffer (fills to cap 8 → grey "×8" marker), Cut blocks, and the
   line backs up — a ready-made illustration of the capacity-aware storage/finite-buffer behaviour and the
   machines-vs-capacity point. Verified headless: WIP buffer reaches ×8, Cut shows blocked, no errors.
+
+## 2026-06-08 — Phase 3.4 · Milestone 0: batch-processing design note (PAUSED for review)
+
+- Audited the single-job lifecycle in `src/floor-engine.js` (seize in `settle()` step 5 → `onComplete`
+  hold → `board()` hand-off; `occ`/buffer/`wip`/breakdown mechanics) and how a resource is defined/edited in
+  the new app (`app/js/floor.js`: node `service`/`buffer`/`scrap`/`brk`, `inspectNode`, `buildRunModel`,
+  `ensureWorkerAssumption`).
+- Proposed the **process-batch + setup** model: `batch:{size B, setup ts}` on a resource; service dist
+  reinterpreted as **whole-batch** time; strict full-batch start; setup once per batch; B finish together
+  and continue individually. Engine branches only when `r.batch` is set (single-job path untouched →
+  regression). Machine holds `m.batch[]`; one COMPLETE per batch; setup tracked by `m.setupEnd` timestamp.
+- **Deadlock handling:** engine `metrics.deadlock` (FEL drained with WIP>0) + per-resource
+  `batchesStarted`/`waitingForBatch`; UI static guards for **CONWIP<B** and **finite-buffer<B**. Never
+  silently hangs.
+- Wrote `docs/PHASE-3-4-DESIGN.md` and a DECISIONS.md entry (D1–D7). Theory link for PRINCIPLES (deferred to
+  the build): setups inflate effective process time `te = t0 + ts/Ns`; wait-to-batch is *control*
+  variability (theory-notes §4.6). **No engine/UI/test code yet — PAUSED for stakeholder confirmation of the
+  semantics and deadlock handling before Milestone 1.**
