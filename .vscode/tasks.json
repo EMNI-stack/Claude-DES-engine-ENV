@@ -1,0 +1,31 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Sync: Start work (pull latest)",
+            "type": "shell",
+            "command": "git pull --rebase",
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+            "group": "none",
+            "detail": "Run this when you sit down at a PC: fetches the latest work from GitHub."
+        },
+        {
+            "label": "Sync: Save & push",
+            "type": "shell",
+            "command": "git add -A; if (git diff --cached --quiet) { Write-Host 'Nothing to commit.' } else { git commit -m \"${input:commitMessage}\" }; git push",
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+            "group": "none",
+            "detail": "Run this when you finish: commits everything and pushes to GitHub."
+        }
+    ],
+    "inputs": [
+        {
+            "id": "commitMessage",
+            "type": "promptString",
+            "description": "Commit message (what did you change?)",
+            "default": "Work in progress"
+        }
+    ]
+}
