@@ -708,3 +708,25 @@ output advancing, no console errors.
   Theory link for PRINCIPLES (deferred to the build): §4.6 Law of Assembly Operations (fork-join); dependent
   demand propagates through the BOM. **No engine/UI/test code yet — PAUSED for confirmation of the engine
   strategy before Milestone 1.** `npm test` unchanged (84/84).
+
+## 2026-06-08 — Phase 3.5.1: process-model engine capability (parts, BOM, routing, supply/demand, control)
+
+- Ported the validated multi-part / BOM / assembly / supply-demand-control logic from
+  `src/advanced-engine.js` INTO `src/floor-engine.js` as an additive **process mode** (one engine).
+  Mode auto-detects: >1 part, any BOM, or a `demand[]` array → process path; a lone produced part with
+  no BOM stays on the **byte-identical single-part path** (the 84-test regression guard).
+- Lifted (adapted to the floor's job/transit flow): `canAssemble`, consume-on-start, round-robin feed
+  (`rrFeed`/`rrPtr`), per-source arrival streams, per-product demand streams (each its **own** dist),
+  per-product CONWIP with the dependent-demand explosion (`buildPullOrder`/`computePullNeeds`), and
+  `pullSatisfy`/`extTurn` fairness. **Transport gates assembly**: a component is on-hand only after its
+  last leg DELIVERS it to the assembly node (`admit` deposits a component to `inventory[pid]` instead of
+  queueing; the node's own product is processed normally). Batch, blocking, breakdowns, scrap, conveyors,
+  workers all coexist unchanged.
+- Flood guard for limitless supply: a component deposits straight to inventory (never occupies a queue),
+  so feed is bounded by its **pipeline** (on-hand + in-flight ≤ a shallow buffer), not resource
+  occupancy — this fixed an initial runaway. Parts cap (10) surfaced via `metrics.partsCapExceeded`.
+- New `tests/floor-process.test.js` (9 tests): assembly-needs-all-components/no-negative-inventory, BOM
+  qty respected, conservation with assembly, per-product demand uses its own dist, per-product CONWIP
+  bounds, shared-component fairness, Little's Law incl. transport, **multi-level dependent demand**
+  (product-and-component not starved), and a single-part-with-demand[] regression. Added to `npm test`.
+  **`npm test` → 93/93** (84 prior unchanged + 9 new).

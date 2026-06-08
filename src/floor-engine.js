@@ -114,15 +114,236 @@ export class FloorSim {
     this.fg = 0; this.fgQueue = []; this.aFG = 0;
     this.demanded = 0; this.fulfilled = 0; this.stockouts = 0;
 
-    // arrivals: stream supply schedules them; limitless seeds one FEED to kick settle()
-    for (const p of (model.parts || [])) {
-      if (this.supply === 'stream') {
-        if (p.demand) this.schedule(sample(p.demand, this.rng), { t: 'ARRIVE', part: p.id });
-        else this.schedule(0, { t: 'ARRIVE', part: p.id, once: true });
+    // ---- mode detection (Phase 3.5) -------------------------------------
+    // Multi-part PROCESS mode activates when the model declares >1 part, any BOM,
+    // or a per-product demand[] array. A lone produced part with no BOM and an
+    // object/absent `demand` stays on the single-product path (byte-identical to
+    // pre-3.5 behaviour — the existing tests' regression guard).
+    const parts = model.parts || [];
+    this.multiPart = parts.length > 1 || parts.some((p) => p.bom && p.bom.length) || Array.isArray(model.demand);
+
+    if (this.multiPart) {
+      this.initProcess(model, parts);
+    } else {
+      // arrivals: stream supply schedules them; limitless seeds one FEED to kick settle()
+      for (const p of parts) {
+        if (this.supply === 'stream') {
+          if (p.demand) this.schedule(sample(p.demand, this.rng), { t: 'ARRIVE', part: p.id });
+          else this.schedule(0, { t: 'ARRIVE', part: p.id, once: true });
+        }
+      }
+      if (this.supply === 'limitless') this.schedule(0, { t: 'FEED' });
+      if (this.demandCfg.mode === 'stream') this.schedule(sample(this.demandCfg.dist, this.rng), { t: 'DEM' });
+    }
+  }
+
+  /* ====================================================================== *
+     PROCESS MODEL (Phase 3.5) — multi-part / BOM / assembly / per-product
+     supply-demand-control. The scheduling logic is lifted from the validated
+     src/advanced-engine.js (canAssemble, buildPullOrder, computePullNeeds,
+     pullSatisfy/extTurn fairness, round-robin feed) and adapted to the floor:
+     a component becomes "on hand" only after its last leg DELIVERS it to the
+     assembly node (transport gates assembly), and jobs flow through the same
+     transport/service/board/batch machinery as the single-part path.
+   * ====================================================================== */
+  initProcess(model, parts) {
+    this.parts = parts;
+    this.partsCapExceeded = parts.length > 10;   // E6: cap is enforced/surfaced in the UI; flag here too
+
+    this.partIdx = new Map(parts.map((p, i) => [p.id, i]));
+    this.inventory = {};          // finished units on hand, per part id (components + finished goods)
+    this.pstats = {};             // per part: created/completed/scrapped/wip/sumCycle
+    this.bomConsumed = {};        // product id -> component id -> units consumed
+    for (const p of parts) {
+      this.inventory[p.id] = 0;
+      this.pstats[p.id] = { created: 0, completed: 0, scrapped: 0, wip: 0, sumCycle: 0 };
+      this.bomConsumed[p.id] = {};
+      for (const b of (p.bom || [])) this.bomConsumed[p.id][b.partId] = 0;
+    }
+    // which parts are consumed by some assembly (components) — for the deposit rule
+    this.componentPids = new Set();
+    for (const p of parts) for (const b of (p.bom || [])) this.componentPids.add(b.partId);
+    // assembly nodes: the product whose route STARTS at a resource is assembled there;
+    // components routed to that node are deposited (consumed), not processed.
+    for (const p of parts) {
+      if (p.bom && p.bom.length) {
+        const nodeId = (p.routing || [])[0];
+        if (this.res[nodeId]) this.res[nodeId].product = p.id;
       }
     }
-    if (this.supply === 'limitless') this.schedule(0, { t: 'FEED' });
-    if (this.demandCfg.mode === 'stream') this.schedule(sample(this.demandCfg.dist, this.rng), { t: 'DEM' });
+    this.sourceParts = parts.filter((p) => this.isSource(p));
+
+    // control: 'pull' (CONWIP) | 'push'. 'conwip' is accepted as a pull alias.
+    this.pullMode = model.control === 'pull' || model.control === 'conwip';
+    // demand: array of {partId, dist, qty, conwip}. Pull always runs a demand stream.
+    this.demandList = Array.isArray(model.demand) ? model.demand : [];
+    this.demandStats = {};
+    for (const d of this.demandList) this.demandStats[d.partId] = { demanded: 0, fulfilled: 0, stockouts: 0, backlog: 0 };
+    this.demandStream = this.pullMode || model.demandMode === 'stream' || this.demandList.some((d) => d.dist);
+    // round-robin + pull-explosion state (advanced-engine)
+    this.rrPtr = 0; this.rrFeed = 0; this.pullPlan = {}; this.extTurn = {}; this._pullOrder = null;
+
+    // supply: stream schedules per-source arrivals; limitless seeds a FEED for feedMulti()
+    if (this.supply === 'stream') {
+      for (const p of this.sourceParts) this.schedule(sample(p.arrival || p.demand || { type: 'exp', mean: 3 }, this.rng), { t: 'ARRIVE', part: p.id });
+    } else {
+      this.schedule(0, { t: 'FEED' });
+    }
+    if (this.demandStream) {
+      for (const d of this.demandList) this.schedule(sample(d.dist || { type: 'exp', mean: 3 }, this.rng), { t: 'DEM', part: d.partId });
+    }
+  }
+  isSource(p) { return !(p.bom && p.bom.length); }
+  inDemandM(pid) { return this.demandStats[pid] != null; }
+
+  // create a job of part p and admit it to the first node of its route
+  createAndAdmit(p) {
+    const job = { id: ++this.pid, part: p.id, routing: p.routing, step: 0, entry: this.now, transit: 0, loc: null };
+    this.jobs.set(job.id, job);
+    this.entered++; this.wip++; this.pstats[p.id].created++; this.pstats[p.id].wip++;
+    this.admit(job, 0);
+  }
+  // Room to admit one more job at a part's first RESOURCE (queue + machines). A shallow
+  // ready queue (machines + 1) on an infinite buffer is the flood guard, as in the single-part
+  // firstCanAccept. Used for assembly admission and stream arrivals into a line.
+  firstResAccepts(p) {
+    for (const id of (p.routing || [])) if (this.res[id]) {
+      const R = this.res[id];
+      if (this.occ(id) >= R.cap) return false;
+      if (R.cap === Infinity && this.occ(id) >= R.machines.length + 1) return false;
+      return true;
+    }
+    return true;   // no resource on the route (degenerate) — let it through
+  }
+  // max units of component `pid` consumed by a single assembly (its just-in-time on-hand need)
+  componentNeed(pid) { let n = 0; for (const p of this.parts) for (const b of (p.bom || [])) if (b.partId === pid) n = Math.max(n, b.qty); return n || 1; }
+  // Limitless feed gate. A COMPONENT deposits straight to inventory (never occupies a queue),
+  // so the resource-occupancy guard can't bound it — bound it by its PIPELINE instead
+  // (on-hand + in-flight ≤ a shallow buffer), so feed never out-runs assembly consumption.
+  // A raw part feeding a line is bounded by its first workcenter's shallow ready queue.
+  firstResFeedable(p) {
+    if (this.componentPids.has(p.id)) return (this.inventory[p.id] + this.pstats[p.id].wip) < this.componentNeed(p.id) + 1;
+    const srcHold = this.hold[(p.routing || [])[0]];
+    if (srcHold && srcHold.items.length > 0) return false;   // one staged at the source at a time
+    return this.firstResAccepts(p);
+  }
+  // limitless supply: release source parts while feedable (round-robin so they share a workcenter)
+  feedMulti() {
+    if (this.supply !== 'limitless') return false;
+    const m = this.sourceParts.length; if (!m) return false;
+    let progress = false, any = true, guard = 100000;
+    while (any && guard-- > 0) {
+      any = false;
+      const base = this.rrFeed;
+      for (let k = 0; k < m; k++) {
+        const p = this.sourceParts[(base + k) % m];
+        if (!this.firstResFeedable(p)) continue;
+        this.createAndAdmit(p); this.rrFeed = ((base + k) % m + 1) % m; any = true; progress = true;
+      }
+    }
+    return progress;
+  }
+
+  /* ---- assembly synchronisation (lifted from advanced-engine) ---- */
+  canAssemble(p) { for (const b of p.bom) if (!(this.inventory[b.partId] >= b.qty)) return false; return true; }
+  // Start every product whose BOM is on hand and whose assembly node can accept it;
+  // starting CONSUMES the components. Round-robin so a scarce shared component is shared.
+  tryAssembleMulti() {
+    const parts = this.parts, n = parts.length;
+    if (this.pullMode) this.computePullNeeds();
+    let progress = false, again = true, guard = 100000;
+    while (again && guard-- > 0) {
+      again = false;
+      const base = this.rrPtr;
+      for (let k = 0; k < n; k++) {
+        const idx = (base + k) % n;
+        const p = parts[idx];
+        if (!p.bom || !p.bom.length) continue;
+        if (!this.canAssemble(p)) continue;
+        if (!this.firstResAccepts(p)) continue;                 // assembly node's input is full
+        if (this.pullMode && !(this.pullPlan[p.id] > 0)) continue;
+        for (const b of p.bom) { this.inventory[b.partId] -= b.qty; this.bomConsumed[p.id][b.partId] += b.qty; }
+        this.createAndAdmit(p);
+        if (this.pullMode) this.pullPlan[p.id]--;
+        this.rrPtr = (idx + 1) % n; again = true; progress = true;
+      }
+    }
+    return progress;
+  }
+  releaseMulti() { let a = this.feedMulti(); let b = this.tryAssembleMulti(); return a || b; }
+
+  /* ---- pull-mode dependent-demand explosion (lifted from advanced-engine) ---- */
+  pullLimit(pid) { const d = this.demandList.find((x) => x.partId === pid); return d ? Math.max(1, d.conwip | 0 || 5) : Infinity; }
+  buildPullOrder() {
+    const ids = new Set(this.parts.filter((p) => p.bom && p.bom.length).map((p) => p.id));
+    const state = {}, post = [];
+    const visit = (pid) => {
+      if (!ids.has(pid) || state[pid]) return;
+      state[pid] = 1;
+      const p = this.parts[this.partIdx.get(pid)];
+      for (const b of p.bom) visit(b.partId);
+      state[pid] = 2; post.push(pid);
+    };
+    for (const pid of ids) visit(pid);
+    return post.reverse();
+  }
+  computePullNeeds() {
+    if (!this._pullOrder) this._pullOrder = this.buildPullOrder();
+    const gross = {}, plan = {};
+    for (const pid of this._pullOrder) gross[pid] = 0;
+    for (const d of this.demandList) if (gross[d.partId] != null) gross[d.partId] += this.demandStats[d.partId].backlog * Math.max(1, d.qty | 0);
+    for (const pid of this._pullOrder) {
+      const p = this.parts[this.partIdx.get(pid)];
+      const inv = this.inventory[pid], wip = this.pstats[pid].wip;
+      const netReq = Math.max(0, gross[pid] - inv - wip);
+      const lim = this.pullLimit(pid);
+      const headroom = lim === Infinity ? netReq : Math.max(0, lim - wip);
+      plan[pid] = Math.min(netReq, headroom);
+      for (const b of p.bom) if (gross[b.partId] != null) gross[b.partId] += plan[pid] * Math.max(1, b.qty | 0);
+    }
+    this.pullPlan = plan; return plan;
+  }
+  dependentPending(pid) {
+    for (const p of this.parts) {
+      if (!p.bom || !p.bom.length) continue;
+      if (this.pullPlan[p.id] > 0 && p.bom.some((b) => b.partId === pid)) return true;
+    }
+    return false;
+  }
+  pullSatisfy(pid) {
+    const d = this.demandList.find((x) => x.partId === pid); if (!d) return;
+    const ds = this.demandStats[pid], q = Math.max(1, d.qty | 0);
+    if (this.pullMode && this.dependentPending(pid)) {           // share fairly with parent assembly
+      if (this.extTurn[pid] === false) { this.extTurn[pid] = true; return; }
+      if (ds.backlog > 0 && this.inventory[pid] >= q) { this.inventory[pid] -= q; ds.backlog--; ds.fulfilled++; this.extTurn[pid] = false; }
+      return;
+    }
+    while (ds.backlog > 0 && this.inventory[pid] >= q) { this.inventory[pid] -= q; ds.backlog--; ds.fulfilled++; }
+  }
+
+  /* ---- process-mode event handlers ---- */
+  onArriveMulti(ev) {
+    const p = this.parts[this.partIdx.get(ev.part)]; if (!p) return;
+    this.schedule(sample(p.arrival || p.demand || { type: 'exp', mean: 3 }, this.rng), { t: 'ARRIVE', part: p.id });
+    this.createAndAdmit(p);   // stream arrivals are self-pacing; admit to the source hold and let it flow
+  }
+  onDemandMulti(ev) {
+    const d = this.demandList.find((x) => x.partId === ev.part); if (!d) return;
+    this.schedule(sample(d.dist || { type: 'exp', mean: 3 }, this.rng), { t: 'DEM', part: d.partId });
+    const ds = this.demandStats[d.partId]; ds.demanded++;
+    if (this.pullMode) { ds.backlog++; this.pullSatisfy(d.partId); }
+    else { const q = Math.max(1, d.qty | 0); if (this.inventory[d.partId] >= q) { this.inventory[d.partId] -= q; ds.fulfilled++; } else ds.stockouts++; }
+  }
+  // a job reached the end of its route: count it, then dispose (consumed by demand,
+  // or onto the shelf as a component / finished good). Mirrors advanced-engine.finishJob.
+  finishMulti(job) {
+    const pid = job.part, st = this.pstats[pid], ct = this.now - job.entry;
+    this.completed++; this.wip--; this.sumCycle += ct; this.sumJobTransit += job.transit;
+    st.completed++; st.wip--; st.sumCycle += ct;
+    this.jobs.delete(job.id);
+    if (this.pullMode && this.inDemandM(pid)) { this.inventory[pid]++; this.pullSatisfy(pid); }
+    else if (!this.demandStream && this.inDemandM(pid)) { const ds = this.demandStats[pid]; ds.demanded++; ds.fulfilled++; }   // instant demand
+    else this.inventory[pid]++;                                  // component / finished-goods shelf
   }
 
   /* ---- heap FEL --------------------------------------------------------- */
@@ -171,14 +392,14 @@ export class FloorSim {
     const ev = this._pop(); if (!ev) return false;
     this.events++;
     this.accumulate(ev.time); this.now = ev.time;
-    if (ev.t === 'ARRIVE') this.onArrive(ev);
+    if (ev.t === 'ARRIVE') this.multiPart ? this.onArriveMulti(ev) : this.onArrive(ev);
     else if (ev.t === 'ARRIVE_NODE') this.onArriveNode(ev);
     else if (ev.t === 'COMPLETE') this.onComplete(ev);
     else if (ev.t === 'CONVEYOR_END') this.onConveyorEnd(ev);
     else if (ev.t === 'MOVE_END') this.onMoveEnd(ev);
     else if (ev.t === 'FAIL') this.onFail(ev);
     else if (ev.t === 'REP') this.onRep(ev);
-    else if (ev.t === 'DEM') this.onDemand(ev);
+    else if (ev.t === 'DEM') this.multiPart ? this.onDemandMulti(ev) : this.onDemand(ev);
     else if (ev.t === 'FEED') { /* limitless seed: settle() does the release */ }
     this.settle();
     return true;
@@ -250,9 +471,14 @@ export class FloorSim {
   /* admit a job to the node at routing[toStep]; returns true if accepted */
   admit(job, toStep) {
     const id = job.routing[toStep]; const node = this.nodes[id];
-    if (!node || node.kind === 'sink') { this.onSinkArrival(job); return true; }  // reach the sink
+    if (!node || node.kind === 'sink') { this.multiPart ? this.finishMulti(job) : this.onSinkArrival(job); return true; }  // reach the sink
     if (node.kind === 'resource') {
       const r = this.res[id];
+      // process-mode: a COMPONENT arriving at the assembly node is consumed (deposited to inventory),
+      // not processed there. The node's own product (job.part === r.product) is processed normally.
+      if (this.multiPart && r.product != null && job.part !== r.product) {
+        job.step = toStep; this.finishMulti(job); return true;     // on hand → canAssemble can now see it
+      }
       if (this.occ(id) >= r.cap) return false;
       job.step = toStep; job.loc = { k: 'queue', node: id }; r.queue.push(job); return true;
     }
@@ -338,7 +564,7 @@ export class FloorSim {
   /* ---- board a job from its current node onto the leg to step+1 --------- */
   board(job) {
     const fromStep = job.step, toStep = fromStep + 1;
-    if (toStep > job.routing.length - 1) { this.exit(job); return true; }
+    if (toStep > job.routing.length - 1) { this.multiPart ? this.finishMulti(job) : this.exit(job); return true; }
     const fromId = job.routing[fromStep], toId = job.routing[toStep];
     const mover = this.moverFor(fromId, toId);
     const tt = this._tt(fromId, toId, mover);
@@ -377,10 +603,13 @@ export class FloorSim {
 
   /* ---- settle: resolve all moves that can happen at this instant -------- */
   settle() {
-    this.tryRelease();                          // release new jobs per control + supply
+    if (!this.multiPart) this.tryRelease();     // single-part release per control + supply
     let changed = true, guard = 0;
     while (changed && guard++ < 100000) {
       changed = false;
+      // process-mode release: feed source parts (limitless) + start ready assemblies. Inside the
+      // loop so a component delivered this instant (conveyor/instant) enables its assembly at once.
+      if (this.multiPart && this.releaseMulti()) changed = true;
 
       // 1. instant arrivals that were blocked by a full buffer
       for (let i = this.arrivalBlocked.length - 1; i >= 0; i--) {
@@ -445,6 +674,7 @@ export class FloorSim {
   exit(job) { this.wip--; this.completed++; this.sumCycle += this.now - job.entry; this.sumJobTransit += job.transit; this.jobs.delete(job.id); }
   scrap(job) {                                                            // leaves as scrap (not completed)
     this.wip--; this.scrapped++;
+    if (this.multiPart && this.pstats[job.part]) { this.pstats[job.part].scrapped++; this.pstats[job.part].wip--; }
     if (job.loc && job.loc.node != null) this.scrapLog.push({ node: job.loc.node, t: this.now });
     this.jobs.delete(job.id);
   }
@@ -462,8 +692,20 @@ export class FloorSim {
     const batch = {};
     for (const id in this.res) { const r = this.res[id];
       if (r.batch) batch[id] = { size: r.batch.size, setup: r.batch.setup, batchesStarted: r.batchesStarted, waitingForBatch: r.queue.length }; }
+    // process-mode: per-part production + on-hand inventory + per-product demand service
+    let partsM = null, demandM = null;
+    if (this.multiPart) {
+      partsM = {}; demandM = {};
+      for (const p of this.parts) { const s = this.pstats[p.id];
+        partsM[p.id] = { name: p.name || p.id, created: s.created, completed: s.completed, scrapped: s.scrapped,
+          wip: s.wip, onHand: this.inventory[p.id], throughput: s.completed / T, avgCycleTime: s.completed ? s.sumCycle / s.completed : 0 }; }
+      for (const d of this.demandList) { const ds = this.demandStats[d.partId];
+        demandM[d.partId] = { demanded: ds.demanded, fulfilled: ds.fulfilled, stockouts: ds.stockouts, backlog: ds.backlog,
+          fillRate: ds.demanded ? ds.fulfilled / ds.demanded : 1 }; }
+    }
     return {
       deadlock: !!this.deadlocked, batch,
+      multiPart: !!this.multiPart, parts: partsM, demandByPart: demandM, partsCapExceeded: !!this.partsCapExceeded,
       time: this.now, entered: this.entered, completed: this.completed, scrapped: this.scrapped, inSystem: this.wip,
       throughput: this.completed / T,
       yield: (this.completed + this.scrapped) ? this.completed / (this.completed + this.scrapped) : 1,
