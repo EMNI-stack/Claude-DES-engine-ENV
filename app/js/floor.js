@@ -756,6 +756,24 @@ function loadExample() {
   model.routeOrder = model.nodes.map((n) => n.id); model.legs = {}; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
 }
+/* Bottleneck-and-buffer demo: a fast Cut feeds a WIP buffer (storage, cap 8) ahead
+   of a slow Press whose input buffer is finite (cap 2). The Press can't keep up, so
+   stock piles up in the WIP buffer (fills to its cap) and then backs up — showing
+   exactly how a finite downstream buffer makes an upstream storage accumulate. */
+function loadExample2() {
+  const mk = (kind, name, x, extra = {}) => Object.assign({ kind, id: uid(kind.slice(0, 3)), name, x, y: 26 }, extra);
+  const brk = () => ({ on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) });
+  model.nodes = [
+    mk('source', 'Raw in', 8, { interarrival: newDist('exp', { mean: 1.6 }) }),
+    mk('resource', 'Cut', 26, { machines: 1, symbol: 'cut', service: newDist('lognormal', { mean: 0.7, sd: 0.2 }), buffer: { finite: false, cap: 10, init: 0, target: 8 }, scrap: 0, brk: brk() }),
+    mk('storage', 'WIP buffer', 44, { cap: 8, symbol: 'triangle' }),
+    mk('resource', 'Press', 62, { machines: 1, symbol: 'press', service: newDist('lognormal', { mean: 3, sd: 0.6 }), buffer: { finite: true, cap: 2, init: 0, target: 8 }, scrap: 0, brk: brk() }),
+    mk('sink', 'Ship', 78),
+  ];
+  model.routeOrder = model.nodes.map((n) => n.id); model.legs = {}; selected = null; sim = null;
+  persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
+  $('floorHint').textContent = 'Bottleneck demo: the slow Press has a finite input buffer (cap 2), so stock piles up in the WIP buffer ahead of it (fills to cap 8) and backs up. Hover any node for live counts.';
+}
 function clearFloor() { model.nodes = []; model.routeOrder = []; model.legs = {}; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel();
   $('results').innerHTML = '<p class="results-empty">Press Play, then “End” when you’ve seen enough, to see results.</p>'; }
@@ -814,10 +832,11 @@ function init() {
 
   let startTab = 'model';
   if (location.hash === '#example' && model.nodes.length === 0) { loadExample(); const r = model.nodes.find((n) => n.kind === 'resource'); if (r) { selected = { kind: 'node', id: r.id }; startTab = 'inspect'; } }
+  else if (location.hash === '#example2') { loadExample2(); const b = model.nodes.find((n) => n.kind === 'storage'); if (b) { selected = { kind: 'node', id: b.id }; startTab = 'inspect'; } }   // bottleneck + buffer demo
   if (model.defaultMover === 'worker' || Object.values(model.legs).some((l) => l.mover === 'worker')) ensureWorkerAssumption();
   render(); renderRoute(); renderInspector(); renderTransport(); renderControl();
   activateTab(startTab); setPlayLabel(); updateClock(); zoomFit();
-  if (location.hash === '#play') { if (model.routeOrder.length < 2) loadExample(); play(); }  // deep-link: open running
+  if (location.hash === '#play' || location.hash === '#example2') { if (model.routeOrder.length < 2) loadExample(); play(); }   // deep-link: open running
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
 else init();

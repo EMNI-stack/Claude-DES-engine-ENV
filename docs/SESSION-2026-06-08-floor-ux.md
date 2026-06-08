@@ -152,5 +152,15 @@ plus a small, test-covered fix in the floor engine. The legacy demo (`index.html
 - **Verified:** `source→storage(cap 5)→r1(finite buf 3, slow)→sink` → storage fills to 5,
   `arrivalBlocked` = 0, conservation holds. New regression test; `npm test` → **77/77**.
 
+### Bottleneck + buffer demo (`#example2`)
+- New `loadExample2()` in `floor.js` + a `#example2` deep link (auto-loads and auto-plays).
+  Line: **Raw in → Cut (fast) → WIP buffer (storage, cap 8) → Press (slow bottleneck, finite input
+  buffer cap 2) → Ship.** Because Press can't keep up and its buffer is finite, stock piles in the
+  WIP buffer (fills to cap 8, shown as the grey `×8` marker), Cut blocks, and the line backs up — a
+  ready-made illustration of the storage/finite-buffer behaviour and the machines-vs-capacity point.
+  Arrival rate kept a mild ~2× overload so it fills quickly but stays tidy. Verified headless:
+  WIP buffer reaches ×8, Cut shows blocked, no errors.
+- Link: `…/app/floor.html#example2` (local: http://127.0.0.1:8000/app/floor.html#example2).
+
 ## Live site
 After this session is pushed: https://emni-stack.github.io/Claude-DES-engine-ENV/app/floor.html
