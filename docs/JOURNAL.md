@@ -857,3 +857,35 @@ part colour. On-brand with the design language (hairline, muted palette, no glow
 
 **Design decision logged:** `docs/DECISIONS.md` (2026-06-09) — incl. the two stakeholder-chosen forks
 (magnified inset = BOM tree + route list; ledger = by location).
+
+## 2026-06-09 — Floor: draw the BOM pull-dependency + show the split rule (connect the lines)
+
+**Trigger:** even with colours + the BOM inset, the stakeholder found it unintuitive that in `#example5`
+the Motor line and the Pump line **don't visually connect**, and that a sub-assembly's output **splits**
+(some sold as spares, some pulled into the parent) with no on-floor indication of that or its rule.
+
+**Confirmed first: the engine is correct, not changed.** Re-verified the split is real and exact —
+finished Motors divide between spares demand and Pump assembly with fair (alternating / `extTurn`)
+sharing, and the accounting balances. The gap was purely *visual*: a component consumed via the global
+per-part inventory pool has no routed leg into its assembler, so the dependency was invisible.
+
+**Done (UI only — no engine/schema/behaviour change):**
+- **BOM pull-dependency links on the floor.** For every BOM edge where the component does **not**
+  physically route into the assembler (it finishes elsewhere and is pulled from the shared shelf), draw
+  a **dotted, part-coloured arrow with a `×qty` label** from the component's last real node to the
+  assembler. In `#example5` this is exactly the missing **Motor assy → Final assy** link — the two lines
+  now connect. Where a component *does* route into the assembler (Housing→Final, Rotor/Magnet→Motor) the
+  existing solid leg already shows it, so no duplicate link is drawn. Arrowheads (which transport legs
+  never have) keep the two languages distinct; new legend entry added.
+- **Split rule made explicit.** A part that is both sold and a component is tagged **"shared"** in the
+  BOM tree; the inset carries a footnote ("dotted ▸ = pulled into assembly from the shared shelf; shared
+  parts split between their own demand and assembly — fair share"); and the magnified modal's routes
+  panel spells out the rule per shared part ("↳ split: sold as spares ⇄ pulled into Pump — shared fairly
+  (alternating)").
+
+**Verification:** `node --check` clean; `npm test` → **93/93** (engine untouched). Headless-Chrome
+screenshots of `#example5` reviewed: the dotted Motor-coloured arrow runs Motor assy → Final assy with a
+`×1` label and arrowhead; the inset shows "Motor ×1 · sold · shared" + the footnote; the magnified modal
+shows the per-part split rule. On-brand (dotted, muted, no glow).
+
+**Decision logged:** `docs/DECISIONS.md` (2026-06-09).

@@ -137,6 +137,28 @@ function componentPidSet() { const s = new Set(); for (const p of model.parts) f
 function bomActive() { return model.parts.length > 1 || model.parts.some((p) => p.bom && p.bom.length); }
 // top-level parts (not a component of anything) — the roots of the assembly tree
 function bomRoots() { const comp = componentPidSet(); return model.parts.filter((p) => !comp.has(p.id)); }
+function isComponent(pid) { return componentPidSet().has(pid); }
+// a "shared" part is both sold to customers AND consumed by an assembly — its finished units split
+function isShared(pid) { const p = partById(pid); return !!(p && p.demand && p.demand.on && isComponent(pid)); }
+function parentsOf(pid) { return model.parts.filter((p) => (p.bom || []).some((b) => b.partId === pid)).map((p) => p.name); }
+// BOM pull-dependencies to DRAW on the floor: a component consumed by an assembly whose route does
+// NOT physically end at that assembler (it finishes elsewhere and is pulled from the shared on-hand
+// pool). These are the links that otherwise leave the lines looking disconnected. Each is drawn from
+// the component's last real (non-sink) node to the assembler, dotted + part-coloured + an arrowhead.
+function bomDepLinks() {
+  const links = [];
+  for (const p of model.parts) {
+    if (!(p.bom && p.bom.length) || !p.route.length) continue;
+    const assyId = p.route[0]; if (!node(assyId)) continue;
+    for (const b of p.bom) {
+      const comp = partById(b.partId); if (!comp || !comp.route.length) continue;
+      const origin = [...comp.route].reverse().find((id) => { const n = node(id); return n && n.kind !== 'sink'; });
+      if (!origin || origin === assyId || !node(origin)) continue;   // routes straight into the assembler → already a physical leg
+      links.push({ from: origin, to: assyId, pid: b.partId, qty: b.qty });
+    }
+  }
+  return links;
+}
 // every transport leg used by ANY part (union of consecutive pairs) — shared physical edges = one leg
 function allLegKeys() {
   const set = new Set();
@@ -294,6 +316,23 @@ function render() {
     if (mover === 'worker' && far) { legG.append(E('circle', { class: 'worker-mark', cx: mx, cy: my, r: 7 })); legG.append(E('text', { class: 'worker-mark-t', x: mx, y: my + 3, 'text-anchor': 'middle' }, 'W')); }
   }
   svg.append(legG);
+  // BOM pull-dependencies: dotted, part-coloured arrows that connect a component's line to the
+  // assembler that pulls it from the shared shelf (drawn only where there is no physical leg).
+  const depG = E('g', { class: 'dep-layer' });
+  for (const d of bomDepLinks()) {
+    const a = node(d.from), b = node(d.to); if (!a || !b) continue;
+    const ax = px(a.x), ay = px(a.y), bx = px(b.x), by = px(b.y);
+    const col = colorForPart(d.pid), ang = Math.atan2(by - ay, bx - ax), pad = 50;
+    const tx = bx - Math.cos(ang) * pad, ty = by - Math.sin(ang) * pad;   // stop at the assembler's edge
+    const line = E('line', { class: 'dep-link', x1: ax, y1: ay, x2: tx.toFixed(1), y2: ty.toFixed(1) }); line.style.stroke = col;
+    const ah = 7;
+    const head = E('polygon', { class: 'dep-arrow', points:
+      `${tx.toFixed(1)},${ty.toFixed(1)} ${(tx - Math.cos(ang - 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang - 0.4) * ah).toFixed(1)} ${(tx - Math.cos(ang + 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang + 0.4) * ah).toFixed(1)}` });
+    head.style.fill = col;
+    const lbl = E('text', { class: 'dep-label', x: ((ax + tx) / 2).toFixed(1), y: ((ay + ty) / 2 - 4).toFixed(1), 'text-anchor': 'middle' }, '×' + d.qty); lbl.style.fill = col;
+    depG.append(line, head, lbl);
+  }
+  svg.append(depG);
   for (const n of model.nodes) svg.append(nodeEl(n));
   tokenLayer = E('g', {}); svg.append(tokenLayer); tokenEls = new Map(); queueEls = new Map();   // fresh token layer
   if (sim && !needsBuild) renderFrame(simCursor);                           // repaint live state onto the rebuilt scene
@@ -508,7 +547,7 @@ function bomTreeEl() {
     const p = partById(pid); if (!p) return;
     const sold = p.demand && p.demand.on;
     const sw = H('span', { class: 'psw' }); sw.style.background = colorForPart(pid);
-    const meta = []; if (qty != null) meta.push('×' + qty); if (sold) meta.push('sold');
+    const meta = []; if (qty != null) meta.push('×' + qty); if (sold) meta.push('sold'); if (isShared(pid)) meta.push('shared');
     const kids = [sw, H('span', { class: 'bomn-name' }, p.name)];
     if (meta.length) kids.push(H('span', { class: 'bomn-meta' }, meta.join(' · ')));
     wrap.append(H('div', { class: 'bomn' + (sold ? ' sold' : ''), style: `padding-left:${depth * 14}px` }, kids));
@@ -530,6 +569,11 @@ function bomRoutesEl() {
     const row = H('div', { class: 'bomr' }, [sw, H('span', { class: 'bomr-name' }, p.name), H('span', { class: 'bomr-path' }, path)]);
     if (p.demand && p.demand.on) row.append(H('span', { class: 'bomr-tag' }, 'sold'));
     wrap.append(row);
+    // shared component: its finished units split between its own demand and the assemblies that pull it
+    if (isShared(p.id)) {
+      const par = parentsOf(p.id).join(', ');
+      wrap.append(H('div', { class: 'bomr-split' }, `↳ split: sold as spares ⇄ pulled into ${par} — shared fairly (alternating)`));
+    }
   });
   return wrap;
 }
@@ -540,6 +584,8 @@ function renderBomInset() {
   const mag = H('button', { class: 'bom-mag', title: 'Magnify — show the full tree and routes' }, '⤢');
   mag.addEventListener('click', openBomModal);
   host.append(H('div', { class: 'bom-inset-head' }, [H('span', { class: 'bom-inset-title' }, 'Bill of materials'), mag]), bomTreeEl());
+  if (bomDepLinks().length || model.parts.some((p) => isShared(p.id)))
+    host.append(H('p', { class: 'bom-note' }, 'Dotted ▸ on the floor = pulled into assembly from the shared shelf (no physical leg). “shared” parts split between their own demand and assembly — fair share.'));
 }
 function openBomModal() { renderBomModal(); $('bomModal').hidden = false; }
 function closeBomModal() { $('bomModal').hidden = true; }

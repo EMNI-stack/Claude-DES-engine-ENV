@@ -540,3 +540,31 @@ These choices are proposed and PAUSED for stakeholder confirmation before any co
   and §1 (clarity for a learner); DESIGN-LANGUAGE §5 (charts/figures), §7 (quiet, diagrammatic floor,
   state via colour, no glow), §1 (categorical palette). UI-only; engine untouched (Charter §4.2);
   `npm test` 93/93; verified via headless-Chrome screenshots of `#example5`.
+
+## [2026-06-09] — Draw the BOM pull-dependency as a distinct link; show the split rule (engine unchanged)
+- Decision: Make the component→assembler dependency that runs through the global per-part inventory
+  pool **visible on the floor** as a distinct **dotted, part-coloured, arrowed "pull" link** (with a
+  `×qty` label), drawn only where the component does NOT physically route into the assembler. Where the
+  component's route already ends at the assembler, the existing solid transport leg suffices and no
+  extra link is drawn. Additionally, label any part that is both sold and consumed as **"shared"** and
+  spell out its **split rule** (its finished units divide between its own demand and the assemblies that
+  pull it — shared fairly / alternating) in the BOM inset footnote and the magnified modal. **No engine
+  change** — the split and its fairness are already correct (re-verified); this is purely a visibility
+  fix.
+- Rationale: Stakeholder feedback — in `#example5` the sub-assembly (Motor) line and the product (Pump)
+  line looked disconnected, and the split of a sub-assembly's output between "sold as spares" and "used
+  in the parent" was invisible, making the model unintuitive even once understood. Because component
+  inventory is a global per-part pool and a part has a single route (the standing modelling choice),
+  there is no routed leg from a sub-assembly into its parent assembler; representing that dependency as
+  a logical (non-transport) link — visually different from a conveyor/worker/instant leg via its dotting
+  and arrowhead — closes the comprehension gap without pretending it is physical transport.
+- Alternatives considered: changing the engine to route a component physically into its assembler
+  (rejected — a part has one route; it is already sold via its own sink, and the global pool is the
+  validated multi-part model; the split is correct as-is); drawing pull-links for *every* BOM edge
+  including physical ones (rejected — duplicates the real legs and clutters; only the non-physical,
+  otherwise-invisible dependencies are drawn); using the same line style as transport (rejected — it is
+  not physical transport; the dotted + arrowhead style marks it as a logical pull from the shelf).
+- Governing principle / source: Stakeholder direction (2026-06-09); Charter §8 (legible, data-forward)
+  and §1 (clarity for a learner); DESIGN-LANGUAGE §7 (quiet diagrammatic floor; distinct quiet line
+  styles; no glow); builds on DECISIONS 2026-06-09 "Make the BOM visible …". UI-only; engine untouched
+  (Charter §4.2); `npm test` 93/93; verified via headless-Chrome screenshots of `#example5`.
