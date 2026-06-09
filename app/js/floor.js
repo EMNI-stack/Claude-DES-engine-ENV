@@ -1556,6 +1556,11 @@ function init() {
   $('setupApply').addEventListener('click', applySetup);
   $('setupCancel').addEventListener('click', closeSetup);
   $('setupDrawer').addEventListener('click', (e) => { if (e.target.hasAttribute('data-close')) closeSetup(); });
+  document.querySelectorAll('.setup-nav a').forEach((a) => a.addEventListener('click', () => {   // rail step nav → jump to a section
+    const t = document.getElementById(a.dataset.target); if (!t) return;
+    t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.querySelectorAll('.setup-nav a').forEach((x) => x.classList.toggle('on', x === a));
+  }));
   // BOM magnify modal close (Done, backdrop, Escape)
   $('bomDone').addEventListener('click', closeBomModal);
   $('bomModal').addEventListener('click', (e) => { if (e.target.hasAttribute('data-close')) closeBomModal(); });

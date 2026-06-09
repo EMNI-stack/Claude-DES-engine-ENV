@@ -1019,3 +1019,19 @@ like the current model". Reworked the layout:
 - Verified headless: `#example5` setup shows the preview matching the floor + 8 compact station rows;
   a fresh build expands the workcenter editor inline. Authoring self-test updated (expand a row before
   editing) → **21/21**. `npm test` 94/94 (UI-only). CSS + `floor.js`/`floor.html` only.
+
+## 2026-06-09 — Floor redesign (Milestone 1e): student-friendly Setup (step order, headlines, rail nav)
+
+Stakeholder: organise the Setup more clearly for a DES newcomer — sensible step order, clear bold
+headlines + short subtitles, better use of space; keep it neat, don't over-explain.
+- **Pedagogical step order:** reordered to **1 Products & parts → 2 Stations → 3 Routing → 4 Run
+  settings** (what you make → the machines → how parts flow → how it runs), instead of stations-first.
+- **Clear headlines.** Each section has a **petrol number badge + a bold serif headline + a one-line
+  subtitle** (e.g. “Routing — The order of stations each part travels through.”). Verbose intro
+  paragraphs removed.
+- **Rail step navigator.** The previously-empty rail space below the preview now holds a compact,
+  clickable **step list** (badge · bold title · tiny caption) that smooth-scrolls to a section and
+  highlights it — uses the space and aids navigation in the tall form.
+- Renamed a few labels for plain language (“Your parts”, “Details”, “Run settings”). Verified headless
+  (`#example5` setup): rail nav + bold numbered steps render on-brand; **self-test 21/21**; `npm test`
+  **94/94**. `floor.html` + `floor.css` + one `init` wiring only.

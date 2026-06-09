@@ -142,29 +142,32 @@
       <aside class="setup-rail">
         <p class="section-label">Live preview</p>
         <div id="setupMini" class="setup-mini"></div>
-        <p class="floor-hint" style="margin:var(--s-2) 0 0">A thumbnail of the model. <b>Apply &amp; lay out</b> arranges it on the floor; then you can drag to fine-tune.</p>
+        <p class="floor-hint" style="margin:var(--s-2) 0 var(--s-4)">A thumbnail of your model. <b>Apply &amp; lay out</b> arranges it on the floor.</p>
+        <nav class="setup-nav" aria-label="Setup steps">
+          <a data-target="sec-products"><span class="setup-step-no">1</span><span class="setup-nav-t"><b>Products</b><i>what you make</i></span></a>
+          <a data-target="sec-stations"><span class="setup-step-no">2</span><span class="setup-nav-t"><b>Stations</b><i>the machines</i></span></a>
+          <a data-target="sec-routing"><span class="setup-step-no">3</span><span class="setup-nav-t"><b>Routing</b><i>how parts flow</i></span></a>
+          <a data-target="sec-run"><span class="setup-step-no">4</span><span class="setup-nav-t"><b>Run</b><i>release &amp; demand</i></span></a>
+        </nav>
       </aside>
       <div class="setup-main">
-        <section class="setup-sec">
-          <h3>1 · Stations</h3>
-          <p class="floor-hint">Add sources, workcenters, storage and sinks; click a station to edit it.</p>
-          <div id="setupStations"></div>
-        </section>
-        <section class="setup-sec">
-          <h3>2 · Parts &amp; BOM</h3>
-          <p class="floor-hint">Add parts (product / made / bought), give products a bill of materials, and mark which are sold to customers.</p>
+        <section class="setup-sec" id="sec-products">
+          <header class="setup-step-h"><span class="setup-step-no">1</span><div><h3>Products &amp; parts</h3><p class="setup-step-sub">What you make — and what it’s built from.</p></div></header>
           <div class="pm-grid">
-            <div class="pm-list-col"><p class="subhead">Parts</p><div id="pmList"></div></div>
-            <div class="pm-editor-col"><p class="subhead">Definition</p><div id="pmEditor" class="stack"></div></div>
+            <div class="pm-list-col"><p class="subhead">Your parts</p><div id="pmList"></div></div>
+            <div class="pm-editor-col"><p class="subhead">Details</p><div id="pmEditor" class="stack"></div></div>
           </div>
         </section>
-        <section class="setup-sec">
-          <h3>3 · Routes</h3>
-          <p class="floor-hint">For each part, order the stations it visits (entry → … → exit). A component’s route ends at the assembler that consumes it.</p>
+        <section class="setup-sec" id="sec-stations">
+          <header class="setup-step-h"><span class="setup-step-no">2</span><div><h3>Stations</h3><p class="setup-step-sub">The machines, buffers and in/out points on the floor.</p></div></header>
+          <div id="setupStations"></div>
+        </section>
+        <section class="setup-sec" id="sec-routing">
+          <header class="setup-step-h"><span class="setup-step-no">3</span><div><h3>Routing</h3><p class="setup-step-sub">The order of stations each part travels through.</p></div></header>
           <div id="setupRoutes"></div>
         </section>
-        <section class="setup-sec">
-          <h3>4 · Control, source &amp; demand</h3>
+        <section class="setup-sec" id="sec-run">
+          <header class="setup-step-h"><span class="setup-step-no">4</span><div><h3>Run settings</h3><p class="setup-step-sub">How work is released into the line and sold.</p></div></header>
           <div id="controlBody" class="stack"></div>
         </section>
       </div>
