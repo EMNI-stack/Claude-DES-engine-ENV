@@ -622,10 +622,12 @@ These choices are proposed and PAUSED for stakeholder confirmation before any co
   §4.6 (fork-join, now spatial for the shared link too). Covered by `tests/floor-process.test.js`
   (new test; `npm test` 94/94).
 
-## [2026-06-09] — Phase 3.6 transport revision: four modes · operator machines · home locations (Milestone 0, PROPOSAL — awaiting ratification)
-*Full design note: `docs/PHASE-3-6-DESIGN.md`. These choices are proposed and PAUSED for stakeholder
-confirmation (the dispatch rule, the home-location/re-dispatch behaviour, and the operator coupling)
-before any engine/UI code.*
+## [2026-06-09] — Phase 3.6 transport revision: four modes · operator machines · home locations (RATIFIED + built)
+*Full design note: `docs/PHASE-3-6-DESIGN.md`. **Ratified 2026-06-09** with one change from the proposal:
+the operator **travels to the machine** before operating (heavier/realistic option); dispatch =
+longest-waiting → nearest unit; moves & ops share one queue; supply-leg deliveries route through the
+dispatch; assignment defaults to `serves:"all"`. Built across Milestones 3.6.1 (engine), 3.6.2 (UI/floor)
+and 3.6.3 (integration); `npm test` 103/103.*
 - **T1 — Four leg modes** (per `transport.legs[key].mover`, floor default): **Instant** (zero time,
   capacity-aware) · **Conveyor straight/bent** (path length = Σ Euclidean segments through waypoints ÷
   speed; finite capacity + downstream blocking) · **AGV** (flexible, transport-only) · **Operator**
@@ -644,8 +646,10 @@ before any engine/UI code.*
   optimisation / look-ahead / batching.
 - **T4 — Operator↔machine coupling:** each resource has **`operatorRequired`** (default false = automatic).
   An operator-required machine starts an op only after **seizing a free assigned operator for the op
-  duration**; an operator does a **move XOR a machine-op**, never both; AGVs never operate. *Proposed:
-  operating incurs no travel (operator seized for the op only); moves and ops compete under one T3 queue.*
+  duration**; an operator does a **move XOR a machine-op**, never both; AGVs never operate.
+  **Confirmed (2026-06-09):** the operator **travels to the machine first** (`dist(op.pos,node)/speed`)
+  then operates (held for travel + op, incl. any breakdown of that op); **moves and ops compete under one
+  combined longest-waiting queue** (T3). Assignment default `serves:"all"`.
 - **T5 — Units/geometry unchanged:** minutes · metres · m/min; `travel = distance/speed`; Euclidean;
   conveyor path = Σ segment lengths. Display scale presentation-only.
 - **T6 — Migration:** `workers{count,speed}` → `count` operator units (`serves:"all"`, centre home,
@@ -662,4 +666,4 @@ before any engine/UI code.*
   §9: path-finding, collisions, optimising dispatch, anticipatory repositioning, multi-load, jockeying,
   multi-floor.
 - Governing principle / source: Charter §6, §9; `Reference/theory-notes.md` §5.3; design note
-  `docs/PHASE-3-6-DESIGN.md`. **Pending stakeholder review before implementation.**
+  `docs/PHASE-3-6-DESIGN.md`. **Ratified and built (2026-06-09); covered by `tests/floor-transport.test.js`.**

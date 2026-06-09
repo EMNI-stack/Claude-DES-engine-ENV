@@ -1342,7 +1342,7 @@ function loadExample() {
     mk('resource', 'Inspect', 62, { machines: 1, symbol: 'inspect', service: newDist('triangular', { min: 0.8, mode: 1.2, max: 2 }), buffer: { finite: false, cap: 10, init: 0, target: 8 }, scrap: 0, brk: { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) } }),
     mk('sink', 'Ship', 78),
   ];
-  setSinglePartRoute(); model.legs = {}; selected = null; sim = null;
+  setSinglePartRoute(); model.legs = {}; model.movers = []; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
 }
 /* Bottleneck-and-buffer demo: a fast Cut feeds a WIP buffer (storage, cap 8) ahead
@@ -1359,7 +1359,7 @@ function loadExample2() {
     mk('resource', 'Press', 62, { machines: 1, symbol: 'press', service: newDist('lognormal', { mean: 3, sd: 0.6 }), buffer: { finite: true, cap: 2, init: 0, target: 8 }, scrap: 0, brk: brk() }),
     mk('sink', 'Ship', 78),
   ];
-  setSinglePartRoute(); model.legs = {}; selected = null; sim = null;
+  setSinglePartRoute(); model.legs = {}; model.movers = []; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
   $('floorHint').textContent = 'Bottleneck demo: the slow Press has a finite input buffer (cap 2), so stock piles up in the WIP buffer ahead of it (fills to cap 8) and backs up. Hover any node for live counts.';
 }
@@ -1377,7 +1377,7 @@ function loadExample3() {
     mk('resource', 'Heat-treat', 54, { machines: 1, symbol: 'furnace', service: newDist('lognormal', { mean: 5, sd: 1 }), buffer: buf(), scrap: 0, brk: brk(), batch: { on: true, size: 4, setup: 3 } }),
     mk('sink', 'Ship', 78),
   ];
-  setSinglePartRoute(); model.legs = {}; selected = null; sim = null;
+  setSinglePartRoute(); model.legs = {}; model.movers = []; selected = null; sim = null;
   model.control = 'push'; model.supply = 'stream';   // clean defaults so a leftover CONWIP<B can't block the demo
   ensureBatchAssumption();   // log the "requires a full batch to start" simplification, as in real use
   persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
@@ -1402,7 +1402,7 @@ function loadExample4() {
   const widget = { id: uid('part'), name: 'Widget', kind: 'product', route: [assy.id, ship.id],
     bom: [{ partId: body.id, qty: 1 }, { partId: bolt.id, qty: 4 }], demand: { on: false, dist: newDist('exp', { mean: 2 }), qty: 1, conwip: 5 } };
   model.parts = [body, bolt, widget]; model.activePart = widget.id;
-  model.legs = {}; selected = { kind: 'node', id: assy.id }; sim = null;
+  model.legs = {}; model.movers = []; selected = { kind: 'node', id: assy.id }; sim = null;
   model.control = 'push'; model.supply = 'stream';
   ensureProcessAssumption();
   persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
@@ -1454,13 +1454,13 @@ function loadExample5() {
     bom: [{ partId: motor.id, qty: 1 }, { partId: housing.id, qty: 2 }],
     demand: { on: true, dist: newDist('exp', { mean: 6 }), qty: 1, conwip: 4 } };
   model.parts = [housing, rotor, magnet, motor, pump]; model.activePart = pump.id;
-  model.legs = {}; selected = { kind: 'node', id: finalAssy.id }; sim = null;
+  model.legs = {}; model.movers = []; selected = { kind: 'node', id: finalAssy.id }; sim = null;
   model.control = 'conwip'; model.supply = 'limitless';   // pull: dependent demand exploded through the BOM
   ensureProcessAssumption();
   persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
   $('floorHint').textContent = '3-level BOM, two products: Pumps (= 1 Motor + 2 Housings) ship from “Pumps out”, and the Motor sub-assembly (= 1 Rotor + 4 Magnets) is ALSO sold as a spare and ships from “Motors out”. Under pull/CONWIP the scarce Motors are shared fairly between Pump assembly and spare-part demand. Hover the two assembly stations for live counts; press Play.';
 }
-function clearFloor() { model.nodes = []; setSinglePartRoute(); model.legs = {}; selected = null; sim = null;
+function clearFloor() { model.nodes = []; setSinglePartRoute(); model.legs = {}; model.movers = []; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel();
   $('results').innerHTML = '<p class="results-empty">Press Play, then “End” when you’ve seen enough, to see results.</p>';
   openSetup(); }
@@ -1492,6 +1492,12 @@ function renderSetupMovers() {
   [['agv', '+ AGV'], ['operator', '+ Operator']].forEach(([k, label]) => { const b = H('button', { class: 'btn btn-ghost' }, label); b.addEventListener('click', () => addMover(k)); add.append(b); });
   host.append(add);
   if (!model.movers.length) { host.append(H('p', { class: 'floor-hint', style: 'margin:0' }, 'No movers yet. AGVs carry loads; Operators carry loads AND run “operator required” machines.')); return; }
+  // fleet size as an experimental factor (Phase 3.6.3 — Robinson: declare what you'll vary)
+  const nAgv = model.movers.filter((u) => u.kind === 'agv').length, nOp = model.movers.filter((u) => u.kind === 'operator').length;
+  const fac = H('div', { class: 'setup-add' });
+  if (nAgv) fac.append(factorButton('movers:agv:count', { name: 'AGV fleet size', unit: 'AGVs', baseline: String(nAgv), description: 'Number of AGV units. Vary to study transport capacity vs WIP, cycle time and mover utilisation.' }, renderSetupMovers));
+  if (nOp) fac.append(factorButton('movers:operator:count', { name: 'Operator count', unit: 'operators', baseline: String(nOp), description: 'Number of operators (shared across moves and operator-run machines). Vary to study the move-vs-operate contention.' }, renderSetupMovers));
+  if (fac.childNodes.length) host.append(fac);
   const list = H('div', { class: 'setup-list' });
   model.movers.forEach((u) => {
     const open = setupOpenMover === u.id;

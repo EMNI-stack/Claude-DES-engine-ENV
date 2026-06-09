@@ -1142,3 +1142,23 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   built a line with an operator-required machine + an Operator unit under Operator transport, ran it
   (out 34): the OP marker carries the load in, then operates the machine; Setup shows the Movers section;
   no console errors. **Next: Milestone 3** (study-project integration + experimental factors).
+
+## 2026-06-09 — Phase 3.6 · Milestone 3: integrate revised transport into the study project
+
+- **Persistence:** movers, `operatorRequired`, and conveyor `waypoints` ride on `project.model`, saved
+  with the Phase-2 study; `ensureModel` migrates older saves (used worker pool → operators;
+  `mover:'worker'` → `'operator'`; defaults for the new fields). Clear and every example loader now reset
+  `model.movers = []` so units never linger across models.
+- **Experimental factors:** the Movers section offers **AGV fleet size** (`movers:agv:count`) and
+  **Operator count** (`movers:operator:count`) as conceptual-model factors, alongside the per-unit
+  **mover speed** factor — so the analysis phase can vary the fleet and study the transport/operator
+  contention. (Homes are a layout choice, varied by dragging on the floor.)
+- **Auto-logged simplification:** using a flexible mover or an operator-required machine logs
+  `a_mover_repos` (travel-to-pickup + deliver-one + return-home; anticipatory repositioning,
+  path-finding and collisions excluded), superseding the old `a_worker_return` note.
+- **PRINCIPLES.md:** transport is non-value-adding ("best flow is no flow"); conveyors vs flexible movers
+  trade predictability for flexibility; single fixed dispatch (longest-waiting → nearest); operators are
+  one constrained resource shared between moving and machining — all cited to theory-notes §5.3 / Charter §6.
+- **DECISIONS.md:** the Phase-3.6 entry is **ratified** (with the confirmed op-travels-to-machine change).
+- **Verification:** `npm test` **103/103**; authoring self-test **21/21**; `node --check` clean. This
+  completes Phase 3.6 (four-mode transport + operator-operated machines + home locations).

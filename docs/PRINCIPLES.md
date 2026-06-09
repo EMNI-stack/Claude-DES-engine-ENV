@@ -157,3 +157,32 @@
 > logic from `src/advanced-engine.js` into the transport-aware `src/floor-engine.js` (one engine), so the
 > spatial floor now carries true multi-part flow with assembly synchronisation, per-product demand, and
 > per-product CONWIP. Realised 2026-06-08.
+
+## Material handling & transport (Phase 3.6)
+
+- **Transport is non-value-adding time — "the best flow is no flow."** Movement adds cycle time and WIP
+  without adding value; placement and the choice of mover therefore matter to performance. The floor
+  prices every move (distance ÷ speed) so layout shows up in the results. — [HS]/[FPD] (theory-notes §5.3)
+
+- **Conveyors vs flexible movers trade predictability for flexibility.** A **conveyor** is a fixed path
+  with high, predictable volume but no flexibility and finite capacity that **blocks** when downstream is
+  full; **AGVs/operators** are flexible (serve many links, carry one load, travel to pick up) but a
+  scarce fleet becomes a bottleneck. **Instant** transport is the zero-time baseline (placement
+  irrelevant). — [FPD]/[HS] (theory-notes §5.3); realised in `src/floor-engine.js` (Phase 3.6).
+
+- **Flexible movers travel to pick up and return home when idle; dispatch is a single fixed rule.**
+  A unit travels (empty) to the pickup, carries one load to the drop, then returns toward a standard
+  (home) location — re-dispatchable en route. When several requests compete, a fixed minimal rule
+  decides (longest-waiting request → nearest free eligible unit); there is **no optimising dispatcher**
+  (Charter §6/§9). Anticipatory repositioning beyond returning home, path-finding and collisions are out
+  of scope. — Charter §6/§9 (theory-notes §5.3)
+
+- **Operators are one constrained resource shared between moving and machining.** An operator-required
+  machine cannot run without a free operator, who **travels to the machine** and is then occupied for the
+  operation; an operator does a move **or** a machine-op, never both — so transport demand and machining
+  demand contend for the same people. This is the operator↔machine coupling. — Charter §6
+
+> Phase 3.6 realises these in `src/floor-engine.js`: four leg modes (Instant zero-time · Conveyor
+> straight/bent with capacity+blocking · AGV · Operator), placed flexible units with a home location +
+> travel-to-pickup + return-when-idle, the longest-waiting→nearest dispatch rule, and the operator↔machine
+> coupling (operator travels to the machine, then operates). Realised 2026-06-09.
