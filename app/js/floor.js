@@ -1460,6 +1460,56 @@ function loadExample5() {
   persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
   $('floorHint').textContent = '3-level BOM, two products: Pumps (= 1 Motor + 2 Housings) ship from “Pumps out”, and the Motor sub-assembly (= 1 Rotor + 4 Magnets) is ALSO sold as a spare and ships from “Motors out”. Under pull/CONWIP the scarce Motors are shared fairly between Pump assembly and spare-part demand. Hover the two assembly stations for live counts; press Play.';
 }
+/* Phase 3.6 showcase (#example6): the full toolkit on one floor. A Pump (sold) = 1 Motor + 2 Housing;
+   the Motor (sold AND a component) = 1 Rotor + 4 Magnet. Transport uses ALL modes: a bent CONVEYOR
+   (Mill → Final assy), AGVs carrying Rotors, Magnets and the shared-Motor supply leg into Final assy,
+   and an OPERATOR who runs the operator-required Lathe. Plus scrap, pull/CONWIP and per-product demand.
+   Tuned stable (2 AGVs keep up; 1 operator easily runs the Lathe). */
+function loadExample6() {
+  const mk = (kind, name, x, y, extra = {}) => Object.assign({ kind, id: uid(kind.slice(0, 3)), name, x, y }, extra);
+  const brk = () => ({ on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) });
+  const buf = () => ({ finite: false, cap: 10, init: 0, target: 8 });
+  const res = (name, x, y, sym, mean, extra = {}) => mk('resource', name, x, y, Object.assign(
+    { machines: 1, symbol: sym, service: newDist('lognormal', { mean, sd: mean * 0.3 }), buffer: buf(),
+      scrap: 0, brk: brk(), batch: { on: false, size: 2, setup: 0 }, assembly: false, operatorRequired: false }, extra));
+  const steel = mk('source', 'Steel', 8, 10, { interarrival: newDist('exp', { mean: 2.5 }) });
+  const mill = res('Mill', 28, 9, 'gear', 1.4, { scrap: 0.05 });
+  const finalAssy = res('Final assy', 62, 16, 'assemble', 2, { assembly: true });
+  const pumpShip = mk('sink', 'Pumps out', 78, 12);
+  const bar = mk('source', 'Bar', 8, 40, { interarrival: newDist('exp', { mean: 3 }) });
+  const lathe = res('Lathe', 26, 40, 'cpu', 1.2, { operatorRequired: true });   // an operator must run it
+  const magnetStore = mk('source', 'Magnet store', 26, 26, { interarrival: newDist('exp', { mean: 0.6 }) });
+  const motorAssy = res('Motor assy', 46, 36, 'assemble', 1.5, { assembly: true });
+  const motorShip = mk('sink', 'Motors out (spares)', 70, 42);
+  model.nodes = [steel, mill, finalAssy, pumpShip, bar, lathe, magnetStore, motorAssy, motorShip];
+
+  const dem = (mean) => ({ on: false, dist: newDist('exp', { mean }), qty: 1, conwip: 5 });
+  const housing = { id: uid('part'), name: 'Housing', kind: 'fabricated', route: [steel.id, mill.id, finalAssy.id], bom: [], demand: dem(3) };
+  const rotor = { id: uid('part'), name: 'Rotor', kind: 'fabricated', route: [bar.id, lathe.id, motorAssy.id], bom: [], demand: dem(3) };
+  const magnet = { id: uid('part'), name: 'Magnet', kind: 'purchased', route: [magnetStore.id, motorAssy.id], bom: [], demand: dem(3) };
+  const motor = { id: uid('part'), name: 'Motor', kind: 'product', route: [motorAssy.id, motorShip.id],
+    bom: [{ partId: rotor.id, qty: 1 }, { partId: magnet.id, qty: 4 }], demand: { on: true, dist: newDist('exp', { mean: 12 }), qty: 1, conwip: 8 } };
+  const pump = { id: uid('part'), name: 'Pump', kind: 'product', route: [finalAssy.id, pumpShip.id],
+    bom: [{ partId: motor.id, qty: 1 }, { partId: housing.id, qty: 2 }], demand: { on: true, dist: newDist('exp', { mean: 6 }), qty: 1, conwip: 5 } };
+  model.parts = [housing, rotor, magnet, motor, pump]; model.activePart = pump.id;
+  // transport: a bent conveyor + AGV legs (incl. the shared-Motor supply leg into Final assy)
+  model.legs = {
+    [`${mill.id}>${finalAssy.id}`]: { mover: 'conveyor', speed: 30, cap: 6, waypoints: [{ x: 44, y: 5 }] },
+    [`${lathe.id}>${motorAssy.id}`]: { mover: 'agv' },
+    [`${magnetStore.id}>${motorAssy.id}`]: { mover: 'agv' },
+    [`${motorAssy.id}>${finalAssy.id}`]: { mover: 'agv' },   // the shared Motor is delivered into Final assy by AGV
+  };
+  model.movers = [
+    { id: uid('mv'), kind: 'agv', name: 'AGV 1', speed: 60, home: { x: 40, y: 24 }, serves: { links: 'all', machines: 'all' } },
+    { id: uid('mv'), kind: 'agv', name: 'AGV 2', speed: 60, home: { x: 46, y: 24 }, serves: { links: 'all', machines: 'all' } },
+    { id: uid('mv'), kind: 'operator', name: 'Operator', speed: 60, home: { x: 22, y: 34 }, serves: { links: [], machines: [lathe.id] } },
+  ];
+  model.defaultMover = 'instant'; model.control = 'conwip'; model.supply = 'limitless';
+  selected = { kind: 'node', id: motorAssy.id }; sim = null;
+  ensureProcessAssumption(); ensureMoverAssumption();
+  persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
+  $('floorHint').textContent = 'Showcase: a Pump (=1 Motor+2 Housings) and its sold sub-assembly Motor (=1 Rotor+4 Magnets). A bent CONVEYOR feeds Final assy; two AGVs carry Rotors, Magnets and the shared Motors; an OPERATOR runs the operator-required Lathe. Pull/CONWIP + scrap. Watch the AGVs and the operator move; press Play.';
+}
 function clearFloor() { model.nodes = []; setSinglePartRoute(); model.legs = {}; model.movers = []; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel();
   $('results').innerHTML = '<p class="results-empty">Press Play, then “End” when you’ve seen enough, to see results.</p>';
@@ -1748,10 +1798,11 @@ function init() {
   else if (location.hash === '#example3') { loadExample3(); const b = model.nodes.find((n) => n.kind === 'resource' && n.batch && n.batch.on); if (b) selected = { kind: 'node', id: b.id }; deep = true; }   // batch-processing demo
   else if (location.hash === '#example4') { loadExample4(); deep = true; }   // assembly / multi-part demo
   else if (location.hash === '#example5') { loadExample5(); deep = true; }   // 3-level BOM, sub-assembly also sold
+  else if (location.hash === '#example6') { loadExample6(); deep = true; }   // Phase 3.6 transport showcase
   if (model.movers.length || ['agv', 'operator'].includes(model.defaultMover) || Object.values(model.legs).some((l) => l.mover === 'agv' || l.mover === 'operator')) ensureMoverAssumption();
   render(); renderInspector(); renderTransport(); renderBomInset();
   activateTab('inspect'); setPlayLabel(); updateClock(); zoomFit();
-  if (['#play', '#example2', '#example3', '#example4', '#example5'].includes(location.hash)) { if (!model.parts.some((p) => p.route.length >= 2)) loadExample(); play(); }   // deep-link: open running
+  if (['#play', '#example2', '#example3', '#example4', '#example5', '#example6'].includes(location.hash)) { if (!model.parts.some((p) => p.route.length >= 2)) loadExample(); play(); }   // deep-link: open running
   else if (!deep && model.nodes.length === 0) openSetup();   // empty model → start in the system builder
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

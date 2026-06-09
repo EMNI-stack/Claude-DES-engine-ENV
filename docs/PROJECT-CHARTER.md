@@ -144,10 +144,14 @@ The genuinely new, higher-risk capability. **v1 minimal definition:**
     machine, or both** (see operator↔machine coupling below). One load at a time.
 - **Travel time derives from 2D distance / path length** (× a speed), so placement
   *matters* to performance — closing the loop between layout and flow.
-- Flexible movers (AGV / Operator) model **travel-to-pickup**; empty
-  repositioning after drop-off is **ignored and logged** as a simplification.
-  When several requests compete, a **minimal fixed dispatch rule** decides (e.g.
-  longest-waiting / nearest) — **no optimising dispatcher**.
+- Flexible movers (AGV / Operator) have a **standard (home) location** — by
+  default units are lined up in the **centre of the floor**; the student can drag
+  a unit to **fix a custom standard location**. They model **travel-to-pickup**;
+  when they have **no pending jobs they return to their standard location**, and
+  can be **re-dispatched while still returning**. *Anticipatory* repositioning
+  beyond returning home is not modelled. When several requests compete, a
+  **minimal fixed dispatch rule** decides (e.g. longest-waiting / nearest) — **no
+  optimising dispatcher**.
 - **Operator ↔ machine coupling:** each machine has an **"operator required"**
   flag. An operator-required machine cannot process without a free operator; an
   automatic machine runs on its own. An operator busy moving a load cannot run a
@@ -158,9 +162,9 @@ The genuinely new, higher-risk capability. **v1 minimal definition:**
   movement is non-value-adding time, the "best flow is no flow" idea.
 
 **Explicitly NOT in v1:** path-finding/obstacle avoidance, collisions,
-multi-floor, automatic layout optimisation, optimising mover dispatch, empty
-repositioning, multi-load movers, operator jockeying. Dispatch stays a single
-fixed minimal rule.
+multi-floor, automatic layout optimisation, optimising mover dispatch,
+anticipatory repositioning (idle units only return to their standard location),
+multi-load movers, operator jockeying. Dispatch stays a single fixed minimal rule.
 
 This connects to the layout theory (from-to logic, material handling, evaluate
 layout *dynamically by simulation*) without becoming a facilities-planning tool.
@@ -264,8 +268,9 @@ too playful, too "cyber" (neon accents, glowing grids). **Retire that look.**
   (AGV/operator), operator-operated machines, a single fixed minimal dispatch
   rule, and state-dependent routing (shortest-queue) are now in scope — but
   **only** in their simplest form. Still NOT in v1: path-finding/obstacle
-  avoidance, collisions, optimising dispatchers, empty repositioning, multi-load
-  movers, jockeying, multi-floor, auto-layout.
+  avoidance, collisions, optimising dispatchers, anticipatory repositioning
+  (idle units only return to their standard location), multi-load movers,
+  jockeying, multi-floor, auto-layout.
 - No multi-user *collaboration* on a single model (each model is one student's).
 - **No advanced extremities.** The app teaches the basics *well*; it does not
   chase edge-case fidelity, exotic scenarios, or "complete" generality. Every

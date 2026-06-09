@@ -95,12 +95,15 @@ returns home). One load at a time; no path-queuing/collisions (units pass throug
   service time; for a batch op, the whole batch), released at `COMPLETE`.
 - An operator is in exactly one state — a **move** (`toPickup`/`carrying`) **or** a **machine-op**
   (`operating`) — never both. AGVs never operate machines.
-- **Operating incurs no travel** in v1: the operator is treated as present at the machine for the op
-  (only *transport* moves incur travel-to-pickup). *Simplest defensible; flagged to confirm.*
-- **Moves vs ops compete under the same rule:** a machine that is ready-to-start-but-waiting-for-an-operator
-  raises an "op request" timestamped when it became ready; the dispatch rule (§2.4) serves the
-  longest-waiting request across **both** moves and ops, nearest tie-break. *Flagged to confirm — the
-  alternative is to always prioritise machine-ops over moves.*
+- **Operating incurs travel (CONFIRMED 2026-06-09):** the seized operator first **travels from its
+  current position to the machine** (`dist(op.pos, machineNode)/speed`), *then* operates for the service
+  duration; the machine stays idle-waiting until the operator arrives. The operator is held for
+  `travel + op` (incl. any breakdown/repair of that op — a v1 simplification: the operator waits with a
+  down machine), released at the successful `COMPLETE`, ending at the machine node (then returns home if
+  idle).
+- **Moves vs ops compete under one queue (CONFIRMED 2026-06-09):** a machine ready-to-start-but-waiting-
+  for-an-operator raises an "op request" timestamped when it became ready; the dispatch rule (§2.4) serves
+  the longest-waiting request across **both** moves and ops (nearest free eligible unit, ties by id).
 
 ### 2.6 Units & geometry
 Minutes · metres · m/min, `travel = distance / speed` (Charter convention, unchanged). All distances
@@ -150,12 +153,10 @@ multi-load movers, jockeying, multi-floor.
 - **T6 — Migration:** workers→operators (serves:all, centre home), operatorRequired=false; supply-leg
   deliveries become real requests on AGV/operator legs.
 
-## 7. Questions to confirm before coding
-1. **Dispatch rule (T3):** longest-waiting-request → nearest-free-unit (ties by id)? Or nearest-first?
-2. **Operator op-travel (T4):** confirm operating a machine incurs **no** travel (operator just seized for
-   the op duration), vs. the operator must first travel to the machine.
-3. **Moves vs ops priority (T4):** one combined longest-waiting queue (proposed), vs. always prioritise
-   machine-ops so machines never starve while a move is pending.
-4. **Assignment default:** new AGV/Operator units `serves:"all"` by default (student narrows later)?
-5. **Supply-leg deliveries (T6):** OK to route them through the flexible-mover dispatch when the supply
-   leg is AGV/Operator (so a shared component can wait for a mover)?
+## 7. Confirmations (stakeholder, 2026-06-09)
+1. **Dispatch rule (T3):** longest-waiting request → nearest free eligible unit → ties by id. ✓
+2. **Operator op-travel (T4):** the operator **travels to the machine first**, then operates. ✓
+   (heavier/realistic option chosen)
+3. **Moves vs ops (T4):** one combined longest-waiting queue. ✓
+4. **Assignment default:** new AGV/Operator units `serves:"all"` (student narrows later). ✓ (default)
+5. **Supply-leg deliveries (T6):** routed through the flexible-mover dispatch on AGV/Operator legs. ✓

@@ -1162,3 +1162,19 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
 - **DECISIONS.md:** the Phase-3.6 entry is **ratified** (with the confirmed op-travels-to-machine change).
 - **Verification:** `npm test` **103/103**; authoring self-test **21/21**; `node --check` clean. This
   completes Phase 3.6 (four-mode transport + operator-operated machines + home locations).
+
+## 2026-06-09 — Phase 3.6 showcase demo (`#example6`) + charter/design-note sync
+
+- Added `loadExample6()` + a `#example6` deep link: a full Phase-3.6 showcase on one floor — a **Pump**
+  (sold) = 1 Motor + 2 Housing and a **Motor** sub-assembly (sold AND a component) = 1 Rotor + 4 Magnet,
+  with **all transport modes**: a **bent Conveyor** (Mill → Final assy), **two AGVs** carrying Rotors,
+  Magnets and the shared-Motor supply leg into Final assy, and an **Operator** running the
+  **operator-required Lathe** — plus scrap, pull/CONWIP and per-product demand. Tuned stable.
+  Verified headless (Step ×700 → End): **238 pumps out, no deadlock**, product output 0.166/min,
+  cycle 2.12 min, in-transport 0.45 min, station utilisation 33–50%, movers 46.8% util / 0.71 req
+  queued, conveyor 7.5% full. Screenshot reviewed — AGVs, OP at the Lathe, bent conveyor, both
+  assemblies render on-brand.
+- **Docs sync:** `docs/PROJECT-CHARTER.md` §6/§9 updated to the ratified spec (flexible units have a
+  standard/home location and return when idle; *anticipatory* repositioning replaces "empty
+  repositioning" in the NOT-list), and `docs/PHASE-3-6-DESIGN.md` reflects the confirmed
+  operator-travels-to-the-machine decision. `npm test` 103/103.
