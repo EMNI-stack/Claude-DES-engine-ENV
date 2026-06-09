@@ -1112,3 +1112,33 @@ Implemented in `src/floor-engine.js` only (legacy engines frozen):
   Updated 4 existing tests that relied on the old instant-distance meaning to use a timed mover (a
   deliberate consequence of instant→zero). App smoke-tested headless (`#example5` runs, no console
   errors). UI (placing units / waypoints / operatorRequired checkbox) is **Milestone 2**.
+
+## 2026-06-09 — Phase 3.6 · Milestone 2: transport modes, operator & home-location UI and floor
+
+UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); engine unchanged.
+- **Model schema:** `model.movers[]` (AGV/Operator units: id, kind, name, speed, `home{x,y}`, `serves
+  {links, machines}`) replaces the worker pool; resources gain `operatorRequired`; conveyor legs gain
+  `waypoints[]`. `ensureModel` migrates a *used* legacy worker pool → operators and `mover:'worker'` →
+  `'operator'` (a default-only pool no longer spawns phantom units). `buildRunModel` emits
+  `transport.movers` + per-resource `operatorRequired`; legs (with waypoints) pass through.
+- **Per-leg mode picker** (`inspectLeg`): **Instant / Conveyor / AGV / Operator**. Instant notes
+  zero-time; Conveyor gets capacity + speed + a **bend editor** (add/remove bends; drag handles on the
+  floor); AGV/Operator show how many units serve the leg. The floor Transport tab's default-mode picker
+  is the same four modes (worker pool fields removed).
+- **`operatorRequired` checkbox** per resource (`stationEditor`).
+- **Movers in Setup** (new “Movers (AGV & operators)” block in the Stations step): add/remove AGV &
+  Operator units, set name/speed (+ as an experimental factor), and assignment (“serves the whole floor”
+  or pick links/machines). A unit's **home** is dragged on the floor; clicking a unit opens its editor
+  in Inspect.
+- **Floor rendering** (DESIGN-LANGUAGE §7, quiet/no glow): conveyors draw as a tracked polyline through
+  their bends; flexible legs are dashed with a direction arrow; **mover markers** (ochre OP / ink AGV)
+  sit at their home and **travel pickup→drop→home live** (interpolated each frame); an operator-required
+  machine waiting for a free operator shows a dashed ochre **`opwait`** state. Draggable bend handles +
+  draggable mover homes added to the pointer handlers.
+- **Results/auto-log:** the Transport summary now reports **Movers (AGV · op) utilisation + request
+  queue**; selecting a flexible mover/leg logs the updated repositioning simplification
+  (`a_mover_repos`, supersedes `a_worker_return`).
+- **Verification:** `npm test` **103/103** (engine untouched); authoring self-test **21/21**; headless —
+  built a line with an operator-required machine + an Operator unit under Operator transport, ran it
+  (out 34): the OP marker carries the load in, then operates the machine; Setup shows the Movers section;
+  no console errors. **Next: Milestone 3** (study-project integration + experimental factors).

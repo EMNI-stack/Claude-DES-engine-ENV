@@ -219,6 +219,17 @@ svg.floor .leg-hit { stroke: transparent; stroke-width: 16; fill: none; cursor: 
 svg.floor .leg { stroke: var(--ink-2); stroke-width: 2; fill: none; opacity: .3; }
 svg.floor .leg-conv { stroke: var(--ink-2); stroke-width: 3; stroke-dasharray: 1.5 4; stroke-linecap: round; opacity: .4; }
 svg.floor .leg-worker { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 5; opacity: .45; }
+svg.floor .leg-flex { stroke: var(--ink-2); stroke-width: 2; stroke-dasharray: 7 5; fill: none; opacity: .42; }   /* AGV / Operator leg */
+/* operator-required machine sitting idle, waiting for a free operator */
+svg.floor .node-rect.opwait { stroke: var(--accent); fill: rgba(184,133,42,.08); stroke-dasharray: 4 3; }
+/* flexible mover markers (AGV / Operator) — small labelled units; conveyor bend handles */
+svg.floor .mover { cursor: grab; }
+svg.floor .mover-dot { stroke: var(--surface); stroke-width: 1.5; }
+svg.floor .mover-dot.agv { fill: var(--ink-2); }
+svg.floor .mover-dot.operator { fill: var(--accent); }
+svg.floor .mover.sel .mover-dot { stroke: var(--primary); stroke-width: 2.5; }
+svg.floor .mover-lab { font-family: var(--mono); font-size: 8px; font-weight: 600; fill: var(--on-primary); pointer-events: none; }
+svg.floor .wp-handle { fill: var(--surface); stroke: var(--primary); stroke-width: 1.5; cursor: grab; }
 svg.floor .leg.sel { stroke: var(--primary); stroke-width: 2.5; opacity: .85; }
 svg.floor .worker-mark { fill: var(--surface); stroke: var(--accent); stroke-width: 1.25; }
 svg.floor .worker-mark-t { font-family: var(--mono); font-size: 8px; fill: var(--accent); }

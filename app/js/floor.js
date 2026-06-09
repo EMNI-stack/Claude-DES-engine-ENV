@@ -52,7 +52,7 @@ let drag = null;
 // playback + animation state
 let sim = null, simCursor = 0, playing = false, lastTs = 0, speed = 6, needsBuild = true, finished = false, raf = 0;
 let lastBuildError = '';     // why buildSim() last refused (missing nodes, or a batch static deadlock)
-let tokenEls = new Map(), queueEls = new Map(), tokenLayer = null;
+let tokenEls = new Map(), queueEls = new Map(), tokenLayer = null, moverEls = new Map();
 let scrapSeen = 0;            // index into sim.scrapLog of the last scrap we've animated
 let hoverNodeId = null;       // node currently hovered, for the live count tooltip
 let lastLedger = 0;           // throttle stamp for the live Flow ledger (ms)
@@ -63,6 +63,12 @@ let view = { z: 1, cx: BASE_W / 2, cy: BASE_H / 2 };   // cx,cy = viewBox centre
 let panning = null;
 
 /* ---- model defaults + migration ---------------------------------------- */
+// floor centre (metres) — default standard/home location for new movers, lined up there
+function floorCentre(m) { const ns = (m && m.nodes) || []; if (!ns.length) return { x: 41, y: 24 }; let sx = 0, sy = 0; for (const n of ns) { sx += (n.x || 0); sy += (n.y || 0); } return { x: sx / ns.length, y: sy / ns.length }; }
+function makeMover(kind, centre, i = 0) {
+  return { id: uid('mv'), kind, name: (kind === 'agv' ? 'AGV ' : 'Operator ') + (i + 1), speed: 40,
+    home: { x: (centre.x || 41) + (i % 4) * 4 - 6, y: (centre.y || 24) }, serves: { links: 'all', machines: 'all' } };
+}
 function ensureModel(m) {
   const base = {
     schema: 'des-floor/v1', scale: S, units: { time: 'min', distance: 'm', speed: 'm/min' },
@@ -97,7 +103,19 @@ function ensureModel(m) {
       if (!n.symbol) n.symbol = 'triangle';      // VSM inventory triangle by default
     }
     if (n.kind === 'resource' && typeof n.assembly !== 'boolean') n.assembly = false;   // Phase 3.5
+    if (n.kind === 'resource' && typeof n.operatorRequired !== 'boolean') n.operatorRequired = false;   // Phase 3.6
   }
+  // Phase 3.6 — flexible movers (AGV / Operator) with a home location. Migrate a legacy worker pool,
+  // but ONLY if the model actually used worker transport (so a default pool doesn't spawn phantom units).
+  if (!Array.isArray(m.movers)) {
+    m.movers = [];
+    const usedWorker = m.defaultMover === 'worker' || Object.values(m.legs || {}).some((l) => l.mover === 'worker');
+    const w = m.workers;
+    if (usedWorker && w && (w.count | 0) > 0) { const c = floorCentre(m); for (let i = 0; i < (w.count | 0); i++) m.movers.push(makeMover('operator', c, i)); }
+  }
+  for (const u of m.movers) { if (!u.id) u.id = uid('mv'); if (!u.serves) u.serves = { links: 'all', machines: 'all' }; if (!u.home) u.home = floorCentre(m); }
+  for (const k in m.legs) { if (m.legs[k].mover === 'worker') m.legs[k].mover = 'operator'; }   // worker → operator
+  if (m.defaultMover === 'worker') m.defaultMover = 'operator';
   // Phase 3.5 — parts: migrate the legacy single `routeOrder` to one product part.
   if (!Array.isArray(m.parts) || !m.parts.length) {
     const route = (Array.isArray(m.routeOrder) && m.routeOrder.length) ? m.routeOrder.slice() : m.nodes.map((n) => n.id);
@@ -170,8 +188,7 @@ function effMover(key) { return (model.legs[key] && model.legs[key].mover) || mo
 function legSpeedFor(key, mover) {
   const o = model.legs[key] || {};
   if (mover === 'conveyor') return o.speed || model.conveyor.speed || 30;
-  if (mover === 'worker') return model.workers.speed || 40;
-  return o.speed || model.defaultSpeed || 40;
+  return o.speed || model.defaultSpeed || 40;   // agv/operator use each unit's own speed (set per mover)
 }
 function svgPoint(e) { const svg = $('svg'); const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
   const loc = pt.matrixTransform(svg.getScreenCTM().inverse()); return { x: loc.x, y: loc.y }; }
@@ -304,42 +321,53 @@ function render() {
 
   const legG = E('g', {});
   const activeKeys = new Set(); { const r = aRoute(); for (let i = 0; i < r.length - 1; i++) activeKeys.add(`${r[i]}>${r[i + 1]}`); }
-  for (const key of allLegKeys()) {
-    const [aid, bid] = key.split('>'); const a = node(aid), b = node(bid); if (!a || !b) continue;
-    const mover = effMover(key);
-    const ax = px(a.x), ay = px(a.y), bx = px(b.x), by = px(b.y);
-    const onActive = activeKeys.has(key);
-    const cls = 'leg ' + (mover === 'conveyor' ? 'leg-conv' : mover === 'worker' ? 'leg-worker' : '') + (selected && selected.kind === 'leg' && selected.key === key ? ' sel' : '') + (onActive ? '' : ' leg-off');
-    legG.append(E('line', { class: cls.trim(), x1: ax, y1: ay, x2: bx, y2: by }));
-    legG.append(E('line', { class: 'leg-hit', 'data-leg': key, x1: ax, y1: ay, x2: bx, y2: by }));
-    const far = legDistance(a, b) > 0.5, mx = (ax + bx) / 2, my = (ay + by) / 2;
-    if (far) {   // direction arrowhead at the downstream node's edge
-      const ang = Math.atan2(by - ay, bx - ax), hb = b.kind === 'resource' ? 48 : b.kind === 'storage' ? 40 : 20, ah = 7;
-      const tx = bx - Math.cos(ang) * hb, ty = by - Math.sin(ang) * hb;
-      legG.append(E('polygon', { class: 'leg-dir' + (onActive ? '' : ' leg-off'),
-        points: `${tx.toFixed(1)},${ty.toFixed(1)} ${(tx - Math.cos(ang - 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang - 0.4) * ah).toFixed(1)} ${(tx - Math.cos(ang + 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang + 0.4) * ah).toFixed(1)}` }));
-    }
-    if (mover === 'worker' && far) { legG.append(E('circle', { class: 'worker-mark', cx: mx, cy: my, r: 7 })); legG.append(E('text', { class: 'worker-mark-t', x: mx, y: my + 3, 'text-anchor': 'middle' }, 'W')); }
-  }
-  // Component supply legs: a shared component is physically delivered along this leg into its
-  // assembler. Drawn as a NORMAL transport leg with a direction arrow (delivery tokens animate
-  // along it during a run), and editable like any leg — click it to set its mover / length.
-  for (const d of bomDepLinks()) {
-    const a = node(d.from), b = node(d.to); if (!a || !b) continue;
-    const key = `${d.from}>${d.to}`, mover = effMover(key);
-    const ax = px(a.x), ay = px(a.y), bx = px(b.x), by = px(b.y);
-    const sel = selected && selected.kind === 'leg' && selected.key === key;
-    const cls = 'leg ' + (mover === 'conveyor' ? 'leg-conv' : mover === 'worker' ? 'leg-worker' : '') + (sel ? ' sel' : '');
-    legG.append(E('line', { class: cls.trim(), x1: ax, y1: ay, x2: bx, y2: by }));
-    legG.append(E('line', { class: 'leg-hit', 'data-leg': key, x1: ax, y1: ay, x2: bx, y2: by }));
-    const ang = Math.atan2(by - ay, bx - ax), hb = b.kind === 'resource' ? 48 : b.kind === 'storage' ? 40 : 20, ah = 7;
-    const tx = bx - Math.cos(ang) * hb, ty = by - Math.sin(ang) * hb;
-    legG.append(E('polygon', { class: 'leg-dir', points: `${tx.toFixed(1)},${ty.toFixed(1)} ${(tx - Math.cos(ang - 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang - 0.4) * ah).toFixed(1)} ${(tx - Math.cos(ang + 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang + 0.4) * ah).toFixed(1)}` }));
-  }
+  for (const key of allLegKeys()) drawLegEl(legG, key, activeKeys.has(key));
+  // Component supply legs (shared sub-assembly delivered into its assembler) — drawn like any leg.
+  for (const d of bomDepLinks()) drawLegEl(legG, `${d.from}>${d.to}`, true);
   svg.append(legG);
   for (const n of model.nodes) svg.append(nodeEl(n));
+  // flexible mover units (home markers in edit; their transform is updated live in renderFrame)
+  const moverLayer = E('g', {}); moverEls = new Map();
+  for (const u of model.movers) { const g = moverEl(u); moverLayer.append(g); moverEls.set(u.id, g); }
+  svg.append(moverLayer);
+  // bend handles for the selected conveyor leg (drag to shape the belt)
+  if (selected && selected.kind === 'leg') { const o = model.legs[selected.key]; if (o && effMover(selected.key) === 'conveyor' && Array.isArray(o.waypoints)) {
+    const wg = E('g', {}); o.waypoints.forEach((w, i) => wg.append(E('circle', { class: 'wp-handle', 'data-wp': String(i), cx: px(w.x), cy: px(w.y), r: 6 }))); svg.append(wg);
+  } }
   tokenLayer = E('g', {}); svg.append(tokenLayer); tokenEls = new Map(); queueEls = new Map();   // fresh token layer
   if (sim && !needsBuild) renderFrame(simCursor);                           // repaint live state onto the rebuilt scene
+}
+// draw one transport leg (polyline through conveyor waypoints; flexible legs dashed; direction arrow)
+function drawLegEl(legG, key, active) {
+  const [aid, bid] = key.split('>'); const a = node(aid), b = node(bid); if (!a || !b) return;
+  const mover = effMover(key), o = model.legs[key] || {};
+  const pts = [[px(a.x), px(a.y)]];
+  if (mover === 'conveyor' && Array.isArray(o.waypoints)) for (const w of o.waypoints) pts.push([px(w.x), px(w.y)]);
+  pts.push([px(b.x), px(b.y)]);
+  const sel = selected && selected.kind === 'leg' && selected.key === key;
+  const cls = 'leg ' + (mover === 'conveyor' ? 'leg-conv' : (mover === 'agv' || mover === 'operator') ? 'leg-flex' : '') + (sel ? ' sel' : '') + (active ? '' : ' leg-off');
+  const ptStr = pts.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  legG.append(E('polyline', { class: cls.trim(), points: ptStr, fill: 'none' }));
+  legG.append(E('polyline', { class: 'leg-hit', 'data-leg': key, points: ptStr, fill: 'none' }));
+  const p2 = pts[pts.length - 1], p1 = pts[pts.length - 2], dx = p2[0] - p1[0], dy = p2[1] - p1[1];
+  if (Math.hypot(dx, dy) > 5) { const ang = Math.atan2(dy, dx), hb = b.kind === 'resource' ? 48 : b.kind === 'storage' ? 40 : 20, ah = 7;
+    const tx = p2[0] - Math.cos(ang) * hb, ty = p2[1] - Math.sin(ang) * hb;
+    legG.append(E('polygon', { class: 'leg-dir' + (active ? '' : ' leg-off'), points: `${tx.toFixed(1)},${ty.toFixed(1)} ${(tx - Math.cos(ang - 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang - 0.4) * ah).toFixed(1)} ${(tx - Math.cos(ang + 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang + 0.4) * ah).toFixed(1)}` }));
+  }
+}
+function moverEl(u) {
+  const p = simMoverPos(u) || u.home;
+  const g = E('g', { class: 'mover' + (selected && selected.kind === 'mover' && selected.id === u.id ? ' sel' : ''), 'data-mover': u.id, transform: `translate(${px(p.x)},${px(p.y)})` });
+  g.append(E('circle', { class: 'mover-dot ' + u.kind, r: 10 }));
+  g.append(E('text', { class: 'mover-lab', y: 3, 'text-anchor': 'middle' }, u.kind === 'agv' ? 'AGV' : 'OP'));
+  return g;
+}
+// a mover's position at the current cursor: interpolate its in-flight move, else its resting pos/home
+function simMoverPos(u) {
+  if (sim && !needsBuild && sim.movers) { const su = sim.movers.find((x) => x.id === u.id); if (su) { const m = su.move;
+    if (m && simCursor < m.t1 && m.t1 > m.t0) { const f = (simCursor - m.t0) / (m.t1 - m.t0); return { x: m.from.x + (m.to.x - m.from.x) * f, y: m.from.y + (m.to.y - m.from.y) * f }; }
+    return su.pos; } }
+  return { x: u.home.x, y: u.home.y };
 }
 
 /* ---- live frame render (tokens + station states + progress) ------------ */
@@ -353,7 +381,8 @@ function renderFrame(cursor) {
     const r = sim.res[n.id]; let frac = 0, cls = 'node-rect';
     if (r) {
       const anyDown = r.machines.some((m) => m.down), anyBusy = r.machines.some((m) => m.busy), anyBlk = r.machines.some((m) => m.blocked);
-      cls += anyDown ? ' down' : anyBusy ? ' busy' : anyBlk ? ' blocked' : '';
+      const opWait = !anyBusy && r.machines.some((m) => m.opReq && !m.operator);   // operator-required, idle, waiting for an operator
+      cls += anyDown ? ' down' : anyBusy ? ' busy' : anyBlk ? ' blocked' : opWait ? ' opwait' : '';
       for (const m of r.machines) if (m.busy && m.depTime > m.startTime) frac = Math.max(frac, Math.min(1, Math.max(0, (cursor - m.startTime) / (m.depTime - m.startTime))));
       // batch resource: badge shows accumulate (N/B) → setup → processing; the progress
       // sliver tracks the PROCESSING phase only (0 during setup). Quiet, no glow (DESIGN-LANG §7).
@@ -421,6 +450,8 @@ function renderFrame(cursor) {
     const s = sim.scrapLog[scrapSeen++];
     if (playing && spawned < 12) { spawnScrapAnim(s.node); spawned++; }   // skip animating bulk (run-to-end) scraps
   }
+  // move the flexible-mover markers to their interpolated positions
+  for (const u of model.movers) { const g = moverEls.get(u.id); if (!g) continue; const p = simMoverPos(u); g.setAttribute('transform', `translate(${px(p.x)},${px(p.y)})`); }
   if (hoverNodeId && !$('floorTip').hidden) $('floorTip').innerHTML = tipHTML(hoverNodeId);   // keep counts live
   // live Flow ledger (throttled): which parts are at each station / leg right now
   if (!$('tab-flow').hidden) { const tnow = (typeof performance !== 'undefined' ? performance.now() : 0); if (tnow - lastLedger > 240) { lastLedger = tnow; renderFlowLedger(); } }
@@ -793,7 +824,17 @@ function renderInspector() {
     return;
   }
   if (selected.kind === 'node') inspectNode(node(selected.id), body);
+  else if (selected.kind === 'mover') inspectMover(selected.id, body);
   else inspectLeg(selected.key, body);
+}
+function inspectMover(id, body) {
+  const u = model.movers.find((m) => m.id === id); if (!u) { selected = null; renderInspector(); return; }
+  $('propKind').textContent = u.kind === 'agv' ? 'AGV' : 'operator';
+  $('propTitle').textContent = u.name || (u.kind === 'agv' ? 'AGV' : 'Operator');
+  moverEditor(u, body, renderInspector);
+  const del = H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-4)' }, 'Remove this unit');
+  del.addEventListener('click', () => { removeMover(u.id); selected = null; refreshAll(); });
+  body.append(del);
 }
 /* grouped symbol picker (Manufacturing / Service / Abstract·VSM) for a node */
 function symbolPicker(n, rerender = renderInspector) {
@@ -852,6 +893,12 @@ function stationEditor(n, body, rerender) {
     asyChk.addEventListener('change', () => { n.assembly = asyChk.checked; persist(); render(); rerender(); });
     body.append(H('label', { class: 'toggle-row' }, [asyChk, 'Assembly station (consumes a product’s BOM)']));
     if (n.assembly) body.append(H('p', { class: 'floor-hint', style: 'margin:var(--s-2) 0 0' }, 'A product whose route starts here is assembled when all its bill-of-materials components have arrived; components routed here are consumed. Set the BOM in “Parts & BOM”.'));
+    // Phase 3.6 — operator-operated machine
+    body.append(H('p', { class: 'subhead' }, 'Operator'));
+    const opChk = H('input', { type: 'checkbox' }); opChk.checked = !!n.operatorRequired;
+    opChk.addEventListener('change', () => { n.operatorRequired = opChk.checked; if (opChk.checked) ensureMoverAssumption(); persist(); render(); rerender(); });
+    body.append(H('label', { class: 'toggle-row' }, [opChk, 'Operator required to run']));
+    if (n.operatorRequired) body.append(H('p', { class: 'floor-hint', style: 'margin:var(--s-2) 0 0' }, 'A free operator must travel here to run each operation — the machine sits idle while none is available. Add operators in “Set up model”.'));
     body.append(H('p', { class: 'subhead' }, 'Batch processing'));
     const batchChk = H('input', { type: 'checkbox' }); batchChk.checked = !!n.batch.on;
     batchChk.addEventListener('change', () => { n.batch.on = batchChk.checked; persist(); if (n.batch.on) ensureBatchAssumption(); render(); rerender(); });
@@ -910,33 +957,45 @@ function inspectLeg(key, body) {
   body.append(H('p', { class: 'small faint', style: 'margin:0' }, (o.length > 0)
     ? `Typed length (placement distance is ${placeDist.toFixed(0)} m).`
     : 'From placement distance — type a value to fix it independently of the layout.'));
-  body.append(field('Mover', segmented(
-    [{ value: 'instant', label: 'Instant' }, { value: 'conveyor', label: 'Conveyor' }, { value: 'worker', label: 'Worker' }],
-    mover, (v) => { model.legs[key] = Object.assign({}, model.legs[key], { mover: v }); if (v === 'worker') ensureWorkerAssumption(); persist(); render(); renderInspector(); }, 'Leg mover')));
-  if (mover === 'conveyor') {
+  body.append(field('Mode', segmented(
+    [{ value: 'instant', label: 'Instant' }, { value: 'conveyor', label: 'Conveyor' }, { value: 'agv', label: 'AGV' }, { value: 'operator', label: 'Operator' }],
+    mover, (v) => { model.legs[key] = Object.assign({}, model.legs[key], { mover: v }); if (v === 'agv' || v === 'operator') ensureMoverAssumption(); persist(); render(); renderInspector(); }, 'Leg mode')));
+  if (mover === 'instant') {
+    body.append(H('p', { class: 'floor-hint', style: 'margin:var(--s-2) 0 0' }, 'Zero transport time — the baseline. Placement does not affect this link.'));
+  } else if (mover === 'conveyor') {
     body.append(field('Capacity (items)', numInput(o.cap != null ? o.cap : model.conveyor.cap, 1, 1, (v) => { model.legs[key] = Object.assign({}, model.legs[key], { cap: Math.max(1, v | 0) }); persist(); })));
     body.append(field('Speed (m/min)', numInput(o.speed != null ? o.speed : model.conveyor.speed, 1, 5, (v) => { model.legs[key] = Object.assign({}, model.legs[key], { speed: Math.max(1, v) }); persist(); render(); })));
-  } else if (mover === 'worker') {
-    body.append(H('p', { class: 'small faint', style: 'margin:0' }, 'Uses the shared worker pool (set its size and speed under Transport).'));
-  } else {
-    body.append(field('Speed (m/min)', numInput(o.speed != null ? o.speed : model.defaultSpeed, 1, 5, (v) => { model.legs[key] = Object.assign({}, model.legs[key], { speed: Math.max(1, v) }); persist(); render(); })));
+    body.append(H('p', { class: 'subhead' }, 'Bent path'));
+    const wps = (model.legs[key] && model.legs[key].waypoints) || [];
+    if (!wps.length) body.append(H('p', { class: 'floor-hint', style: 'margin:0 0 var(--s-2)' }, 'Straight. Add a bend to route the belt through a waypoint; the transit time uses the full path length.'));
+    wps.forEach((w, i) => body.append(H('div', { class: 'bom-row' }, [H('span', { class: 'small faint' }, 'bend ' + (i + 1)),
+      numInput(+w.x.toFixed(1), 0, 1, (v) => { w.x = v; persist(); render(); }), H('span', { class: 'faint' }, ','), numInput(+w.y.toFixed(1), 0, 1, (v) => { w.y = v; persist(); render(); }),
+      mini('✕', () => { wps.splice(i, 1); persist(); render(); renderInspector(); })])));
+    const addB = H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-1)' }, '+ Add bend');
+    addB.addEventListener('click', () => { const a = node(fromId), b = node(toId); const L = model.legs[key] = model.legs[key] || {}; L.waypoints = L.waypoints || []; L.waypoints.push({ x: +(((a.x + b.x) / 2)).toFixed(1), y: +(((a.y + b.y) / 2) + 5).toFixed(1) }); persist(); render(); renderInspector(); });
+    body.append(addB);
+    if (wps.length) body.append(H('p', { class: 'small faint', style: 'margin:var(--s-1) 0 0' }, 'Drag the bend handles on the floor to shape the belt.'));
+  } else {   // agv / operator — flexible fleet, travel uses each unit's own speed
+    const carriers = model.movers.filter((u) => servesLink(u, key));
+    body.append(H('p', { class: 'floor-hint', style: 'margin:var(--s-2) 0 0' },
+      `Carried by the flexible fleet (${carriers.length} unit${carriers.length === 1 ? '' : 's'} can serve this leg). A unit travels to pick up, then delivers — using its own speed. Add ${mover === 'agv' ? 'AGVs' : 'operators'} and set their homes in “Set up model”.`));
   }
   body.append(H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-2)', onclick: () => { delete model.legs[key]; persist(); render(); renderInspector(); } }, 'Reset to default'));
 }
+function servesLink(u, key) { return !u.serves || u.serves.links === 'all' || (Array.isArray(u.serves.links) && u.serves.links.includes(key)); }
+function servesMachine(u, id) { return u.kind === 'operator' && (!u.serves || u.serves.machines === 'all' || (Array.isArray(u.serves.machines) && u.serves.machines.includes(id))); }
 
 /* ---- transport defaults panel ------------------------------------------ */
 function renderTransport() {
   const b = $('transportBody'); b.innerHTML = '';
-  b.append(field('Default mover', segmented(
-    [{ value: 'instant', label: 'Instant' }, { value: 'conveyor', label: 'Conveyor' }, { value: 'worker', label: 'Worker' }],
-    model.defaultMover, (v) => { model.defaultMover = v; if (v === 'worker') ensureWorkerAssumption(); persist(); render(); renderTransport(); }, 'Default mover')));
-  b.append(field('Default speed (m/min)', numInput(model.defaultSpeed, 1, 5, (v) => { model.defaultSpeed = Math.max(1, v); persist(); render(); })));
-  b.append(H('p', { class: 'subhead' }, 'Worker pool'));
-  b.append(field('Workers', numInput(model.workers.count, 1, 1, (v) => { model.workers.count = Math.max(1, v | 0); persist(); })));
-  b.append(field('Worker speed (m/min)', numInput(model.workers.speed, 1, 5, (v) => { model.workers.speed = Math.max(1, v); persist(); render(); })));
+  b.append(field('Default mode', segmented(
+    [{ value: 'instant', label: 'Instant' }, { value: 'conveyor', label: 'Conveyor' }, { value: 'agv', label: 'AGV' }, { value: 'operator', label: 'Operator' }],
+    model.defaultMover, (v) => { model.defaultMover = v; if (v === 'agv' || v === 'operator') ensureMoverAssumption(); persist(); render(); renderTransport(); }, 'Default mode')));
+  b.append(H('p', { class: 'floor-hint', style: 'margin:0' }, 'Applies to legs you haven’t set individually. Instant = zero time; Conveyor & flexible movers add real transport time.'));
   b.append(H('p', { class: 'subhead' }, 'Conveyor default'));
   b.append(field('Capacity', numInput(model.conveyor.cap, 1, 1, (v) => { model.conveyor.cap = Math.max(1, v | 0); persist(); })));
   b.append(field('Speed (m/min)', numInput(model.conveyor.speed, 1, 5, (v) => { model.conveyor.speed = Math.max(1, v); persist(); render(); })));
+  b.append(H('p', { class: 'floor-hint', style: 'margin:var(--s-3) 0 0' }, 'AGV & Operator units (with their home locations and assignments) are set in “Set up model”.'));
 }
 
 /* ---- control & demand panel -------------------------------------------- */
@@ -981,8 +1040,8 @@ function renderTable() {
   for (const key of allLegKeys()) {
     const mover = effMover(key), o = model.legs[key] || {};
     const [fromId, toId] = key.split('>'); const from = node(fromId), to = node(toId);
-    const params = mover === 'conveyor' ? `cap ${o.cap != null ? o.cap : model.conveyor.cap}, ${o.speed != null ? o.speed : model.conveyor.speed} m/min`
-      : mover === 'worker' ? `pool ${model.workers.count} @ ${model.workers.speed} m/min` : `${o.speed != null ? o.speed : model.defaultSpeed} m/min`;
+    const params = mover === 'conveyor' ? `cap ${o.cap != null ? o.cap : model.conveyor.cap}, ${o.speed != null ? o.speed : model.conveyor.speed} m/min${(o.waypoints || []).length ? `, ${o.waypoints.length} bend(s)` : ''}`
+      : (mover === 'agv' || mover === 'operator') ? `${model.movers.filter((u) => servesLink(u, key)).length} unit(s)` : mover === 'instant' ? 'zero time' : `${o.speed != null ? o.speed : model.defaultSpeed} m/min`;
     const tr = H('tr', { class: 'click' });
     tr.innerHTML = `<td></td><td>${mover}${model.legs[key] ? '' : ' <span class="faint">(default)</span>'}</td><td class="sum">${params}</td>`;
     tr.children[0].textContent = `${(from && from.name) || key.split('>')[0]} → ${(to && to.name) || key.split('>')[1]}`;
@@ -1030,16 +1089,21 @@ function removeNode(id) {
 }
 function moveInRoute(i, d) { const a = aRoute(); const j = i + d; if (j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]]; persist(); refreshAll(); }
 
-/* ---- worker simplification auto-log ------------------------------------ */
-function ensureWorkerAssumption() {
-  if (!project.assumptions.some((a) => a.id === 'a_worker_return')) {
-    project.assumptions.push(newAssumption({ id: 'a_worker_return', kind: 'simplification',
-      description: 'Worker empty-return travel is ignored — only one-way loaded trips are modelled.',
-      rationale: 'Out of v1 scope (Charter §6). Ignoring it understates worker utilisation, so it is flagged for sensitivity analysis later.',
-      data: 'C', uncertainty: 'Real empty-return time depends on layout and dispatch.', sensitivity: true }));
+/* ---- flexible-mover simplification auto-log (Phase 3.6) ----------------- */
+// Supersedes the old "empty-return ignored" note: idle units now return to their home location and
+// are re-dispatched en route; what is still excluded is anticipatory repositioning (Charter §9).
+function ensureMoverAssumption() {
+  const old = project.assumptions.find((a) => a.id === 'a_worker_return');
+  if (old) old.id = 'a_mover_repos';   // retire the stale note in place
+  if (!project.assumptions.some((a) => a.id === 'a_mover_repos')) {
+    project.assumptions.push(newAssumption({ id: 'a_mover_repos', kind: 'simplification',
+      description: 'Flexible movers (AGV/Operator) travel to pick up, deliver one load, then return to a standard (home) location when idle (re-dispatchable en route). Anticipatory repositioning beyond returning home is not modelled; movers pass through each other (no path-finding/collisions).',
+      rationale: 'Charter §6/§9 — a single fixed dispatch rule (longest-waiting → nearest), no optimising dispatcher. Travel is non-value-adding (theory-notes §5.3).',
+      data: 'C', uncertainty: 'Real fleets may pre-position toward expected demand and contend for aisles.', sensitivity: true }));
     save(project);
   }
 }
+const ensureWorkerAssumption = ensureMoverAssumption;   // back-compat alias for any remaining callers
 
 /* ---- assembly / process modelling-note auto-log ------------------------ */
 // When the model gains a BOM, record fork-join assembly synchronisation as a stated behaviour
@@ -1116,12 +1180,12 @@ function isProcessModel() {
 }
 function nodeForRun(n) {
   return n.kind === 'resource'
-    ? { kind: 'resource', id: n.id, name: n.name, x: n.x, y: n.y, machines: n.machines || 1, service: n.service, bufferCap: n.buffer.finite ? n.buffer.cap : Infinity, scrap: n.scrap || 0, brk: n.brk, assembly: !!n.assembly, batch: (n.batch && n.batch.on) ? { size: Math.max(2, n.batch.size | 0), setup: Math.max(0, n.batch.setup || 0) } : null }
+    ? { kind: 'resource', id: n.id, name: n.name, x: n.x, y: n.y, machines: n.machines || 1, service: n.service, bufferCap: n.buffer.finite ? n.buffer.cap : Infinity, scrap: n.scrap || 0, brk: n.brk, assembly: !!n.assembly, operatorRequired: !!n.operatorRequired, batch: (n.batch && n.batch.on) ? { size: Math.max(2, n.batch.size | 0), setup: Math.max(0, n.batch.setup || 0) } : null }
     : { kind: n.kind, id: n.id, name: n.name, x: n.x, y: n.y, cap: n.cap };
 }
 function buildRunModel() {
   const nodes = model.nodes.map(nodeForRun);
-  const transport = { default: model.defaultMover, speed: model.defaultSpeed, conveyor: model.conveyor, workers: model.workers, legs: model.legs };
+  const transport = { default: model.defaultMover, speed: model.defaultSpeed, conveyor: model.conveyor, movers: model.movers, legs: model.legs };
   const head = { schema: 'des-floor/v1', scale: S, units: model.units, nodes, transport, control: model.control, supply: model.supply };
   if (!isProcessModel()) {
     // legacy single-part shape (exact pre-3.5 behaviour for the basics-first default)
@@ -1224,7 +1288,7 @@ function showResults() {
   const tb = $('utilBody');
   model.nodes.filter((n) => n.kind === 'resource').forEach((n) => { const tr = H('tr', {}); tr.innerHTML = `<td></td><td class="num">${(100 * (r.utilisation[n.id] || 0)).toFixed(1)}%</td><td class="num">${(100 * (r.downFraction[n.id] || 0)).toFixed(1)}%</td><td class="num">${(100 * (r.blockedFraction[n.id] || 0)).toFixed(1)}%</td>`; tr.firstChild.textContent = n.name || 'Resource'; tb.append(tr); });
   const tRows = [];
-  if (r.workers) tRows.push(`<tr><td>Workers (${r.workers.count})</td><td class="num">${(100 * r.workers.utilisation).toFixed(1)}% util</td><td class="num">${r.workers.avgQueue.toFixed(2)} queued</td></tr>`);
+  if (r.movers) tRows.push(`<tr><td>Movers (${r.movers.agv} AGV · ${r.movers.operators} op)</td><td class="num">${(100 * r.movers.utilisation).toFixed(1)}% util</td><td class="num">${r.movers.avgQueue.toFixed(2)} req queued</td></tr>`);
   const conv = Object.values(r.conveyors || {}); if (conv.length) tRows.push(`<tr><td>Conveyor (busiest)</td><td class="num">${(100 * Math.max(...conv.map((c) => c.utilisation))).toFixed(1)}% full</td><td class="num">—</td></tr>`);
   const blk = Math.max(0, ...Object.values(r.blockedFraction || {})); if (blk > 0.001) tRows.push(`<tr><td>Most-blocked resource</td><td class="num">${(100 * blk).toFixed(1)}% blocked</td><td class="num">—</td></tr>`);
   if (tRows.length) results.append(H('div', { html: `<p class="section-label" style="margin:var(--s-4) 0 var(--s-2)">Transport</p><table class="table"><tbody>${tRows.join('')}</tbody></table>` }));
@@ -1412,12 +1476,63 @@ function applySetup() { autoLayout(); persist(); closeSetup(); selected = null; 
 
 function renderSetup() {
   renderSetupStations();
+  renderSetupMovers();
   renderPartsModal();        // reuses the parts/BOM/demand editor, hosted in the drawer (#pmList/#pmEditor)
   renderSetupRoutes();
   renderControl();           // hosted in the drawer (#controlBody)
   renderSetupMini();
   renderSetupSummary();
 }
+/* ---- Setup: flexible movers (AGV / Operator) ---- */
+let setupOpenMover = null;
+function moverSummary(u) { const all = u.serves.links === 'all' && (u.kind === 'agv' || u.serves.machines === 'all'); return `${u.speed} m/min · ${all ? 'serves all' : 'restricted'}`; }
+function renderSetupMovers() {
+  const host = $('setupMovers'); if (!host) return; host.innerHTML = '';
+  const add = H('div', { class: 'setup-add' });
+  [['agv', '+ AGV'], ['operator', '+ Operator']].forEach(([k, label]) => { const b = H('button', { class: 'btn btn-ghost' }, label); b.addEventListener('click', () => addMover(k)); add.append(b); });
+  host.append(add);
+  if (!model.movers.length) { host.append(H('p', { class: 'floor-hint', style: 'margin:0' }, 'No movers yet. AGVs carry loads; Operators carry loads AND run “operator required” machines.')); return; }
+  const list = H('div', { class: 'setup-list' });
+  model.movers.forEach((u) => {
+    const open = setupOpenMover === u.id;
+    const card = H('div', { class: 'setup-card' + (open ? ' open' : '') });
+    const head = H('div', { class: 'setup-card-h' }, [H('span', { class: 'setup-kind' }, u.kind), H('span', { class: 'setup-cardname' }, u.name), H('span', { class: 'setup-sum' }, open ? '' : moverSummary(u))]);
+    head.append(mini('✕', () => { removeMover(u.id); if (setupOpenMover === u.id) setupOpenMover = null; renderSetup(); }));
+    head.addEventListener('click', (e) => { if (e.target.classList.contains('mini')) return; setupOpenMover = open ? null : u.id; renderSetupMovers(); });
+    card.append(head);
+    if (open) { const bd = H('div', { class: 'setup-card-b stack' }); moverEditor(u, bd); card.append(bd); }
+    list.append(card);
+  });
+  host.append(list);
+}
+function moverEditor(u, body, rerender = renderSetupMovers) {
+  body.append(field('Name', textInput(u.name, (v) => { u.name = v || (u.kind === 'agv' ? 'AGV' : 'Operator'); persist(); })));
+  body.append(field('Speed (m/min)', numInput(u.speed, 1, 5, (v) => { u.speed = Math.max(1, v); persist(); render(); })));
+  body.append(factorButton(`mover:${u.id}:speed`, { name: `Speed — ${u.name}`, unit: 'm/min', baseline: String(u.speed), description: 'Travel speed of this flexible mover. Vary to study transport capacity vs the fleet size.' }, rerender));
+  const all = u.serves.links === 'all' && (u.kind === 'agv' || u.serves.machines === 'all');
+  const allChk = H('input', { type: 'checkbox' }); allChk.checked = all;
+  allChk.addEventListener('change', () => { u.serves = allChk.checked ? { links: 'all', machines: 'all' } : { links: [], machines: [] }; persist(); rerender(); });
+  body.append(H('label', { class: 'toggle-row' }, [allChk, 'Serves the whole floor']));
+  if (!all) {
+    body.append(H('p', { class: 'subhead' }, 'Carries on links'));
+    const lks = allLegKeys();
+    if (!lks.length) body.append(H('p', { class: 'floor-hint', style: 'margin:0' }, '(no transport links yet — set routes first)'));
+    lks.forEach((k) => { const [a, b] = k.split('>'); const ch = H('input', { type: 'checkbox' }); ch.checked = u.serves.links === 'all' || (Array.isArray(u.serves.links) && u.serves.links.includes(k));
+      ch.addEventListener('change', () => { if (u.serves.links === 'all') u.serves.links = lks.slice(); if (ch.checked) { if (!u.serves.links.includes(k)) u.serves.links.push(k); } else u.serves.links = u.serves.links.filter((x) => x !== k); persist(); });
+      body.append(H('label', { class: 'toggle-row' }, [ch, `${(node(a) || {}).name || a} → ${(node(b) || {}).name || b}`])); });
+    if (u.kind === 'operator') {
+      body.append(H('p', { class: 'subhead' }, 'Operates machines'));
+      const ms = model.nodes.filter((n) => n.kind === 'resource' && n.operatorRequired);
+      if (!ms.length) body.append(H('p', { class: 'floor-hint', style: 'margin:0' }, '(no operator-required machines yet)'));
+      ms.forEach((nn) => { const ch = H('input', { type: 'checkbox' }); ch.checked = u.serves.machines === 'all' || (Array.isArray(u.serves.machines) && u.serves.machines.includes(nn.id));
+        ch.addEventListener('change', () => { if (u.serves.machines === 'all') u.serves.machines = ms.map((x) => x.id); if (ch.checked) { if (!u.serves.machines.includes(nn.id)) u.serves.machines.push(nn.id); } else u.serves.machines = u.serves.machines.filter((x) => x !== nn.id); persist(); });
+        body.append(H('label', { class: 'toggle-row' }, [ch, nn.name || 'machine'])); });
+    }
+  }
+  body.append(H('p', { class: 'floor-hint', style: 'margin:var(--s-2) 0 0' }, 'Drag this unit on the floor to set its home (standard) location.'));
+}
+function addMover(kind) { const u = makeMover(kind, floorCentre(model), model.movers.length); model.movers.push(u); setupOpenMover = u.id; ensureMoverAssumption(); persist(); renderSetup(); }
+function removeMover(id) { model.movers = model.movers.filter((u) => u.id !== id); persist(); }
 // live "at a glance" counts in the rail (fills the sidebar; helps a student track progress)
 function renderSetupSummary() {
   const host = $('setupSummary'); if (!host) return;
@@ -1553,9 +1668,12 @@ function renderSetupMini() {
 /* ---- pointer interaction ------------------------------------------------ */
 function onPointerDown(e) {
   if (playing) return;          // pause to edit the floor
-  // Floor is physical-only: select + drag to reposition, select a leg, or pan. Structure is set in Setup.
+  // Floor is physical-only: reposition nodes / mover homes / conveyor bends, select a leg, or pan.
   const svg = $('svg'); const grp = e.target.closest('[data-node]'); const legHit = e.target.closest('[data-leg]');
-  if (grp) { const id = grp.getAttribute('data-node'); selectNode(id); drag = { id, moved: false }; svg.setPointerCapture(e.pointerId); }
+  const wpHit = e.target.closest('[data-wp]'); const mvHit = e.target.closest('[data-mover]');
+  if (wpHit && selected && selected.kind === 'leg') { drag = { wp: +wpHit.getAttribute('data-wp'), key: selected.key, moved: false }; svg.setPointerCapture(e.pointerId); }
+  else if (mvHit) { const id = mvHit.getAttribute('data-mover'); selectMover(id); drag = { mover: id, moved: false }; svg.setPointerCapture(e.pointerId); }
+  else if (grp) { const id = grp.getAttribute('data-node'); selectNode(id); drag = { id, moved: false }; svg.setPointerCapture(e.pointerId); }
   else if (legHit) selectLeg(legHit.getAttribute('data-leg'));
   else { panning = { sx: e.clientX, sy: e.clientY, cx: view.cx, cy: view.cy }; svg.classList.add('panning'); svg.setPointerCapture(e.pointerId); }
 }
@@ -1563,13 +1681,17 @@ function onPointerMove(e) {
   if (panning) { const r = $('svg').getBoundingClientRect();
     view.cx = panning.cx - (e.clientX - panning.sx) * (BASE_W / view.z) / r.width;
     view.cy = panning.cy - (e.clientY - panning.sy) * (BASE_H / view.z) / r.height; setViewBox(); return; }
-  if (!drag) return; const p = svgPoint(e); const n = node(drag.id); if (!n) return;
+  if (!drag) return; const p = svgPoint(e);
+  if (drag.mover) { const u = model.movers.find((m) => m.id === drag.mover); if (u) { u.home = { x: Math.max(0, p.x / S), y: Math.max(0, p.y / S) }; drag.moved = true; render(); } return; }
+  if (drag.wp != null) { const w = (model.legs[drag.key] || {}).waypoints; if (w && w[drag.wp]) { w[drag.wp] = { x: Math.max(0, p.x / S), y: Math.max(0, p.y / S) }; drag.moved = true; render(); } return; }
+  const n = node(drag.id); if (!n) return;
   n.x = Math.max(1.5, p.x / S); n.y = Math.max(1.5, p.y / S); drag.moved = true; render();
 }
 function onPointerUp() {
   if (panning) { $('svg').classList.remove('panning'); panning = null; }
   if (drag) { if (drag.moved) { persist(); if (!$('tablePanel').hidden) renderTable(); } drag = null; }
 }
+function selectMover(id) { selected = { kind: 'mover', id }; activateTab('inspect'); refreshAll(); }
 
 /* ---- init --------------------------------------------------------------- */
 function init() {
@@ -1620,7 +1742,7 @@ function init() {
   else if (location.hash === '#example3') { loadExample3(); const b = model.nodes.find((n) => n.kind === 'resource' && n.batch && n.batch.on); if (b) selected = { kind: 'node', id: b.id }; deep = true; }   // batch-processing demo
   else if (location.hash === '#example4') { loadExample4(); deep = true; }   // assembly / multi-part demo
   else if (location.hash === '#example5') { loadExample5(); deep = true; }   // 3-level BOM, sub-assembly also sold
-  if (model.defaultMover === 'worker' || Object.values(model.legs).some((l) => l.mover === 'worker')) ensureWorkerAssumption();
+  if (model.movers.length || ['agv', 'operator'].includes(model.defaultMover) || Object.values(model.legs).some((l) => l.mover === 'agv' || l.mover === 'operator')) ensureMoverAssumption();
   render(); renderInspector(); renderTransport(); renderBomInset();
   activateTab('inspect'); setPlayLabel(); updateClock(); zoomFit();
   if (['#play', '#example2', '#example3', '#example4', '#example5'].includes(location.hash)) { if (!model.parts.some((p) => p.route.length >= 2)) loadExample(); play(); }   // deep-link: open running
