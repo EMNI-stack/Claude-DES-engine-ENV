@@ -133,8 +133,10 @@ test("Little's Law holds including transport (overall WIP = TH × CT)", () => {
   // Give the body line real travel distance so transport is part of cycle time.
   const coords = { srcBody: { x: 0, y: 0 }, Cut: { x: 100, y: 0 }, Assy: { x: 200, y: 0 },
     srcBolt: { x: 200, y: 0 }, Ship: { x: 300, y: 0 } };
-  const sim = new FloorSim(widgetFactory({ bolts: 2, bodyArr: newDist('exp', { mean: 2 }),
-    boltArr: newDist('exp', { mean: 0.8 }), assy: newDist('exp', { mean: 1 }), cut: newDist('exp', { mean: 1 }), coords }), 9);
+  const m = widgetFactory({ bolts: 2, bodyArr: newDist('exp', { mean: 2 }),
+    boltArr: newDist('exp', { mean: 0.8 }), assy: newDist('exp', { mean: 1 }), cut: newDist('exp', { mean: 1 }), coords });
+  m.transport.default = 'conveyor'; m.transport.speed = 10;   // Phase 3.6: instant is now zero-time, so use a timed mover for the transport-contributes assertion
+  const sim = new FloorSim(m, 9);
   sim.run({ until: 40000 });
   const r = sim.metrics();
   const lhs = r.avgWIP, rhs = r.throughput * r.avgCycleTime, relErr = Math.abs(lhs - rhs) / rhs;

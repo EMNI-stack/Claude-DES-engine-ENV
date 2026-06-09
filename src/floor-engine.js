@@ -73,10 +73,24 @@ export class FloorSim {
     this.defaultMover = this.transport.default || 'instant';
     this.defaultSpeed = this.transport.speed || 60;
 
-    // worker pool (shared)
-    const wp = this.transport.workers;
-    this.workers = wp ? { count: Math.max(1, wp.count || 1), speed: wp.speed || this.defaultSpeed,
-      busy: 0, pending: [], blocked: [], aBusy: 0, aPending: 0 } : null;
+    // Flexible movers (AGV / Operator) — placed units with a home location, travel-to-pickup, carry,
+    // return-home-when-idle, and re-dispatch mid-travel (Phase 3.6). Supersedes the single worker pool.
+    let moverCfgs = this.transport.movers;
+    if (!Array.isArray(moverCfgs)) {                  // migrate a legacy {count, speed} worker pool → operators
+      const wp = this.transport.workers; moverCfgs = [];
+      if (wp) { const h = this._centroid(); for (let i = 0; i < Math.max(1, wp.count | 0); i++) moverCfgs.push({ id: 'op' + (i + 1), kind: 'operator', speed: wp.speed || this.defaultSpeed, home: h, serves: { links: 'all', machines: 'all' } }); }
+    }
+    this.movers = (moverCfgs || []).map((m, i) => {
+      const home = { x: (m.home && m.home.x) || 0, y: (m.home && m.home.y) || 0 };
+      const sl = m.serves && m.serves.links, sm = m.serves && m.serves.machines;
+      return { id: m.id || ('mv' + i), kind: m.kind === 'agv' ? 'agv' : 'operator', name: m.name, speed: m.speed || this.defaultSpeed,
+        home, pos: { x: home.x, y: home.y }, servesLinks: (sl && sl !== 'all') ? new Set(sl) : 'all',
+        servesMachines: (sm && sm !== 'all') ? new Set(sm) : 'all',
+        state: 'idle', carry: null, target: null, move: null, seq: 0, aBusy: 0 };
+    });
+    this.hasOperators = this.movers.some((u) => u.kind === 'operator');
+    this.requests = [];          // pending transport (move) + operator-op requests, timestamped (FIFO)
+    this.aReq = 0;               // area of pending-request count (transport/operator queueing)
 
     // conveyor leg state (per edge), precomputed from all parts' routings
     this.conv = {};
@@ -302,18 +316,18 @@ export class FloorSim {
   // It is an already-finished unit being moved (not re-counted in entered/completed/wip) — it
   // shows as an in-transit, part-coloured token, and the product is built when all arrive.
   dispatchDelivery(pid, leg, pend) {
-    const tt = this._tt(leg.from, leg.to, this.moverFor(leg.from, leg.to));
-    const job = { id: ++this.pid, part: pid, delivery: true, transit: tt,
-      loc: { k: 'transit', from: leg.from, to: leg.to, t0: this.now, t1: this.now + tt } };
-    this.jobs.set(job.id, job); this.inTransit++;
-    this.schedule(tt, { t: 'DELIVER', job, pend });
+    const mover = this.moverFor(leg.from, leg.to);
+    const job = { id: ++this.pid, part: pid, delivery: true, pend, transit: 0, loc: { k: 'pending', node: leg.from } };
+    this.jobs.set(job.id, job);
+    if (mover === 'agv' || mover === 'operator') {              // flexible: a real transport request (waits for a unit)
+      this.requests.push({ kind: 'move', t: this.now, job, toStep: null, from: leg.from, to: leg.to, delivery: true, pend });
+    } else {                                                    // instant / conveyor: direct (as before)
+      const tt = this._tt(leg.from, leg.to, mover); this.inTransit++; job.transit = tt;
+      job.loc = { k: 'transit', from: leg.from, to: leg.to, t0: this.now, t1: this.now + tt };
+      this.schedule(tt, { t: 'DELIVER', job, pend });
+    }
   }
-  onDeliver(ev) {
-    this.inTransit--; this.jobs.delete(ev.job.id);
-    if (--ev.pend.waiting > 0) return;                          // wait for the product's other components
-    const p = this.parts[this.partIdx.get(ev.pend.pid)];
-    if (p) { this.pstats[p.id].pending = Math.max(0, this.pstats[p.id].pending - 1); this.createAndAdmit(p); }
-  }
+  onDeliver(ev) { this.inTransit--; this._deliverArrive(ev.pend, ev.job); }   // direct (instant/conveyor) delivery arrival
 
   /* ---- pull-mode dependent-demand explosion (lifted from advanced-engine) ---- */
   pullLimit(pid) { const d = this.demandList.find((x) => x.partId === pid); return d ? Math.max(1, d.conwip | 0 || 5) : Infinity; }
@@ -405,13 +419,14 @@ export class FloorSim {
   /* ---- leg config ------------------------------------------------------- */
   moverFor(fromId, toId) {
     const leg = (this.transport.legs || {})[`${fromId}>${toId}`];
-    return (leg && leg.mover) || this.defaultMover;
+    let m = (leg && leg.mover) || this.defaultMover;
+    if (m === 'worker') m = 'operator';   // the Phase-3 worker pool is the Operator type
+    return m;
   }
   legSpeed(fromId, toId, mover) {
     const leg = (this.transport.legs || {})[`${fromId}>${toId}`];
     if (leg && leg.speed) return leg.speed;
     if (mover === 'conveyor' && this.transport.conveyor && this.transport.conveyor.speed) return this.transport.conveyor.speed;
-    if (mover === 'worker' && this.workers) return this.workers.speed;
     return this.defaultSpeed;
   }
 
@@ -424,7 +439,10 @@ export class FloorSim {
         r.aBusy += b * dt; r.aBlk += bl * dt; r.aDown += dn * dt; r.aQ += r.queue.length * dt; }
       for (const id in this.hold) this.hold[id].aOcc += this.hold[id].items.length * dt;
       for (const k in this.conv) this.conv[k].aBusy += this.conv[k].items.length * dt;
-      if (this.workers) { this.workers.aBusy += this.workers.busy * dt; this.workers.aPending += this.workers.pending.length * dt; }
+      // flexible movers: "busy" = actively serving (to-pickup / carrying / travelling-to-machine / operating);
+      // returning-home and idle are not utilisation. Plus the pending-request queue area.
+      for (const U of this.movers) if (U.state === 'toPickup' || U.state === 'carrying' || U.state === 'toMachine' || U.state === 'operating' || U.state === 'blockedDrop') U.aBusy += dt;
+      this.aReq += this.requests.length * dt;
       this.areaWIP += this.wip * dt; this.areaTransit += this.inTransit * dt; this.aFG += this.fg * dt;
     }
     this.lastT = t;
@@ -439,7 +457,10 @@ export class FloorSim {
     else if (ev.t === 'ARRIVE_NODE') this.onArriveNode(ev);
     else if (ev.t === 'COMPLETE') this.onComplete(ev);
     else if (ev.t === 'CONVEYOR_END') this.onConveyorEnd(ev);
-    else if (ev.t === 'MOVE_END') this.onMoveEnd(ev);
+    else if (ev.t === 'PICKUP') this.onPickup(ev);
+    else if (ev.t === 'DROP') this.onDrop(ev);
+    else if (ev.t === 'OP_ARRIVE') this.onOpArrive(ev);
+    else if (ev.t === 'HOME_ARRIVE') this.onHomeArrive(ev);
     else if (ev.t === 'FAIL') this.onFail(ev);
     else if (ev.t === 'REP') this.onRep(ev);
     else if (ev.t === 'DEM') this.multiPart ? this.onDemandMulti(ev) : this.onDemand(ev);
@@ -555,6 +576,7 @@ export class FloorSim {
   onComplete(ev) {
     if (ev.seq2 !== ev.m.depSeq) return;           // stale (a breakdown preempted this service)
     const r = this.res[ev.node]; r.processed++; const m = ev.m;
+    if (m.operator) { m.operator.pos = this.nodePos(ev.node); this._freeMover(m.operator); m.operator = null; }   // release the operator (op done)
     if (m.batch) {                                 // whole batch finishes together
       const survivors = [];
       for (const job of m.batch) {                 // scrap each part of the batch independently
@@ -599,12 +621,6 @@ export class FloorSim {
 
   onConveyorEnd(ev) { ev.item.arrived = true; /* settle() tries to deposit */ }
 
-  onMoveEnd(ev) {
-    // worker arrived at destination; try to deposit, else block the worker
-    if (this.admit(ev.job, ev.step)) { this.workers.busy--; this.inTransit--; }
-    else this.workers.blocked.push({ job: ev.job, step: ev.step });
-  }
-
   /* ---- board a job from its current node onto the leg to step+1 --------- */
   board(job) {
     const fromStep = job.step, toStep = fromStep + 1;
@@ -621,29 +637,131 @@ export class FloorSim {
       this.schedule(tt, { t: 'CONVEYOR_END', item, leg });
       return true;
     }
-    if (mover === 'worker' && this.workers) {
-      this.workers.pending.push({ job, step: toStep });    // wait for a free worker (transport queue)
-      job.loc = { k: 'pending', node: fromId };             // waiting at the from-node for a worker
-      return true;                                          // job leaves the node into the pending queue
+    if (mover === 'agv' || mover === 'operator') {          // flexible mover: raise a transport request
+      this.requests.push({ kind: 'move', t: this.now, job, toStep, from: fromId, to: toId });
+      job.loc = { k: 'pending', node: fromId };             // waits at the from-node for a unit
+      return true;
     }
-    // instant transport — capacity-aware: a part only leaves its node if the
-    // destination can take it (else the caller keeps it and the line backs up).
-    // Reserve the slot for the trip so the settle() fixpoint can't over-fill a
-    // finite buffer. A full downstream now backs WIP up into upstream storage.
+    // instant transport (Phase 3.6): ZERO transport time — placement does not affect this link
+    // (the baseline). Still capacity-aware: a part only leaves if the destination can take it, and a
+    // slot is reserved for the (zero-time) trip so the settle() fixpoint can't over-fill a finite buffer.
     if (!this.canAcceptAt(toId)) return false;
     const dest = this.res[toId] || this.hold[toId];
     if (dest) dest.incoming++;
-    this.inTransit++; job.transit += tt;
-    job.loc = { k: 'transit', from: fromId, to: toId, t0: this.now, t1: this.now + tt };
-    this.schedule(tt, { t: 'ARRIVE_NODE', job, step: toStep, dest: toId });
+    this.inTransit++;   // (released immediately by the same-instant ARRIVE_NODE)
+    job.loc = { k: 'transit', from: fromId, to: toId, t0: this.now, t1: this.now };
+    this.schedule(0, { t: 'ARRIVE_NODE', job, step: toStep, dest: toId });
     return true;
   }
-  legLen(fromId, toId) {                              // typed override (m) or placement distance
+  legLen(fromId, toId) {                              // typed override (m) · conveyor bent-path length · or placement distance
     const o = (this.transport.legs || {})[`${fromId}>${toId}`];
     if (o && o.length > 0) return o.length;
-    return legDistance(this.nodes[fromId], this.nodes[toId]);
+    const a = this.nodes[fromId], b = this.nodes[toId];
+    if (o && Array.isArray(o.waypoints) && o.waypoints.length) {   // bent conveyor: sum the polyline segments
+      let d = 0, prev = { x: a.x || 0, y: a.y || 0 };
+      for (const w of o.waypoints) { d += Math.hypot((w.x || 0) - prev.x, (w.y || 0) - prev.y); prev = { x: w.x || 0, y: w.y || 0 }; }
+      return d + Math.hypot((b.x || 0) - prev.x, (b.y || 0) - prev.y);
+    }
+    return legDistance(a, b);
   }
   _tt(fromId, toId, mover) { const s = this.legSpeed(fromId, toId, mover); return s > 0 ? this.legLen(fromId, toId) / s : 0; }
+
+  /* ---- flexible movers (AGV / Operator): positions, dispatch, home --------- */
+  _centroid() { const ns = (this.model.nodes || []); if (!ns.length) return { x: 0, y: 0 }; let sx = 0, sy = 0; for (const n of ns) { sx += (n.x || 0); sy += (n.y || 0); } return { x: sx / ns.length, y: sy / ns.length }; }
+  nodePos(id) { const n = this.nodes[id]; return n ? { x: n.x || 0, y: n.y || 0 } : { x: 0, y: 0 }; }
+  moverPos(U) { const m = U.move; if (m && this.now < m.t1 && m.t1 > m.t0) { const f = (this.now - m.t0) / (m.t1 - m.t0); return { x: m.from.x + (m.to.x - m.from.x) * f, y: m.from.y + (m.to.y - m.from.y) * f }; } return U.pos; }
+  _free(U) { return U.state === 'idle' || U.state === 'returning'; }
+  _eligible(U, req) {
+    if (req.kind === 'op') return U.kind === 'operator' && (U.servesMachines === 'all' || U.servesMachines.has(req.node));
+    return U.servesLinks === 'all' || U.servesLinks.has(`${req.from}>${req.to}`);   // move: AGV or operator
+  }
+  _reqPickup(req) { return req.kind === 'op' ? this.nodePos(req.node) : this.nodePos(req.from); }
+  _dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+  // Assign a free unit to a request: longest-waiting request first, nearest free eligible unit, ties by id.
+  dispatchOnce() {
+    if (!this.requests.length || !this.movers.length) return false;
+    const free = this.movers.filter((u) => this._free(u)); if (!free.length) return false;
+    for (const req of [...this.requests].sort((a, b) => a.t - b.t)) {
+      const elig = free.filter((u) => this._eligible(u, req)); if (!elig.length) continue;
+      const pick = this._reqPickup(req);
+      elig.sort((u, v) => (this._dist(this.moverPos(u), pick) - this._dist(this.moverPos(v), pick)) || (u.id < v.id ? -1 : 1));
+      this._assign(elig[0], req);
+      this.requests.splice(this.requests.indexOf(req), 1);
+      return true;
+    }
+    return false;
+  }
+  _assign(U, req) {
+    U.pos = this.moverPos(U); U.seq++;                         // freeze current position; invalidate any in-flight arrival
+    const speed = U.speed > 0 ? U.speed : this.defaultSpeed;
+    if (req.kind === 'op') {
+      U.state = 'toMachine'; U.target = { node: req.node, mi: req.mi };
+      const to = this.nodePos(req.node), tt = this._dist(U.pos, to) / speed;
+      U.move = { from: { ...U.pos }, to, t0: this.now, t1: this.now + tt };
+      const r = this.res[req.node]; if (r && r.machines[req.mi]) r.machines[req.mi].opUnit = U;
+      this.schedule(tt, { t: 'OP_ARRIVE', unit: U, useq: U.seq, node: req.node, mi: req.mi });
+    } else {
+      U.state = 'toPickup'; U.carry = { job: req.job, toStep: req.toStep, from: req.from, to: req.to, delivery: !!req.delivery, pend: req.pend };
+      const to = this.nodePos(req.from), tt = this._dist(U.pos, to) / speed;
+      U.move = { from: { ...U.pos }, to, t0: this.now, t1: this.now + tt };
+      this.schedule(tt, { t: 'PICKUP', unit: U, useq: U.seq });
+    }
+  }
+  _freeMover(U) { U.state = 'idle'; U.carry = null; U.target = null; U.move = null; }
+  // idle units not at home travel back toward their standard location (re-dispatchable mid-return)
+  _sendHomeIfIdle() {
+    for (const U of this.movers) {
+      if (U.state !== 'idle') continue;
+      const d = this._dist(U.pos, U.home); if (d < 1e-6) continue;
+      U.state = 'returning'; U.seq++;
+      const tt = d / (U.speed > 0 ? U.speed : this.defaultSpeed);
+      U.move = { from: { ...U.pos }, to: { ...U.home }, t0: this.now, t1: this.now + tt };
+      this.schedule(tt, { t: 'HOME_ARRIVE', unit: U, useq: U.seq });
+    }
+  }
+  onPickup(ev) {
+    const U = ev.unit; if (ev.useq !== U.seq) return; const c = U.carry; if (!c) return;
+    U.pos = this.nodePos(c.from);
+    const tt = this.legLen(c.from, c.to) / (U.speed > 0 ? U.speed : this.defaultSpeed);
+    this.inTransit++; c.job.transit += tt;
+    c.job.loc = { k: 'transit', from: c.from, to: c.to, t0: this.now, t1: this.now + tt };
+    U.state = 'carrying'; U.move = { from: this.nodePos(c.from), to: this.nodePos(c.to), t0: this.now, t1: this.now + tt };
+    this.schedule(tt, { t: 'DROP', unit: U, useq: U.seq });
+  }
+  onDrop(ev) {
+    const U = ev.unit; if (ev.useq !== U.seq) return; const c = U.carry; if (!c) return;
+    U.pos = this.nodePos(c.to);
+    if (c.delivery) { this.inTransit--; this._deliverArrive(c.pend, c.job); this._freeMover(U); return; }
+    if (this.admit(c.job, c.toStep)) { this.inTransit--; this._freeMover(U); }
+    else U.state = 'blockedDrop';   // destination full — unit holds the load, retried in settle()
+  }
+  onOpArrive(ev) {
+    const U = ev.unit; if (ev.useq !== U.seq) return; const r = this.res[ev.node]; if (!r) { this._freeMover(U); return; }
+    const m = r.machines[ev.mi]; U.pos = this.nodePos(ev.node);
+    m.opReq = false; m.opUnit = null;
+    const ready = r.batch ? (r.queue.length >= r.batch.size) : (r.queue.length > 0);
+    if (m.busy || m.blocked || m.down || !ready) { this._freeMover(U); return; }   // no longer needed
+    m.operator = U; U.state = 'operating';
+    if (r.batch) {
+      const group = r.queue.splice(0, r.batch.size); m.busy = true; m.batch = group;
+      for (const j of group) j.loc = { k: 'service', node: ev.node };
+      const proc = Math.max(0, sample(r.node.service, this.rng));
+      m.depSeq++; m.startTime = this.now; m.setupEnd = this.now + r.batch.setup; m.depTime = this.now + r.batch.setup + proc; r.batchesStarted++;
+      this.schedule(r.batch.setup + proc, { t: 'COMPLETE', node: ev.node, m, seq2: m.depSeq });
+    } else {
+      const job = r.queue.shift(); m.busy = true; m.job = job; job.loc = { k: 'service', node: ev.node };
+      const st = Math.max(0, sample(r.node.service, this.rng));
+      m.depSeq++; m.startTime = this.now; m.depTime = this.now + st;
+      this.schedule(st, { t: 'COMPLETE', node: ev.node, m, job, seq2: m.depSeq });
+    }
+  }
+  onHomeArrive(ev) { const U = ev.unit; if (ev.useq !== U.seq) return; U.pos = { ...U.home }; U.state = 'idle'; U.move = null; }
+  _deliverArrive(pend, job) {
+    this.jobs.delete(job.id);
+    if (--pend.waiting > 0) return;
+    const p = this.parts[this.partIdx.get(pend.pid)];
+    if (p) { this.pstats[p.id].pending = Math.max(0, this.pstats[p.id].pending - 1); this.createAndAdmit(p); }
+  }
 
   /* ---- settle: resolve all moves that can happen at this instant -------- */
   settle() {
@@ -664,17 +782,9 @@ export class FloorSim {
       for (const k in this.conv) { const leg = this.conv[k];
         for (let i = 0; i < leg.items.length; i++) { const it = leg.items[i];
           if (it.arrived && this.admit(it.job, it.step)) { leg.items.splice(i, 1); i--; this.inTransit--; changed = true; } } }
-      // 3. workers blocked at deposit
-      if (this.workers) for (let i = this.workers.blocked.length - 1; i >= 0; i--) {
-        const b = this.workers.blocked[i];
-        if (this.admit(b.job, b.step)) { this.workers.blocked.splice(i, 1); this.workers.busy--; this.inTransit--; changed = true; } }
-      // 4. assign free workers to pending moves
-      if (this.workers) while (this.workers.busy < this.workers.count && this.workers.pending.length) {
-        const req = this.workers.pending.shift(); this.workers.busy++;
-        const job = req.job, fromId = job.routing[job.step], toId = job.routing[req.step];
-        const tt = this._tt(fromId, toId, 'worker'); this.inTransit++; job.transit += tt;
-        job.loc = { k: 'transit', from: fromId, to: toId, t0: this.now, t1: this.now + tt };
-        this.schedule(tt, { t: 'MOVE_END', job, step: req.step }); changed = true; }
+      // 3. flexible movers blocked at deposit (destination was full when they arrived) — retry
+      for (const U of this.movers) if (U.state === 'blockedDrop' && U.carry) {
+        if (this.admit(U.carry.job, U.carry.toStep)) { this.inTransit--; this._freeMover(U); changed = true; } }
       // 5. resources: board finished (blocked) jobs, then start new services
       for (const id in this.res) { const r = this.res[id];
         // board finished work — a batch machine holds B finished jobs; free it only when all have left
@@ -687,22 +797,30 @@ export class FloorSim {
             if (this.board(m.job)) { m.blocked = false; m.job = null; changed = true; }
           }
         }
-        // start new services — batch resources wait until B jobs are present and seize them as one
-        for (const m of r.machines) {
+        // start new services — batch resources wait until B jobs are present and seize them as one.
+        // An operator-required machine does NOT start here: it raises an operator request; the op
+        // begins when a dispatched operator travels to and reaches the machine (onOpArrive).
+        const opReqd = !!r.node.operatorRequired;
+        for (let mi = 0; mi < r.machines.length; mi++) {
+          const m = r.machines[mi];
           if (m.busy || m.blocked || m.down) continue;
+          const ready = r.batch ? (r.queue.length >= r.batch.size) : (r.queue.length > 0);
+          if (!ready) continue;
+          if (opReqd) {
+            if (!m.opReq && !m.opUnit && !m.operator) { this.requests.push({ kind: 'op', t: this.now, node: id, mi }); m.opReq = true; changed = true; }
+            continue;
+          }
           if (r.batch) {
-            if (r.queue.length >= r.batch.size) {
-              const group = r.queue.splice(0, r.batch.size);
-              m.busy = true; m.batch = group;
-              for (const j of group) j.loc = { k: 'service', node: id };
-              const proc = Math.max(0, sample(r.node.service, this.rng));   // whole-batch process time
-              m.depSeq++; m.startTime = this.now; m.setupEnd = this.now + r.batch.setup;
-              m.depTime = this.now + r.batch.setup + proc;                  // setup once, then process
-              r.batchesStarted++;
-              this.schedule(r.batch.setup + proc, { t: 'COMPLETE', node: id, m, seq2: m.depSeq });
-              changed = true;
-            }
-          } else if (r.queue.length) {
+            const group = r.queue.splice(0, r.batch.size);
+            m.busy = true; m.batch = group;
+            for (const j of group) j.loc = { k: 'service', node: id };
+            const proc = Math.max(0, sample(r.node.service, this.rng));   // whole-batch process time
+            m.depSeq++; m.startTime = this.now; m.setupEnd = this.now + r.batch.setup;
+            m.depTime = this.now + r.batch.setup + proc;                  // setup once, then process
+            r.batchesStarted++;
+            this.schedule(r.batch.setup + proc, { t: 'COMPLETE', node: id, m, seq2: m.depSeq });
+            changed = true;
+          } else {
             const job = r.queue.shift(); m.busy = true; m.job = job; job.loc = { k: 'service', node: id };
             const st = Math.max(0, sample(r.node.service, this.rng));
             m.depSeq++; m.startTime = this.now; m.depTime = this.now + st;
@@ -712,7 +830,10 @@ export class FloorSim {
       // 6. holding nodes (source/storage): push head jobs onward
       for (const id in this.hold) { const h = this.hold[id];
         while (h.items.length) { const job = h.items[0]; if (this.board(job)) { h.items.shift(); changed = true; } else break; } }
+      // 7. dispatch free AGV/Operator units to pending requests (moves + operator-ops), longest-waiting first
+      while (this.dispatchOnce()) changed = true;
     }
+    this._sendHomeIfIdle();   // any unit left idle away from home heads back (re-dispatchable mid-return)
   }
 
   exit(job) { this.wip--; this.completed++; this.sumCycle += this.now - job.entry; this.sumJobTransit += job.transit; this.jobs.delete(job.id); }
@@ -768,11 +889,16 @@ export class FloorSim {
       blockedFraction: blocked,
       downFraction: down,
       conveyors,
-      workers: this.workers ? {
-        count: this.workers.count,
-        utilisation: this.workers.aBusy / (this.workers.count * T),
-        avgQueue: this.workers.aPending / T,
+      movers: this.movers.length ? {
+        count: this.movers.length,
+        agv: this.movers.filter((u) => u.kind === 'agv').length,
+        operators: this.movers.filter((u) => u.kind === 'operator').length,
+        utilisation: this.movers.reduce((s, u) => s + u.aBusy, 0) / (this.movers.length * T),
+        avgQueue: this.aReq / T,
+        units: this.movers.map((u) => ({ id: u.id, kind: u.kind, name: u.name, utilisation: u.aBusy / T })),
       } : null,
+      // back-compat alias for the current Results panel (updated properly in Milestone 2)
+      workers: this.movers.length ? { count: this.movers.length, utilisation: this.movers.reduce((s, u) => s + u.aBusy, 0) / (this.movers.length * T), avgQueue: this.aReq / T } : null,
       control: this.control, conwipCap: this.conwipCap, supply: this.supply,
       maxLineWip: this.maxLineWip, avgFG: this.aFG / T,
       demand: this.demandCfg.mode, demanded: this.demanded, fulfilled: this.fulfilled, stockouts: this.stockouts,

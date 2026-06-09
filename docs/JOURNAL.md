@@ -1081,3 +1081,34 @@ Self-test 21/21; `npm test` 94/94. `floor.js` only.
   ignored" simplification (idle units now return home). **No engine/UI/test code yet — PAUSED** to confirm
   the dispatch rule, the home/re-dispatch behaviour, and the operator coupling (incl. the two flagged
   forks: op-travel and moves-vs-ops priority) before Milestone 1. `npm test` unchanged (94/94).
+
+## 2026-06-09 — Phase 3.6 · Milestone 1: four-mode transport + operator machines + home locations (engine)
+
+Stakeholder confirmed the forks (dispatch = longest-waiting → nearest unit; **operator travels to the
+machine** then operates; moves & ops share one queue; supply-leg deliveries route through the dispatch).
+Implemented in `src/floor-engine.js` only (legacy engines frozen):
+- **Instant is now zero-time** (charter §6 baseline) — placement no longer affects an instant link;
+  still capacity-aware. Distance/placement drives time via the *timed* movers now.
+- **Conveyor** gains **bent paths** — `legLen` sums the polyline through `legs[key].waypoints` (capacity +
+  downstream blocking unchanged).
+- **Flexible movers** replace the worker pool: `transport.movers[] = {id, kind:'agv'|'operator', speed,
+  home, serves:{links,machines}}`. Placed units track a position; a move = **travel-to-pickup (empty) +
+  carry (loaded)**; an **idle unit returns home**; a unit **en route home is re-dispatched from its
+  current interpolated position** (a `useq` stamp invalidates superseded arrivals — the FEL's own `seq`
+  is set by `schedule()`, so the unit stamp had to be separate).
+- **Single fixed dispatch** (`dispatchOnce`): longest-waiting request → nearest free eligible unit → ties
+  by id, across **both** moves and operator-ops (one combined queue).
+- **Operator↔machine coupling:** an `operatorRequired` resource raises an op-request instead of starting;
+  a dispatched operator **travels to the machine** (`OP_ARRIVE`) then operates for the service duration,
+  released at `COMPLETE`; an operator does a **move XOR an op**; AGVs never operate.
+- **Supply-leg deliveries** become real transport requests on AGV/operator legs. **Migration:** legacy
+  `transport.workers` → operators (`serves:"all"`, centre home); `mover:"worker"` → `operator` — the app
+  keeps running. New events `PICKUP/DROP/OP_ARRIVE/HOME_ARRIVE`; `MOVE_END` removed. Metrics expose
+  `movers {count, agv, operators, utilisation, avgQueue, units[]}`.
+- **Verification:** `npm test` → **103/103** — new `tests/floor-transport.test.js` (9): instant=0,
+  conveyor-bent path length, AGV fleet bottleneck (travel-to-pickup counted), home return + mid-return
+  re-dispatch, operator-required needs/relieved-by an operator (automatic unaffected), operator
+  contention, never-move-and-operate invariant, conservation + Little's Law, legacy-pool migration.
+  Updated 4 existing tests that relied on the old instant-distance meaning to use a timed mover (a
+  deliberate consequence of instant→zero). App smoke-tested headless (`#example5` runs, no console
+  errors). UI (placing units / waypoints / operatorRequired checkbox) is **Milestone 2**.

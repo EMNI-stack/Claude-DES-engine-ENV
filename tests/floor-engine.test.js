@@ -14,7 +14,9 @@ function linearFloor({ aXY = [0, 0], bXY = [0, 0], srcXY = [0, 0], sinkXY = [0, 
   return {
     schema: 'des-floor/v1',
     units: { time: 'min', distance: 'm', speed: 'm/min' },
-    transport: { default: 'instant', speed, legs: {} },
+    // Phase 3.6: "instant" is now zero-time; these tests assert that DISTANCE / PLACEMENT drives
+    // transport time, which is a property of the timed movers — use a (uncapacitated) conveyor.
+    transport: { default: 'conveyor', speed, legs: {} },
     nodes: [
       { kind: 'source', id: 'src', x: srcXY[0], y: srcXY[1] },
       { kind: 'resource', id: 'A', name: 'A', x: aXY[0], y: aXY[1], machines, service: newDist('exp', { mean: sA }) },
