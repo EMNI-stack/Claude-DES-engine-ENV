@@ -156,7 +156,7 @@ export class FloorSim {
     this.bomConsumed = {};        // product id -> component id -> units consumed
     for (const p of parts) {
       this.inventory[p.id] = 0;
-      this.pstats[p.id] = { created: 0, completed: 0, scrapped: 0, wip: 0, sumCycle: 0 };
+      this.pstats[p.id] = { created: 0, completed: 0, scrapped: 0, wip: 0, sumCycle: 0, pending: 0 };  // pending = products awaiting component delivery
       this.bomConsumed[p.id] = {};
       for (const b of (p.bom || [])) this.bomConsumed[p.id][b.partId] = 0;
     }
@@ -169,6 +169,22 @@ export class FloorSim {
       if (p.bom && p.bom.length) {
         const nodeId = (p.routing || [])[0];
         if (this.res[nodeId]) this.res[nodeId].product = p.id;
+      }
+    }
+    // Supply legs (Phase 3.6): a component consumed by an assembler whose route does NOT end there
+    // is pulled from the shared pool and physically DELIVERED along this leg into the assembler
+    // before the product is assembled — the shared sub-assembly link "functions like other lines".
+    this.supplyLegs = {};
+    for (const p of parts) {
+      if (!(p.bom && p.bom.length)) continue;
+      const A = (p.routing || [])[0]; if (!this.res[A]) continue;
+      for (const b of p.bom) {
+        const comp = parts[this.partIdx.get(b.partId)]; if (!comp) continue;
+        const route = comp.routing || []; if (route[route.length - 1] === A) continue;   // routes physically into the assembler
+        let origin = null;
+        for (let i = route.length - 1; i >= 0; i--) { const nd = this.nodes[route[i]]; if (nd && nd.kind !== 'sink') { origin = route[i]; break; } }
+        if (origin == null || origin === A) continue;
+        (this.supplyLegs[p.id] = this.supplyLegs[p.id] || {})[b.partId] = { from: origin, to: A };
       }
     }
     this.sourceParts = parts.filter((p) => this.isSource(p));
@@ -262,8 +278,18 @@ export class FloorSim {
         if (!this.canAssemble(p)) continue;
         if (!this.firstResAccepts(p)) continue;                 // assembly node's input is full
         if (this.pullMode && !(this.pullPlan[p.id] > 0)) continue;
+        const legs = this.supplyLegs[p.id];
+        // bound concurrent deliveries-in-flight per product (shallow ready depth at the assembler)
+        if (legs) { const A = this.res[p.routing[0]]; if (this.pstats[p.id].pending >= (A ? A.machines.length + 1 : 2)) continue; }
         for (const b of p.bom) { this.inventory[b.partId] -= b.qty; this.bomConsumed[p.id][b.partId] += b.qty; }
-        this.createAndAdmit(p);
+        const shared = legs ? p.bom.filter((b) => legs[b.partId]) : [];
+        if (!shared.length) {
+          this.createAndAdmit(p);                               // all components already at the assembler
+        } else {
+          this.pstats[p.id].pending++;                          // wait for the shared components to be delivered
+          const pend = { pid: p.id, waiting: 0 };
+          for (const b of shared) { const leg = legs[b.partId]; for (let q = 0; q < b.qty; q++) { pend.waiting++; this.dispatchDelivery(b.partId, leg, pend); } }
+        }
         if (this.pullMode) this.pullPlan[p.id]--;
         this.rrPtr = (idx + 1) % n; again = true; progress = true;
       }
@@ -271,6 +297,23 @@ export class FloorSim {
     return progress;
   }
   releaseMulti() { let a = this.feedMulti(); let b = this.tryAssembleMulti(); return a || b; }
+
+  // Physically deliver one consumed shared component along its supply leg into the assembler.
+  // It is an already-finished unit being moved (not re-counted in entered/completed/wip) — it
+  // shows as an in-transit, part-coloured token, and the product is built when all arrive.
+  dispatchDelivery(pid, leg, pend) {
+    const tt = this._tt(leg.from, leg.to, this.moverFor(leg.from, leg.to));
+    const job = { id: ++this.pid, part: pid, delivery: true, transit: tt,
+      loc: { k: 'transit', from: leg.from, to: leg.to, t0: this.now, t1: this.now + tt } };
+    this.jobs.set(job.id, job); this.inTransit++;
+    this.schedule(tt, { t: 'DELIVER', job, pend });
+  }
+  onDeliver(ev) {
+    this.inTransit--; this.jobs.delete(ev.job.id);
+    if (--ev.pend.waiting > 0) return;                          // wait for the product's other components
+    const p = this.parts[this.partIdx.get(ev.pend.pid)];
+    if (p) { this.pstats[p.id].pending = Math.max(0, this.pstats[p.id].pending - 1); this.createAndAdmit(p); }
+  }
 
   /* ---- pull-mode dependent-demand explosion (lifted from advanced-engine) ---- */
   pullLimit(pid) { const d = this.demandList.find((x) => x.partId === pid); return d ? Math.max(1, d.conwip | 0 || 5) : Infinity; }
@@ -294,7 +337,7 @@ export class FloorSim {
     for (const d of this.demandList) if (gross[d.partId] != null) gross[d.partId] += this.demandStats[d.partId].backlog * Math.max(1, d.qty | 0);
     for (const pid of this._pullOrder) {
       const p = this.parts[this.partIdx.get(pid)];
-      const inv = this.inventory[pid], wip = this.pstats[pid].wip;
+      const inv = this.inventory[pid], wip = this.pstats[pid].wip + (this.pstats[pid].pending || 0);   // count products awaiting delivery
       const netReq = Math.max(0, gross[pid] - inv - wip);
       const lim = this.pullLimit(pid);
       const headroom = lim === Infinity ? netReq : Math.max(0, lim - wip);
@@ -400,6 +443,7 @@ export class FloorSim {
     else if (ev.t === 'FAIL') this.onFail(ev);
     else if (ev.t === 'REP') this.onRep(ev);
     else if (ev.t === 'DEM') this.multiPart ? this.onDemandMulti(ev) : this.onDemand(ev);
+    else if (ev.t === 'DELIVER') this.onDeliver(ev);
     else if (ev.t === 'FEED') { /* limitless seed: settle() does the release */ }
     this.settle();
     return true;

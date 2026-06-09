@@ -171,6 +171,42 @@ test('multi-level dependent demand: a part that is product AND component is prod
   assert.ok(sim.demandStats.M.fulfilled > 0, `M external demand should also be partly served, got ${sim.demandStats.M.fulfilled}`);
 });
 
+test('shared sub-assembly is physically delivered into its parent assembler (transport-gated supply leg)', () => {
+  // M is sold AND a component of T. M finishes at its own sink (shipM); to build a T, an M is pulled
+  // from the shared shelf and DELIVERED along a real (non-zero) supply leg Am→At before T is assembled.
+  const m = {
+    schema: 'des-floor/v1', units: { time: 'min', distance: 'm', speed: 'm/min' },
+    transport: { default: 'instant', speed: 20, legs: {} }, control: 'pull', supply: 'limitless',
+    nodes: [
+      { kind: 'source', id: 'sR', x: 0, y: 0 },
+      { kind: 'resource', id: 'Am', name: 'Am', machines: 1, service: C(0.5), x: 0, y: 0 },
+      { kind: 'sink', id: 'shipM', x: 10, y: 0 },
+      { kind: 'resource', id: 'At', name: 'At', machines: 1, service: C(0.5), x: 60, y: 0 },   // far from Am → real transit
+      { kind: 'sink', id: 'shipT', x: 80, y: 0 },
+    ],
+    parts: [
+      { id: 'R', name: 'R', kind: 'purchased', arrival: C(0.5), routing: ['sR', 'Am'] },
+      { id: 'M', name: 'M', kind: 'product', bom: [{ partId: 'R', qty: 1 }], routing: ['Am', 'shipM'] },
+      { id: 'T', name: 'T', kind: 'product', bom: [{ partId: 'M', qty: 1 }], routing: ['At', 'shipT'] },
+    ],
+    demand: [
+      { partId: 'M', dist: newDist('exp', { mean: 4 }), qty: 1, conwip: 5 },
+      { partId: 'T', dist: newDist('exp', { mean: 2 }), qty: 1, conwip: 5 },
+    ],
+  };
+  const sim = new FloorSim(m, 11);
+  sim.run({ until: 30000 });
+  assert.ok(sim.supplyLegs.T && sim.supplyLegs.T.M && sim.supplyLegs.T.M.from === 'Am' && sim.supplyLegs.T.M.to === 'At',
+    'a supply leg Am→At is created for the shared component M (its route ends at shipM, not At)');
+  assert.ok(sim.pstats.T.completed > 50, `T must be built from delivered M, got ${sim.pstats.T.completed}`);
+  assert.ok(sim.demandStats.M.fulfilled > 10, `M is also sold as a finished good, got ${sim.demandStats.M.fulfilled}`);
+  assert.ok(sim.demandStats.T.fulfilled > 10, `T demand served, got ${sim.demandStats.T.fulfilled}`);
+  assert.ok(sim.bomConsumed.T.M + sim.demandStats.M.fulfilled <= sim.pstats.M.completed + 1,
+    `M used-in-T (${sim.bomConsumed.T.M}) + M sold (${sim.demandStats.M.fulfilled}) must not exceed M produced (${sim.pstats.M.completed})`);
+  assert.equal(sim.entered, sim.completed + sim.scrapped + sim.wip, 'conservation holds with deliveries');
+  assert.ok(sim.metrics().avgInTransit > 0, 'the shared component spends real time travelling its supply leg');
+});
+
 test('regression: a single produced part with a demand[] array still flows and conserves', () => {
   const m = {
     schema: 'des-floor/v1', units: { time: 'min', distance: 'm', speed: 'm/min' },

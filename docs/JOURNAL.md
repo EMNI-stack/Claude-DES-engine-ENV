@@ -971,3 +971,34 @@ everything. Changed `.setup-aside` from a 560px right drawer to a centred popup
 grid** (the live preview spans full width on top; Stations + Routes on the left, Parts & BOM + Control
 on the right; single column under 900px). CSS-only. Verified via headless screenshot (example5 setup):
 full-width preview with coloured routes, Stations and Parts & BOM side by side, readable.
+
+## 2026-06-09 — Floor redesign (Milestone 2): physical transit on the shared sub-assembly link (engine)
+
+Made the shared sub-assembly link a real, normally-styled, part-coloured transport leg with parts
+travelling it — the stakeholder's chosen "route units physically (engine change)".
+- **Engine (`src/floor-engine.js`):** in process mode, a **supply leg** is derived for any BOM component
+  whose route does **not** end at its assembler (the shared case): `lastRealNode(component) → assembler`.
+  When `tryAssembleMulti` authorises such a product it consumes the components from the pool and
+  **dispatches a delivery** for each shared component along its supply leg (`dispatchDelivery` → a real
+  in-transit, part-coloured token); the product is created (`createAndAdmit`) only when **all its
+  deliveries arrive** (`onDeliver`) — so assembly is transport-gated like every other line. Deliveries
+  move already-finished units, so they are NOT re-counted in entered/completed/wip (conservation
+  preserved); they do count as in-transit while moving. A `pstats[pid].pending` count bounds concurrent
+  deliveries and is included in `computePullNeeds` so pull doesn't over-authorise during the gap. New
+  `DELIVER` event in `step()`.
+- **UI (`app/js/floor.js`, `app/floor.html`):** the dotted red overlay is retired — the supply leg now
+  renders as a **normal transport leg with a direction arrow**, selectable/editable like any leg;
+  delivery tokens animate along it in the part colour via the existing transit rendering. Updated the
+  BOM-inset note and the legend.
+- **Why existing tests survive:** supply legs only arise when a component's route ends somewhere other
+  than its assembler. The two existing tests with that shape (`shared-component fairness`,
+  `multi-level dependent demand`) have those nodes **co-located → zero-transit** deliveries, preserving
+  behaviour; the widget/Little's-Law tests route components into the assembler (no supply leg).
+- **Verification:** `npm test` → **94/94** (93 unchanged + 1 new: a sold sub-assembly delivered over a
+  real non-zero supply leg into its parent — asserts the leg is created, the product is built from
+  deliveries, the sub-assembly is also sold, conservation holds, `avgInTransit > 0`). Authoring
+  self-test still **21/21**. Headless screenshot of `#example5`: the Motor→Final-assy link is a normal
+  arrowed leg (no dotted overlay).
+- **Decision logged:** `docs/DECISIONS.md` (2026-06-09) — supersedes the dotted-overlay decision.
+  Rewrote `docs/HOWTO-build-example5.md` for the Setup-builder flow. This completes the approved
+  redesign plan (`.claude/plans/staged-finding-haven.md`).

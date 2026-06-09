@@ -321,24 +321,22 @@ function render() {
     }
     if (mover === 'worker' && far) { legG.append(E('circle', { class: 'worker-mark', cx: mx, cy: my, r: 7 })); legG.append(E('text', { class: 'worker-mark-t', x: mx, y: my + 3, 'text-anchor': 'middle' }, 'W')); }
   }
-  svg.append(legG);
-  // BOM pull-dependencies: dotted, part-coloured arrows that connect a component's line to the
-  // assembler that pulls it from the shared shelf (drawn only where there is no physical leg).
-  const depG = E('g', { class: 'dep-layer' });
+  // Component supply legs: a shared component is physically delivered along this leg into its
+  // assembler. Drawn as a NORMAL transport leg with a direction arrow (delivery tokens animate
+  // along it during a run), and editable like any leg — click it to set its mover / length.
   for (const d of bomDepLinks()) {
     const a = node(d.from), b = node(d.to); if (!a || !b) continue;
+    const key = `${d.from}>${d.to}`, mover = effMover(key);
     const ax = px(a.x), ay = px(a.y), bx = px(b.x), by = px(b.y);
-    const col = colorForPart(d.pid), ang = Math.atan2(by - ay, bx - ax), pad = 50;
-    const tx = bx - Math.cos(ang) * pad, ty = by - Math.sin(ang) * pad;   // stop at the assembler's edge
-    const line = E('line', { class: 'dep-link', x1: ax, y1: ay, x2: tx.toFixed(1), y2: ty.toFixed(1) }); line.style.stroke = col;
-    const ah = 7;
-    const head = E('polygon', { class: 'dep-arrow', points:
-      `${tx.toFixed(1)},${ty.toFixed(1)} ${(tx - Math.cos(ang - 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang - 0.4) * ah).toFixed(1)} ${(tx - Math.cos(ang + 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang + 0.4) * ah).toFixed(1)}` });
-    head.style.fill = col;
-    const lbl = E('text', { class: 'dep-label', x: ((ax + tx) / 2).toFixed(1), y: ((ay + ty) / 2 - 4).toFixed(1), 'text-anchor': 'middle' }, '×' + d.qty); lbl.style.fill = col;
-    depG.append(line, head, lbl);
+    const sel = selected && selected.kind === 'leg' && selected.key === key;
+    const cls = 'leg ' + (mover === 'conveyor' ? 'leg-conv' : mover === 'worker' ? 'leg-worker' : '') + (sel ? ' sel' : '');
+    legG.append(E('line', { class: cls.trim(), x1: ax, y1: ay, x2: bx, y2: by }));
+    legG.append(E('line', { class: 'leg-hit', 'data-leg': key, x1: ax, y1: ay, x2: bx, y2: by }));
+    const ang = Math.atan2(by - ay, bx - ax), hb = b.kind === 'resource' ? 48 : b.kind === 'storage' ? 40 : 20, ah = 7;
+    const tx = bx - Math.cos(ang) * hb, ty = by - Math.sin(ang) * hb;
+    legG.append(E('polygon', { class: 'leg-dir', points: `${tx.toFixed(1)},${ty.toFixed(1)} ${(tx - Math.cos(ang - 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang - 0.4) * ah).toFixed(1)} ${(tx - Math.cos(ang + 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang + 0.4) * ah).toFixed(1)}` }));
   }
-  svg.append(depG);
+  svg.append(legG);
   for (const n of model.nodes) svg.append(nodeEl(n));
   tokenLayer = E('g', {}); svg.append(tokenLayer); tokenEls = new Map(); queueEls = new Map();   // fresh token layer
   if (sim && !needsBuild) renderFrame(simCursor);                           // repaint live state onto the rebuilt scene
@@ -591,7 +589,7 @@ function renderBomInset() {
   mag.addEventListener('click', openBomModal);
   host.append(H('div', { class: 'bom-inset-head' }, [H('span', { class: 'bom-inset-title' }, 'Bill of materials'), mag]), bomTreeEl());
   if (bomDepLinks().length || model.parts.some((p) => isShared(p.id)))
-    host.append(H('p', { class: 'bom-note' }, 'Dotted ▸ on the floor = pulled into assembly from the shared shelf (no physical leg). “shared” parts split between their own demand and assembly — fair share.'));
+    host.append(H('p', { class: 'bom-note' }, '“shared” parts are sold and also built into a product — their finished units travel a supply leg into the assembler, split with their own demand (fair share).'));
 }
 function openBomModal() { renderBomModal(); $('bomModal').hidden = false; }
 function closeBomModal() { $('bomModal').hidden = true; }

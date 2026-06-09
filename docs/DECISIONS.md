@@ -596,3 +596,28 @@ These choices are proposed and PAUSED for stakeholder confirmation before any co
   (clarity for a learner); DESIGN-LANGUAGE (calm, guided). UI-only; engine untouched (Charter §4.2).
   `npm test` 93/93; the mouse/keyboard authoring path is regression-covered by
   `tests/ui/authoring-selftest.html` (headless 21/21).
+
+## [2026-06-09] — Shared component is physically delivered into its assembler (supersedes the dotted overlay)
+- Decision: A shared component (one consumed by an assembler whose route does NOT end there — e.g. a
+  sub-assembly that ships spares from its own sink and is also built into a parent product) is now
+  **physically delivered** along a real **supply leg** (`lastRealNode(component) → assembler`) when an
+  assembly pulls it from the shared pool. The leg is a **normal transport leg** (mover/length editable,
+  direction arrow), delivery tokens animate along it in the part colour, and **assembly waits for the
+  delivery to arrive** (transport-gated) — so the link "functions exactly like other lines". This
+  **supersedes** the 2026-06-09 decision that drew the dependency as a dotted, non-transport overlay.
+- Rationale: Stakeholder chose "route units physically (engine change)" over a UI-only animation: the
+  shared link should behave like any other line, with parts travelling it and a direction arrow. The
+  global per-part inventory pool, fairness (`extTurn`) and dependent-demand explosion are preserved; the
+  only change is that a pulled shared unit now spends real transit time on its way into the assembler
+  (engine `dispatchDelivery`/`onDeliver`, a `DELIVER` event, and a `pstats.pending` bound folded into
+  `computePullNeeds`). Deliveries move already-finished units, so completions/conservation are unchanged.
+- Alternatives considered: UI-only animation with no engine change (rejected by the stakeholder — not
+  "real"); per-assembler component inventories replacing the global pool (rejected — a large rework of
+  the validated multi-part logic and its tests; the supply-leg approach keeps the pool/fairness intact
+  and only adds a delivery stage for the non-physical case). Known v1 limitation: under **push** with a
+  *distant* shared component, deliveries-in-flight aren't seen by the assembler's accept check beyond a
+  shallow `pending` bound; pull/CONWIP bounds it cleanly (the realistic case).
+- Governing principle / source: Stakeholder direction (2026-06-09); Charter §4.2 (build on the validated
+  engine, regression-tested), §6/§7 (transport is a real resource; the best flow is no flow); theory-notes
+  §4.6 (fork-join, now spatial for the shared link too). Covered by `tests/floor-process.test.js`
+  (new test; `npm test` 94/94).

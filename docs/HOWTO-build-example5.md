@@ -1,94 +1,68 @@
-# How to build `#example5` from scratch (mouse + keyboard)
+# How to build `#example5` from scratch (the Setup builder)
 
-> A click-by-click walkthrough of building the deepest demo — a **3-level BOM where the
-> sub-assembly is also sold** — entirely in the floor UI (`app/floor.html`), no deep-links.
-> The model: a **Pump** (sold) = 1 **Motor** + 2 **Housing**; the **Motor** (sold *and* a
-> component) = 1 **Rotor** + 4 **Magnet**; Housing & Rotor are fabricated, Magnet is bought-in.
-> Run under **CONWIP (pull) + limitless supply**.
+> A step-by-step walkthrough of building the deepest demo — a **3-level BOM where the sub-assembly is
+> also sold** — using the **Set up model** builder (`app/floor.html`).
+> The model: a **Pump** (sold) = 1 **Motor** + 2 **Housing**; the **Motor** (sold *and* a component) =
+> 1 **Rotor** + 4 **Magnet**; Housing & Rotor are fabricated, Magnet is bought-in. Run under
+> **CONWIP (pull) + limitless supply**.
 >
-> The authoring path used below is exercised automatically by
-> `tests/ui/authoring-selftest.html` (drives these same gestures headlessly).
+> The authoring path used below is exercised by `tests/ui/authoring-selftest.html` (drives the same
+> Setup-drawer gestures headlessly).
 
-The layout is two horizontal lines: the **Pump line** (top) and the **Motor line** (bottom),
-each ending in its own sink.
+Two product lines: the **Pump line** and the **Motor line**, each ending in its own sink. You define
+everything in the **Set up model** popup; **Apply & lay out** auto-arranges it on the floor.
 
 ```
- Steel ──► Mill ─────────────────► Final assy ──► Pumps out        (top: Pump line)
- Magnet store ─┐
- Bar ──► Lathe ─► Motor assy ──► Motors out (spares)               (bottom: Motor line)
-                       ▲
-                       └ Magnet store feeds Motor assy
+ Steel ─► Mill ───────────────► Final assy ─► Pumps out          (Pump line)
+ Bar ─► Lathe ─► Motor assy ─► Motors out (spares)               (Motor line)
+ Magnet store ─► Motor assy                                      (bought-in)
+ (when a Pump needs a Motor, a Motor is delivered Motor assy ─► Final assy)
 ```
 
 ---
 
-## 0. Open & clear
-1. Open **Model & Floor** (`app/floor.html`).
-2. Top toolbar → **Clear** (start from an empty floor with one default product part).
+## 0. Open the builder
+Open **Model & Floor** (`app/floor.html`) and click **⚙ Set up model** (an empty model opens it
+automatically). The builder is a large popup with a **live preview** on top and four sections.
 
-## 1. Place the nodes
-Pick a tool in the palette (Source / Resource / Storage / Sink), then **click an empty spot**
-on the canvas to drop that node. Place these eight (rough positions — you can drag them later
-in **Move**):
+## 1 · Stations
+In **1 · Stations**, use **+ Source / + Workcenter / + Storage / + Sink** to add the eight stations,
+and set each one's parameters in its card:
 
-| Tool | Node | Where |
+| Add | Name it | Parameters |
 |---|---|---|
-| Source | Steel (housing) | top-left |
-| Resource | Mill | top, right of Steel |
-| Resource | Final assy | top-right area |
-| Sink | Pumps out | far top-right |
-| Source | Bar (rotor) | bottom-left |
-| Resource | Lathe | bottom, right of Bar |
-| Source | Magnet store | bottom-middle, slightly above Lathe |
-| Resource | Motor assy | bottom-middle-right |
-| Sink | Motors out (spares) | bottom-right |
+| Source | Steel (housing) | Interarrival Exponential, mean 2.5 |
+| Workcenter | Mill | Service Lognormal, mean ≈ 1.4 |
+| Workcenter | Final assy | Service Lognormal, mean ≈ 2 · tick **Assembly station** |
+| Sink | Pumps out | — |
+| Source | Bar (rotor) | Interarrival Exponential, mean 3 |
+| Workcenter | Lathe | Service Lognormal, mean ≈ 1.2 |
+| Source | Magnet store | Interarrival Exponential, mean 0.6 |
+| Workcenter | Motor assy | Service Lognormal, mean ≈ 1.5 · tick **Assembly station** |
+| Sink | Motors out (spares) | — |
 
-> Tip: switch to **Move** to drag nodes into a tidy two-row layout. Placing a node does **not**
-> route it — routes are built explicitly in Step 6.
+(The live preview updates as you go. Exact positions don't matter — Apply auto-lays-out the floor and
+you can drag to fine-tune afterward.)
 
-## 2. Set each node's parameters (Inspect tab)
-Click a node (in **Move**) to open the **Inspect** panel on the right. Type in:
+## 2 · Parts & BOM
+In **2 · Parts & BOM**, add the parts (**+ Add part**), select each in the list and set it in the
+editor:
+- **Pump** — Type **Product**; sold (see §3 demand); BOM = **Motor ×1 + Housing ×2**.
+- **Motor** — Type **Product**; sold; BOM = **Rotor ×1 + Magnet ×4**.
+- **Housing** — Type **Made**.
+- **Rotor** — Type **Made**.
+- **Magnet** — Type **Bought**.
 
-- **Steel (housing)** — Interarrival time: Exponential, **mean 2.5**.
-- **Bar (rotor)** — Interarrival: Exponential, **mean 3**.
-- **Magnet store** — Interarrival: Exponential, **mean 0.6**.
-- **Mill** — Service time: Lognormal, **mean ≈ 1.4**.
-- **Lathe** — Service time: Lognormal, **mean ≈ 1.2**.
-- **Motor assy** — Service time: Lognormal, **mean ≈ 1.5**.
-- **Final assy** — Service time: Lognormal, **mean ≈ 2**.
+For Pump and Motor, tick **“Sold to customers”** and set the order stream + CONWIP limit:
+- **Pump** — time between orders ≈ **6**, CONWIP ≈ **4**.
+- **Motor** — time between orders ≈ **12**, CONWIP ≈ **6** (this is what makes the sub-assembly
+  independently sold).
 
-(Optionally rename each node in the **Name** field; give Mill/Lathe/assemblies a symbol.)
+## 3 · Routes
+In **3 · Routes**, each part has a row with a **“+ add station to route…”** dropdown — pick stations in
+flow order:
 
-## 3. Mark the two assembly stations
-Still in **Inspect**:
-- Click **Final assy** → tick **“Assembly station (consumes a product’s BOM)”**.
-- Click **Motor assy** → tick **“Assembly station …”**.
-
-## 4. Define the parts and their BOMs (Parts manager)
-Go to the **Model** tab → **BOM & Parts** sub-tab → **Manage parts…** (opens the modal).
-You start with one default part — make it the **Pump**, then add the rest:
-
-1. Select the default part → **Part name** “Pump”, **Type = Product**.
-2. **+ Add part** ×4 and set each: **Housing** (Made), **Rotor** (Made), **Magnet** (Bought),
-   **Motor** (Product).
-3. Give **Motor** its BOM: select Motor → under *Bill of materials* click **+ component**
-   twice → set the rows to **Rotor ×1** and **Magnet ×4**.
-4. Give **Pump** its BOM: select Pump → **+ component** twice → **Motor ×1** and **Housing ×2**.
-
-## 5. Set customer demand (still in the Parts manager)
-Both finished products are sold, each with its own order stream:
-- **Pump** → tick **“Sold to customers”** → Time between orders ≈ **6**; CONWIP limit ≈ **4**.
-- **Motor** → tick **“Sold to customers”** → Time between orders ≈ **12**; CONWIP limit ≈ **6**.
-  (This is what makes the sub-assembly independently sold.)
-
-Click **Done** to close the modal.
-
-## 6. Build each part’s route (Route tool)
-Routes are per-part, so set the **active part** first (click it in the **Parts** summary list),
-then click the palette **Route** tool and **click the nodes in flow order** on the canvas
-(click the last one again to undo a misclick). Do this for all five:
-
-| Active part | Click nodes in order |
+| Part | Route |
 |---|---|
 | Housing | Steel → Mill → **Final assy** |
 | Rotor | Bar → Lathe → **Motor assy** |
@@ -96,22 +70,22 @@ then click the palette **Route** tool and **click the nodes in flow order** on t
 | Motor | **Motor assy** → Motors out |
 | Pump | **Final assy** → Pumps out |
 
-> A component’s route **ends at the assembly station that consumes it** (so it physically
-> travels there) — except the **Motor**, which finishes at its own “Motors out” sink and is
-> pulled into the Pump from the shared shelf. That pull shows on the floor as the **dotted,
-> Motor-coloured arrow** into Final assy.
+> A component’s route normally **ends at the assembler that consumes it** (so it travels there) —
+> Housing→Final, Rotor/Magnet→Motor. The **Motor** is special: it finishes at its own “Motors out” sink
+> (so it can be sold as a spare) **and** is built into Pumps. When a Pump needs a Motor, one is pulled
+> from the shared shelf and **delivered along a supply leg Motor assy → Final assy** — a normal
+> transport leg you’ll see on the floor, with Motor-coloured tokens travelling it.
 
-## 7. Set control & supply
-**Model** tab → **Control & Demand** sub-tab:
-- **Release control → CONWIP (pull)**.
-- **Raw supply → Limitless**.
+## 4 · Control, source & demand
+In **4 · Control, source & demand**: set **CONWIP (pull)** and **Limitless** supply.
 
-## 8. Run & read
-- Press **Play** (or **Step**) and watch units flow, each coloured by its part.
-- Open the **BOM inset** (top-left of the canvas, **⤢** to magnify) to see the 3-level tree and
-  every part’s route; the **Motor** is tagged **shared** with its split rule.
-- Open the **Flow** tab to read, live and by location, which parts are at each station / leg /
-  the on-hand shelf.
-- Press **End** to freeze the statistics and read throughput, cycle time, per-part fill rate, etc.
+## 5 · Apply & run
+Click **✓ Apply & lay out** — the floor is auto-generated. Then on the floor:
+- **Play / Step** to watch units flow, each coloured by its part; **End** to read the statistics.
+- Open the **BOM inset** (top-left, **⤢** to magnify) for the 3-level tree and every part’s route; the
+  Motor is tagged **shared** with its split rule.
+- Open the **Flow** tab to read, live and by location, which parts are at each station / leg / shelf.
+- On the floor you can **drag to reposition, tune any station’s parameters (Inspect), and set per-leg
+  transport** — to change structure (stations, parts, routes), reopen **⚙ Set up model**.
 
-You’ve now reproduced `#example5` by hand.
+You’ve now reproduced `#example5`.
