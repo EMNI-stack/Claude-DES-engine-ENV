@@ -889,3 +889,33 @@ screenshots of `#example5` reviewed: the dotted Motor-coloured arrow runs Motor 
 shows the per-part split rule. On-brand (dotted, muted, no glow).
 
 **Decision logged:** `docs/DECISIONS.md` (2026-06-09).
+
+## 2026-06-09 — UI authoring self-test (mouse+keyboard) + a from-scratch build guide
+
+**Goal (stakeholder):** prove the varied scenarios — push/pull, parameter values, batch,
+bottleneck/blocking, multi-part assembly, transport — are **actually buildable with mouse and
+keyboard**, not just via the `#exampleN` loaders; and write down how to build the current example
+(`#example5`) from scratch.
+
+**Done:**
+- **`tests/ui/authoring-selftest.html`** — a browser/headless self-test that drives the *real*
+  floor UI through simulated **pointer + keyboard** events (palette tool + click-to-place via
+  `PointerEvent` with SVG-CTM-mapped coordinates; typing into inputs via `input` events; the Route
+  tool; toggles/segmented controls; the Parts-manager modal incl. BOM rows; per-leg mover change),
+  then asserts against the **persisted model** (`localStorage des-study/v1`) and the live clock /
+  results. Six scenarios: (S1) push line + params + routing; (S2) push dynamics — arrival rate
+  drives WIP; (S3) finite-buffer bottleneck → blocking; (S4) batch (B + setup); (S5) multi-part
+  3-component assembly authored via the Parts manager + assembly toggle + per-part routes under
+  pull/limitless; (S6) control/supply toggles + a worker leg mover. It reports `PASS/FAIL` per
+  assertion and a `RESULT pass=N fail=M` summary (also the document title), so it reads cleanly in a
+  browser or via headless `--dump-dom`. Not part of `npm test` (that suite is Node-only); run it by
+  serving the repo and opening the page (or headless Chrome). Lives under `tests/ui/`.
+- **Verification:** served the repo and ran the harness in **headless Chrome** → **31/31 PASS** across
+  all six scenarios (e.g. S2 WIP 83 heavy > 0 light; S4 batch out 114; S5 product out 300). Confirms
+  every scenario is authorable by mouse + keyboard and runs.
+- **`docs/HOWTO-build-example5.md`** — a click-by-click guide to building the 3-level
+  sold-sub-assembly example from scratch (place 8 nodes → set params → mark the two assembly stations
+  → define 5 parts + BOMs in the Parts manager → set per-product demand → build 5 routes with the
+  Route tool → CONWIP + limitless → run/read the BOM inset & Flow tab).
+
+No engine/app change — verification + docs only; `npm test` still **93/93**.
