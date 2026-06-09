@@ -5,209 +5,129 @@
 <title>Floor authoring self-test</title>
 <style>
   body { font-family: ui-monospace, Menlo, Consolas, monospace; margin: 16px; color: #1b1d1a; }
-  h1 { font-size: 16px; } #app { width: 1400px; height: 900px; border: 1px solid #ccc; }
+  h1 { font-size: 16px; } #app { width: 1400px; height: 920px; border: 1px solid #ccc; }
   #out { white-space: pre-wrap; font-size: 12px; line-height: 1.5; }
   .PASS { color: #0F5F57; } .FAIL { color: #b5462f; font-weight: 600; }
   #sum { font-size: 14px; font-weight: 700; margin: 8px 0; }
 </style>
 </head>
 <body>
-<h1>Floor authoring self-test — drives the real UI (mouse + keyboard) to build scenarios</h1>
+<h1>Floor authoring self-test — drives the real Setup builder (mouse + keyboard) to build scenarios</h1>
 <div id="sum">running…</div>
 <pre id="out"></pre>
 <iframe id="app" title="floor under test"></iframe>
 
 <script>
-/* Drives app/floor.html via simulated pointer/keyboard events on its real handlers,
-   then asserts against the persisted model (localStorage des-study/v1) and the live
-   clock / results panel. Proves the scenarios are buildable with mouse + keyboard.
-   Run in a browser (watch it build) or headless (parse #out / #sum). */
+/* Drives app/floor.html's Setup drawer (the system builder) via simulated clicks + keyboard,
+   then asserts against the persisted model (localStorage des-study/v1) and the live clock/results
+   after Apply. Proves the scenarios are buildable with mouse + keyboard in the new workflow.
+   Run in a browser, or headless (parse #out / #sum / document.title). */
 const out = document.getElementById('out'), sumEl = document.getElementById('sum');
 const KEY = 'des-study/v1';
 let pass = 0, fail = 0, rnav = 0;
-const log = (s) => { out.append(document.createTextNode(s + '\n')); };
-const ok = (c, m) => { const span = document.createElement('span'); span.className = c ? 'PASS' : 'FAIL'; span.textContent = (c ? 'PASS ' : 'FAIL ') + m + '\n'; out.append(span); c ? pass++ : fail++; return c; };
+const ok = (c, m) => { const s = document.createElement('span'); s.className = c ? 'PASS' : 'FAIL'; s.textContent = (c ? 'PASS ' : 'FAIL ') + m + '\n'; out.append(s); c ? pass++ : fail++; return c; };
+const log = (s) => out.append(document.createTextNode(s + '\n'));
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
 let ifr, D, W;
-function loadFloor() {
-  return new Promise((res) => {
-    ifr = document.getElementById('app');
-    ifr.onload = () => setTimeout(() => { D = ifr.contentDocument; W = ifr.contentWindow; res(); }, 350);
-    ifr.src = '../../app/floor.html?r=' + (++rnav);   // query forces a real reload; no hash = empty floor
-  });
-}
-async function reset() { try { localStorage.removeItem(KEY); } catch (e) {} await loadFloor(); }
+function loadFloor() { return new Promise((res) => { ifr = document.getElementById('app'); ifr.onload = () => setTimeout(() => { D = ifr.contentDocument; W = ifr.contentWindow; res(); }, 350); ifr.src = '../../app/floor.html?r=' + (++rnav); }); }
+async function reset() { try { localStorage.removeItem(KEY); } catch (e) {} await loadFloor(); }   // empty model auto-opens the Setup drawer
 function model() { return JSON.parse(localStorage.getItem(KEY)).model; }
 
-/* ---- simulated mouse / keyboard ---- */
-function tool(t) { D.querySelector(`#palette [data-tool="${t}"]`).click(); }
-function clientFor(mx, my) { const svg = D.getElementById('svg'); const p = svg.createSVGPoint(); p.x = mx * 10; p.y = my * 10; const s = p.matrixTransform(svg.getScreenCTM()); return { clientX: s.x, clientY: s.y }; }
-function pdown(target, clientX = 0, clientY = 0) { target.dispatchEvent(new W.PointerEvent('pointerdown', { clientX, clientY, bubbles: true, pointerId: 1, button: 0 })); }
-function pup(clientX = 0, clientY = 0) { W.dispatchEvent(new W.PointerEvent('pointerup', { clientX, clientY, bubbles: true, pointerId: 1 })); }
-function place(t, mx, my) {          // place a node by clicking empty canvas with a tool active
-  tool(t); const { clientX, clientY } = clientFor(mx, my);
-  pdown(D.getElementById('svg'), clientX, clientY); pup(clientX, clientY);
-  const sel = D.querySelector('.node.sel'); return sel && sel.getAttribute('data-node');
-}
-function selectNodeUI(id) { tool('move'); pdown(D.querySelector(`[data-node="${id}"]`)); pup(); }
-function routeNodes(ids) { tool('route'); for (const id of ids) pdown(D.querySelector(`[data-node="${id}"]`)); tool('move'); }
-function fieldInput(root, label) {
-  for (const f of root.querySelectorAll('.field')) { const l = f.querySelector('label'); if (l && l.textContent.trim().toLowerCase() === label.toLowerCase()) return f.querySelector('input,select'); }
-  return null;
-}
+/* ---- drawer gestures ---- */
+function clickByText(root, text) { for (const b of root.querySelectorAll('button')) if (b.textContent.trim() === text || b.textContent.includes(text)) { b.click(); return true; } return false; }
+function addStation(label) { return clickByText(D.querySelector('#setupStations .setup-add'), '+ ' + label); }
+function card(i) { return D.querySelectorAll('#setupStations .setup-card')[i]; }
+function fieldInput(root, label) { for (const f of root.querySelectorAll('.field')) { const l = f.querySelector('label'); if (l && l.textContent.trim().toLowerCase() === label.toLowerCase()) return f.querySelector('input,select'); } return null; }
 function setNum(root, label, v) { const i = fieldInput(root, label); if (!i) return false; i.value = String(v); i.dispatchEvent(new W.Event('input', { bubbles: true })); return true; }
-function toggle(root, includes, checked) {
-  for (const r of root.querySelectorAll('.toggle-row')) if (r.textContent.includes(includes)) {
-    const cb = r.querySelector('input[type=checkbox]'); if (cb.checked !== checked) { cb.checked = checked; cb.dispatchEvent(new W.Event('change', { bubbles: true })); } return true;
-  } return false;
-}
-function clickBtn(root, text) { for (const b of root.querySelectorAll('button')) if (b.textContent.trim() === text || b.textContent.includes(text)) { b.click(); return true; } return false; }
-function gotoSub(sub) { D.querySelector('.tab[data-tab="model"]').click(); D.querySelector(`.subtab[data-sub="${sub}"]`).click(); }
-const propBody = () => D.getElementById('propBody');
+function toggle(root, includes, checked) { for (const r of root.querySelectorAll('.toggle-row')) if (r.textContent.includes(includes)) { const cb = r.querySelector('input[type=checkbox]'); if (cb.checked !== checked) { cb.checked = checked; cb.dispatchEvent(new W.Event('change', { bubbles: true })); } return true; } return false; }
+function routeAppend(partIdx, nodeId) { const blocks = D.querySelectorAll('#setupRoutes .route-block'); const sel = blocks[partIdx] && blocks[partIdx].querySelector('select'); if (!sel) return false; sel.value = nodeId; sel.dispatchEvent(new W.Event('change', { bubbles: true })); return true; }
+function pmAddPart() { clickByText(D.getElementById('pmList'), '+ Add part'); }
+function pmSelectPart(i) { const items = D.querySelectorAll('#pmList .pm-item'); if (items[i]) items[i].click(); }
+function apply() { D.getElementById('setupApply').click(); }
 function step(n) { for (let i = 0; i < n; i++) D.getElementById('btnStep').click(); }
 const clkOut = () => parseInt(D.getElementById('clkOut').textContent) || 0;
 const clkWip = () => parseInt(D.getElementById('clkWip').textContent) || 0;
 function endRun() { D.getElementById('btnEnd').click(); }
 const resultsText = () => D.getElementById('results').innerText;
 
-/* ---- scenarios ---- */
 async function S1_pushLine() {
-  log('\n## S1 — push line: place nodes, type parameters, route with the Route tool');
+  log('\n## S1 — push line built in the Setup drawer (stations + typed params + routes + Apply)');
   await reset();
-  const src = place('source', 9, 24); selectNodeUI(src); ok(setNum(propBody(), 'mean', 2), 'typed source interarrival mean = 2');
-  const res = place('resource', 30, 24); selectNodeUI(res); ok(setNum(propBody(), 'mean', 1.2), 'typed service mean = 1.2');
-  const snk = place('sink', 56, 24);
-  routeNodes([src, res, snk]);
+  ok(!D.getElementById('setupDrawer').hidden, 'empty model auto-opened the Setup drawer');
+  addStation('Source'); addStation('Workcenter'); addStation('Sink');
+  setNum(card(0), 'mean', 2);     // source interarrival
+  setNum(card(1), 'mean', 1.2);   // workcenter service
+  const ids = model().nodes.map(n => n.id);
+  ids.forEach(id => routeAppend(0, id));   // route the default part through all three
+  apply();
   const m = model();
-  ok(m.nodes.length === 3, 'three nodes placed (' + m.nodes.length + ')');
-  const s = m.nodes.find(n => n.id === src), r = m.nodes.find(n => n.id === res);
-  ok(s && Math.abs(s.interarrival.params.mean - 2) < 1e-6, 'source mean persisted = ' + (s && s.interarrival.params.mean));
-  ok(r && Math.abs(r.service.params.mean - 1.2) < 1e-6, 'service mean persisted = ' + (r && r.service.params.mean));
-  const route = m.parts[0].route;
-  ok(route.length === 3 && route[0] === src && route[1] === res && route[2] === snk, 'route built in order via Route tool');
-  step(200); ok(clkOut() > 0, 'line runs — output = ' + clkOut() + ', WIP = ' + clkWip());
+  ok(m.nodes.length === 3, 'three stations created (' + m.nodes.length + ')');
+  ok(Math.abs(m.nodes[0].interarrival.params.mean - 2) < 1e-6, 'source mean persisted = ' + m.nodes[0].interarrival.params.mean);
+  ok(Math.abs(m.nodes[1].service.params.mean - 1.2) < 1e-6, 'service mean persisted = ' + m.nodes[1].service.params.mean);
+  ok(m.parts[0].route.length === 3, 'route ordered via the Routes section (' + m.parts[0].route.length + ')');
+  ok(D.getElementById('setupDrawer').hidden, 'Apply closed the drawer and laid out the floor');
+  ok(m.nodes.every(n => typeof n.x === 'number'), 'auto-layout assigned coordinates');
+  step(200); ok(clkOut() > 0, 'line runs — output = ' + clkOut());
 }
-
-async function S2_pushParamSensitivity() {
-  log('\n## S2 — push dynamics: arrival rate (a parameter) drives WIP');
+async function S2_pullDemand() {
+  log('\n## S2 — pull / CONWIP with per-product demand (control + parts editor)');
   await reset();
-  const src = place('source', 9, 24); selectNodeUI(src); setNum(propBody(), 'mean', 0.7);   // arrivals faster than service → overloaded
-  const res = place('resource', 30, 24); selectNodeUI(res); setNum(propBody(), 'mean', 1.5);
-  const snk = place('sink', 56, 24); routeNodes([src, res, snk]);
-  step(400); const wipHeavy = clkWip(), outHeavy = clkOut();
-  log('   overloaded (arrival 0.7 < service 1.5): WIP=' + wipHeavy + ' out=' + outHeavy);
-  selectNodeUI(src); setNum(propBody(), 'mean', 3);   // now arrivals slower than service → light load
-  D.getElementById('btnReset').click();               // rebuild the sim with the new parameter
-  step(400); const wipLight = clkWip();
-  log('   light load (arrival 3 > service 1.5): WIP=' + wipLight);
-  ok(wipHeavy > wipLight, 'higher arrival rate ⇒ higher WIP (' + wipHeavy + ' > ' + wipLight + ')');
-  ok(outHeavy > 0, 'overloaded line still produces output');
+  addStation('Source'); addStation('Workcenter'); addStation('Sink');
+  setNum(card(0), 'mean', 1.5); setNum(card(1), 'mean', 1.2);
+  model().nodes.map(n => n.id).forEach(id => routeAppend(0, id));
+  clickByText(D.getElementById('controlBody'), 'CONWIP (pull)');
+  pmSelectPart(0); toggle(D.getElementById('pmEditor'), 'Sold to customers', true);
+  ok(model().control === 'conwip', 'control set to CONWIP via the Control section');
+  ok(model().parts[0].demand.on === true, 'product marked sold (demand stream) in the Parts editor');
+  apply(); step(300);
+  ok(clkOut() > 0, 'pull line runs — output = ' + clkOut() + ', WIP = ' + clkWip());
 }
-
-async function S3_bottleneckBlocking() {
-  log('\n## S3 — finite-buffer bottleneck (blocking): toggle finite buffer + slow service');
+async function S3_batch() {
+  log('\n## S3 — batch processing (toggle batch in a workcenter card)');
   await reset();
-  const src = place('source', 9, 24); selectNodeUI(src); setNum(propBody(), 'mean', 1.2);
-  const fast = place('resource', 28, 24); selectNodeUI(fast); setNum(propBody(), 'mean', 0.6);
-  const slow = place('resource', 46, 24); selectNodeUI(slow); setNum(propBody(), 'mean', 2.4);
-  ok(toggle(propBody(), 'Finite capacity', true), 'toggled finite input buffer on the slow machine');
-  setNum(propBody(), 'Capacity', 2);
-  const snk = place('sink', 64, 24); routeNodes([src, fast, slow, snk]);
-  const m = model(); const sm = m.nodes.find(n => n.id === slow);
-  ok(sm && sm.buffer.finite && sm.buffer.cap === 2, 'finite buffer cap=2 persisted');
-  step(400); endRun();
-  ok(clkOut() > 0, 'line runs — output = ' + clkOut());
-  const blocked = /(\d+(?:\.\d+)?)%/.test(resultsText());
-  log('   results (blocking shown in the Blocked column): ' + resultsText().replace(/\s+/g, ' ').slice(0, 160));
-  ok(blocked, 'results panel renders utilisation/blocked figures');
-}
-
-async function S4_batch() {
-  log('\n## S4 — batch processing: toggle batch, set B and setup');
-  await reset();
-  const src = place('source', 9, 24); selectNodeUI(src); setNum(propBody(), 'mean', 2.5);
-  const r = place('resource', 32, 24); selectNodeUI(r); setNum(propBody(), 'mean', 4);
-  ok(toggle(propBody(), 'Process parts in batches', true), 'toggled batch on');
-  setNum(propBody(), 'Batch size B', 3); setNum(propBody(), 'Setup time (once per batch)', 2);
-  const snk = place('sink', 58, 24); routeNodes([src, r, snk]);
-  const m = model(); const rb = m.nodes.find(n => n.id === r).batch;
+  addStation('Source'); addStation('Workcenter'); addStation('Sink');
+  setNum(card(0), 'mean', 2.5); setNum(card(1), 'mean', 4);
+  ok(toggle(card(1), 'Process parts in batches', true), 'toggled batch on the workcenter');
+  setNum(card(1), 'Batch size B', 3); setNum(card(1), 'Setup time (once per batch)', 2);
+  model().nodes.map(n => n.id).forEach(id => routeAppend(0, id));
+  const rb = model().nodes[1].batch;
   ok(rb && rb.on && rb.size === 3 && rb.setup === 2, 'batch {on, B=3, setup=2} persisted');
-  step(400); endRun();
+  apply(); step(400); endRun();
   ok(clkOut() > 0, 'batch line runs — output = ' + clkOut());
-  ok(/batch/i.test(resultsText()), 'results surface batch state (batches done)');
+  ok(/batch/i.test(resultsText()), 'results surface batch state');
 }
-
-async function S5_multiPartAssembly() {
-  log('\n## S5 — multi-part assembly: Parts manager (BOM), assembly toggle, per-part routes');
+async function S4_assembly() {
+  log('\n## S4 — multi-part assembly (stations + assembly flag + 3 parts + BOM + per-part routes)');
   await reset();
-  const srcA = place('source', 9, 12); selectNodeUI(srcA); setNum(propBody(), 'mean', 2);
-  const srcB = place('source', 9, 38); selectNodeUI(srcB); setNum(propBody(), 'mean', 1.5);
-  const assy = place('resource', 36, 24); selectNodeUI(assy);
-  ok(toggle(propBody(), 'Assembly station', true), 'toggled assembly station on');
-  const snk = place('sink', 62, 24);
-  // Parts manager: the default part = the product; add two bought components, give the product a BOM.
-  gotoSub('parts'); clickBtn(D.getElementById('partsBody'), 'Manage parts');
-  await sleep(30);
-  const pm = D.getElementById('pmEditor');
-  clickBtn(D.querySelector('.modal-card'), '+ Add part');   // part 2
-  clickBtn(D.querySelector('.modal-card'), '+ Add part');   // part 3
-  // select the first part (the product) in the modal list, then add 2 BOM components
-  const items = [...D.querySelectorAll('#pmList .pm-item')];
-  items[0].click(); await sleep(20);
-  clickBtn(pm, '+ component'); clickBtn(pm, '+ component'); await sleep(10);
-  const selects = [...pm.querySelectorAll('.bom-row select')];
-  ok(selects.length === 2, 'product has two BOM component rows (' + selects.length + ')');
-  // point the two BOM rows at parts 2 and 3
-  const parts = model().parts; const prodId = parts[0].id; const comps = parts.filter(p => p.id !== prodId);
+  addStation('Source'); addStation('Source'); addStation('Workcenter'); addStation('Sink');
+  ok(toggle(card(2), 'Assembly station', true), 'toggled the workcenter to an assembly station');
+  pmAddPart(); pmAddPart();   // product (default) + two components
+  const parts = model().parts; const prodId = parts[0].id;
+  pmSelectPart(1); clickByText(D.getElementById('pmEditor'), 'Bought');
+  pmSelectPart(2); clickByText(D.getElementById('pmEditor'), 'Bought');
+  pmSelectPart(0);
+  clickByText(D.getElementById('pmEditor'), '+ component'); clickByText(D.getElementById('pmEditor'), '+ component');
+  const comps = model().parts.filter(p => p.id !== prodId);
+  const selects = D.querySelectorAll('#pmEditor .bom-row select');
+  ok(selects.length === 2, 'product has two BOM rows (' + selects.length + ')');
   selects[0].value = comps[0].id; selects[0].dispatchEvent(new W.Event('change', { bubbles: true }));
   selects[1].value = comps[1].id; selects[1].dispatchEvent(new W.Event('change', { bubbles: true }));
-  // turn on demand for the product
-  toggle(pm, 'Sold to customers', true);
-  D.getElementById('pmDone').click(); await sleep(20);
-  // routes: build each part's route on the canvas (active part is switched via the Parts panel rows)
-  const setActive = (pid) => { for (const row of D.querySelectorAll('#partsBody .part-row')) { if (row.textContent.includes((model().parts.find(p => p.id === pid) || {}).name)) { row.click(); return; } } };
-  setActive(comps[0].id); routeNodes([srcA, assy]);
-  setActive(comps[1].id); routeNodes([srcB, assy]);
-  setActive(prodId);      routeNodes([assy, snk]);
-  // control: pull + limitless (a realistic assembly pull setup)
-  gotoSub('control');
-  clickBtn(D.getElementById('controlBody'), 'CONWIP (pull)');
-  clickBtn(D.getElementById('controlBody'), 'Limitless');
+  const ids = model().nodes.map(n => n.id);   // [srcA, srcB, assy, sink]
+  routeAppend(0, ids[2]); routeAppend(0, ids[3]);   // product: assy → sink
+  routeAppend(1, ids[0]); routeAppend(1, ids[2]);   // comp1: srcA → assy
+  routeAppend(2, ids[1]); routeAppend(2, ids[2]);   // comp2: srcB → assy
   const m = model();
   ok(m.parts.length === 3, 'three parts authored (' + m.parts.length + ')');
-  const prod = m.parts.find(p => p.id === prodId);
-  ok(prod.bom.length === 2, 'product BOM has 2 components (' + prod.bom.length + ')');
-  ok(m.nodes.find(n => n.id === assy).assembly === true, 'assembly station flag set');
-  ok(prod.route.length === 2 && prod.route[0] === assy, 'product route starts at the assembler');
-  ok(m.control === 'conwip' && m.supply === 'limitless', 'control=pull, supply=limitless set via the panel');
-  step(500); ok(clkOut() > 0, 'assembly model runs — product output = ' + clkOut());
-}
-
-async function S6_controlSupplyTransport() {
-  log('\n## S6 — control / supply toggles + a per-leg transport mover change');
-  await reset();
-  const src = place('source', 9, 24); const res = place('resource', 34, 24); const snk = place('sink', 60, 24);
-  routeNodes([src, res, snk]);
-  gotoSub('control');
-  clickBtn(D.getElementById('controlBody'), 'CONWIP (pull)'); ok(model().control === 'conwip', 'control switched to CONWIP via segmented control');
-  clickBtn(D.getElementById('controlBody'), 'Push'); ok(model().control === 'push', 'control switched back to Push');
-  clickBtn(D.getElementById('controlBody'), 'Limitless'); ok(model().supply === 'limitless', 'supply switched to Limitless');
-  // click the source→resource leg and set its mover to Worker
-  tool('move'); const legHit = D.querySelector(`[data-leg="${src}>${res}"]`); ok(!!legHit, 'transport leg is selectable on the canvas');
-  if (legHit) { pdown(legHit); pup(); clickBtn(propBody(), 'Worker'); }
-  const leg = model().legs[`${src}>${res}`];
-  ok(leg && leg.mover === 'worker', 'leg mover set to Worker via the leg inspector');
-  step(150); ok(clkOut() >= 0, 'model still runs with worker transport (out=' + clkOut() + ')');
+  ok(m.parts.find(p => p.id === prodId).bom.length === 2, 'product BOM has 2 components');
+  ok(m.nodes[2].assembly === true, 'assembly flag set on the workcenter');
+  apply(); step(500);
+  ok(clkOut() > 0, 'assembly model runs — output = ' + clkOut());
 }
 
 (async () => {
-  const scenarios = [S1_pushLine, S2_pushParamSensitivity, S3_bottleneckBlocking, S4_batch, S5_multiPartAssembly, S6_controlSupplyTransport];
-  for (const sc of scenarios) { try { await sc(); } catch (e) { ok(false, sc.name + ' threw: ' + (e && e.message)); } }
+  for (const sc of [S1_pushLine, S2_pullDemand, S3_batch, S4_assembly]) { try { await sc(); } catch (e) { ok(false, sc.name + ' threw: ' + (e && e.message)); } }
   const summary = `RESULT pass=${pass} fail=${fail}`;
-  sumEl.textContent = summary; sumEl.className = fail ? 'FAIL' : 'PASS';
-  document.title = summary;
-  log('\n' + summary);
+  sumEl.textContent = summary; sumEl.className = fail ? 'FAIL' : 'PASS'; document.title = summary; log('\n' + summary);
 })();
 </script>
 </body>

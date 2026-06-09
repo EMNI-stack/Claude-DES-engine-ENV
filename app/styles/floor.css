@@ -342,3 +342,38 @@ svg.floor .dep-label { font-family: var(--mono); font-size: 9px; opacity: .9; }
 /* direction arrowhead on every transport leg (flow direction at a glance) */
 svg.floor .leg-dir { fill: var(--ink-2); opacity: .4; }
 svg.floor .leg-dir.leg-off { opacity: .16; }
+
+/* ===== Model Setup drawer (the system builder) ===== */
+.floor-lock-note { font-size: 12px; color: var(--ink-2); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: var(--r-control); padding: 7px 11px; margin: var(--s-3) 0 0; }
+.setup-drawer-wrap { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; }
+.setup-drawer-wrap[hidden] { display: none; }
+.setup-aside { position: relative; width: min(560px, 96vw); height: 100%; background: var(--surface);
+  border-left: 1px solid var(--line-strong); box-shadow: -2px 0 12px rgba(27,29,26,.10);
+  display: flex; flex-direction: column; }
+.setup-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4);
+  padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--line); }
+.setup-head .panel__title { margin: 2px 0 0; }
+.setup-body { padding: var(--s-4) var(--s-5); overflow: auto; }
+.setup-prev { border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s-3); margin-bottom: var(--s-4); background: var(--surface-2); }
+.setup-mini { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-control); }
+.setup-sec { margin-bottom: var(--s-5); }
+.setup-sec h3 { font-size: 15px; margin: 0 0 var(--s-1); }
+.setup-sec > .floor-hint { margin: 0 0 var(--s-3); }
+.setup-card { border: 1px solid var(--line); border-radius: var(--r-card); margin-bottom: var(--s-3); overflow: hidden; }
+.setup-card-h { display: flex; align-items: center; gap: var(--s-2); padding: 7px 10px;
+  background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.setup-kind { font-family: var(--mono); font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--faint); border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; }
+.setup-cardname { font-size: var(--fs-small); font-weight: 500; flex: 1; }
+.setup-card-b { padding: var(--s-3) var(--s-3) var(--s-4); }
+.setup-add { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-2); }
+
+/* routes section */
+.route-block { border: 1px solid var(--line); border-radius: var(--r-control); padding: var(--s-3); margin-bottom: var(--s-2); }
+.route-block-h { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-2); }
+.route-seqs { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-bottom: var(--s-2); }
+.route-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 10px; padding: 1px 4px 1px 8px; }
+.route-chip .mini { padding: 0 4px; }
+.route-arrow { color: var(--faint); font-size: 11px; }

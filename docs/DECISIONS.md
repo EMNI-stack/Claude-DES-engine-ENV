@@ -568,3 +568,31 @@ These choices are proposed and PAUSED for stakeholder confirmation before any co
   and §1 (clarity for a learner); DESIGN-LANGUAGE §7 (quiet diagrammatic floor; distinct quiet line
   styles; no glow); builds on DECISIONS 2026-06-09 "Make the BOM visible …". UI-only; engine untouched
   (Charter §4.2); `npm test` 93/93; verified via headless-Chrome screenshots of `#example5`.
+
+## [2026-06-09] — Model authoring moves to a guided Setup builder; the floor becomes structure-locked
+- Decision: Replace the floor's piecemeal authoring (palette place-tools + canvas Route tool + a parts
+  modal) with a guided **Setup drawer** (the "system builder") modelled on the old engine
+  (`advanced.html`): four sections — **Stations · Parts & BOM · Routes · Control/source/demand** — with
+  a **live mini-preview**, and an **Apply** that **auto-lays-out** the floor (`autoLayout()`: column =
+  longest-path depth along route edges, row = a lane per part). After Apply the **floor is physical-only**
+  — reposition (drag), tune each station's parameters (Inspect), and set per-leg transport — but it
+  **cannot add/remove stations, parts or routes**; that is Setup-only. A lock banner states this; an
+  empty model and Clear open the builder first. Right-panel tabs become Inspect · Transport · Flow ·
+  Results (the Model tab/subtabs retired). Engine and the validated model schema (`des-floor/v1`) are
+  unchanged — this is purely the authoring surface.
+- Rationale: Stakeholder feedback — the BOM & Parts authoring was "still unintuitive and way too hard",
+  and the old engine's "set up the system, then see the auto-generated visual" flow was "waaaay better".
+  Separating *defining the system* (guided, form-based, with a preview) from *laying it out physically*
+  (drag/tune on the floor) matches how the old engine worked and the course's model-then-experiment
+  intent (Charter §5), and removes the confusing canvas-placement/route-tool steps. Locking structure on
+  the floor prevents accidental structural edits and makes the floor a clean layout/tuning surface.
+- Alternatives considered: keeping canvas placement + improving the parts modal (rejected — the
+  stakeholder explicitly preferred the old-engine setup flow, and canvas placement conflated structure
+  with layout); making the floor fully read-only after setup (rejected — the stakeholder wants to
+  reposition and tune parameters and transport on the floor); a separate page for setup (rejected — a
+  drawer keeps it in context with the live preview, like the old engine).
+- Governing principle / source: Stakeholder direction (2026-06-09); old engine `advanced.html` (setup
+  drawer + auto-generated floor); Charter §5 (guided model definition), §8 (legible, data-forward), §1
+  (clarity for a learner); DESIGN-LANGUAGE (calm, guided). UI-only; engine untouched (Charter §4.2).
+  `npm test` 93/93; the mouse/keyboard authoring path is regression-covered by
+  `tests/ui/authoring-selftest.html` (headless 21/21).

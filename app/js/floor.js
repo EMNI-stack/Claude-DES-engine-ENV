@@ -116,7 +116,7 @@ function ensureModel(m) {
   if (!m.activePart || !m.parts.some((p) => p.id === m.activePart)) m.activePart = m.parts[0].id;
   return m;
 }
-function persist() { project.model = model; save(project); needsBuild = true; finished = false; }
+function persist() { project.model = model; save(project); needsBuild = true; finished = false; const d = $('setupDrawer'); if (d && !d.hidden) renderSetupMini(); }
 
 /* ---- geometry ----------------------------------------------------------- */
 const px = (mm) => mm * S;
@@ -718,16 +718,16 @@ function renderPartsModal() {
     edH.append(H('p', { class: 'subhead' }, 'Time between orders'));
     edH.append(distEditor(p.demand.dist, persist));
     edH.append(field('Order quantity', numInput(p.demand.qty, 1, 1, (v) => { p.demand.qty = Math.max(1, v | 0); persist(); })));
-    edH.append(factorButton(`part:${p.id}:demand.mean`, { name: `Demand rate — ${p.name}`, unit: 'min between orders', baseline: distMean(p.demand.dist).toFixed(2), description: 'Mean time between customer orders for this product. Vary to study load vs service level.' }));
+    edH.append(factorButton(`part:${p.id}:demand.mean`, { name: `Demand rate — ${p.name}`, unit: 'min between orders', baseline: distMean(p.demand.dist).toFixed(2), description: 'Mean time between customer orders for this product. Vary to study load vs service level.' }, renderPartsModal));
     if (model.control === 'conwip') {
       edH.append(field('CONWIP limit (this product)', numInput(p.demand.conwip, 1, 1, (v) => { p.demand.conwip = Math.max(1, v | 0); persist(); })));
-      edH.append(factorButton(`part:${p.id}:conwip`, { name: `CONWIP — ${p.name}`, unit: 'cards', baseline: String(p.demand.conwip || 5), description: 'WIP cap for this product under pull. Vary to study the WIP–throughput–cycle-time trade-off.' }));
+      edH.append(factorButton(`part:${p.id}:conwip`, { name: `CONWIP — ${p.name}`, unit: 'cards', baseline: String(p.demand.conwip || 5), description: 'WIP cap for this product under pull. Vary to study the WIP–throughput–cycle-time trade-off.' }, renderPartsModal));
     }
   }
-  // route summary (built on the canvas)
+  // route summary (built in the Routes section below)
   edH.append(H('p', { class: 'subhead' }, 'Route'));
   const rnames = p.route.map((id) => (node(id) || {}).name || '?').join('  →  ') || '(empty)';
-  edH.append(H('p', { class: 'floor-hint', style: 'margin:0' }, `${rnames}. Close this and use the Route tool to click nodes in order on the floor.`));
+  edH.append(H('p', { class: 'floor-hint', style: 'margin:0' }, `${rnames}. Set the order in the “Routes” section below.`));
 }
 function addPart() {
   if (model.parts.length >= 10) return;
@@ -798,7 +798,7 @@ function renderInspector() {
   else inspectLeg(selected.key, body);
 }
 /* grouped symbol picker (Manufacturing / Service / Abstract·VSM) for a node */
-function symbolPicker(n) {
+function symbolPicker(n, rerender = renderInspector) {
   const wrap = H('div', { class: 'sympick' });
   const cur = n.symbol || (n.kind === 'storage' ? 'triangle' : 'box');
   for (const [cat, label] of SYMBOL_CATS) {
@@ -809,7 +809,7 @@ function symbolPicker(n) {
     keys.forEach((k) => {
       const b = H('button', { class: 'symbtn', type: 'button', title: SYMBOLS[k].label, 'aria-pressed': String(cur === k) });
       b.innerHTML = `<svg viewBox="0 0 24 24">${SYMBOLS[k].path}</svg>`;
-      b.addEventListener('click', () => { n.symbol = k; persist(); render(); renderInspector(); });
+      b.addEventListener('click', () => { n.symbol = k; persist(); render(); rerender(); });
       row.append(b);
     });
     wrap.append(row);
@@ -835,52 +835,51 @@ function inspectNode(n, body) {
   if (!n) { selected = null; renderInspector(); return; }
   $('propKind').textContent = n.kind;
   $('propTitle').textContent = n.name || n.kind[0].toUpperCase() + n.kind.slice(1);
-  body.append(field('Name', textInput(n.name || '', (v) => { n.name = v; persist(); render(); renderRoute(); })));
+  // Floor Inspect = parameters only. Adding/removing stations is done in “Set up model”.
+  stationEditor(n, body, renderInspector);
+}
+/* Shared station parameter editor — used by the floor Inspect panel AND the Setup drawer cards.
+   `rerender` rebuilds the host after a structural toggle (so dependent fields show/hide); value
+   edits just persist + redraw the floor (and, when the drawer is open, the live mini-preview). */
+function stationEditor(n, body, rerender) {
+  body.append(field('Name', textInput(n.name || '', (v) => { n.name = v; persist(); render(); })));
   if (n.kind === 'resource') {
     if (!n.batch) n.batch = { on: false, size: 2, setup: 0 };
     body.append(H('p', { class: 'subhead' }, 'Symbol / shape'));
-    body.append(symbolPicker(n));
+    body.append(symbolPicker(n, rerender));
     body.append(field('Machines (parallel)', numInput(n.machines || 1, 1, 1, (v) => { n.machines = Math.max(1, v | 0); persist(); render(); })));
-    body.append(factorButton(`resource:${n.id}:machines`, { name: `Capacity — ${n.name || 'resource'}`, unit: 'machines', baseline: String(n.machines || 1), description: 'Number of parallel machines at this workcenter. Vary to study capacity vs utilisation, WIP and cycle time.' }));
-    // Assembly station — a product whose route STARTS here is assembled from its bill of materials.
+    body.append(factorButton(`resource:${n.id}:machines`, { name: `Capacity — ${n.name || 'resource'}`, unit: 'machines', baseline: String(n.machines || 1), description: 'Number of parallel machines at this workcenter. Vary to study capacity vs utilisation, WIP and cycle time.' }, rerender));
     body.append(H('p', { class: 'subhead' }, 'Assembly'));
     const asyChk = H('input', { type: 'checkbox' }); asyChk.checked = !!n.assembly;
-    asyChk.addEventListener('change', () => { n.assembly = asyChk.checked; persist(); render(); renderInspector(); });
+    asyChk.addEventListener('change', () => { n.assembly = asyChk.checked; persist(); render(); rerender(); });
     body.append(H('label', { class: 'toggle-row' }, [asyChk, 'Assembly station (consumes a product’s BOM)']));
-    if (n.assembly) body.append(H('p', { class: 'floor-hint', style: 'margin:var(--s-2) 0 0' }, 'A product whose route starts here is assembled when all its bill-of-materials components have arrived; components routed here are consumed. Set the BOM in the Model tab’s Parts panel.'));
-    // Batch mode — the machine waits for a full batch of B, pays one setup, then processes the batch together.
+    if (n.assembly) body.append(H('p', { class: 'floor-hint', style: 'margin:var(--s-2) 0 0' }, 'A product whose route starts here is assembled when all its bill-of-materials components have arrived; components routed here are consumed. Set the BOM in “Parts & BOM”.'));
     body.append(H('p', { class: 'subhead' }, 'Batch processing'));
     const batchChk = H('input', { type: 'checkbox' }); batchChk.checked = !!n.batch.on;
-    batchChk.addEventListener('change', () => { n.batch.on = batchChk.checked; persist(); if (n.batch.on) ensureBatchAssumption(); render(); renderInspector(); });
+    batchChk.addEventListener('change', () => { n.batch.on = batchChk.checked; persist(); if (n.batch.on) ensureBatchAssumption(); render(); rerender(); });
     body.append(H('label', { class: 'toggle-row' }, [batchChk, 'Process parts in batches']));
     if (n.batch.on) {
-      body.append(field('Batch size B', numInput(n.batch.size, 2, 1, (v) => { n.batch.size = Math.max(2, v | 0); persist(); ensureBatchAssumption(); render(); renderInspector(); })));
+      body.append(field('Batch size B', numInput(n.batch.size, 2, 1, (v) => { n.batch.size = Math.max(2, v | 0); persist(); ensureBatchAssumption(); render(); rerender(); })));
       body.append(field('Setup time (once per batch)', numInput(n.batch.setup, 0, 0.1, (v) => { n.batch.setup = Math.max(0, v || 0); persist(); render(); })));
       body.append(H('p', { class: 'floor-hint', style: 'margin:var(--s-2) 0 0' },
         `The machine waits for a full batch of ${n.batch.size}, pays the setup once, then processes the batch together — all ${n.batch.size} finish at the same moment and continue on individually.`));
       const w = batchWarning(n);
       if (w) body.append(H('p', { class: 'floor-warn', style: 'margin:var(--s-2) 0 0' }, w));
-      const binding = `resource:${n.id}:batch.size`;
-      const haveFactor = project.conceptual.factors.some((f) => f.bindingHint === binding);
-      const facBtn = H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-2)' },
-        haveFactor ? 'Batch size is an experimental factor ✓' : 'Add batch size as an experimental factor');
-      facBtn.disabled = haveFactor;
-      facBtn.addEventListener('click', () => { if (addBatchFactor(n)) renderInspector(); });
-      body.append(facBtn);
+      body.append(factorButton(`resource:${n.id}:batch.size`, { name: `Batch size — ${n.name || 'resource'}`, unit: 'parts', baseline: String(Math.max(2, n.batch.size | 0)), description: 'Number of parts processed together as one batch (process batch). Vary to study the setup/wait-to-batch trade-off.' }, rerender));
     }
     body.append(H('p', { class: 'subhead' }, n.batch.on ? 'Whole-batch process time' : 'Service time'));
     if (n.batch.on) body.append(H('p', { class: 'floor-hint', style: 'margin:0 0 var(--s-2)' }, 'This distribution is now the time to process the WHOLE batch, not one part.'));
     body.append(distEditor(n.service, persist));
     body.append(H('p', { class: 'subhead' }, 'Input buffer'));
     const finChk = H('input', { type: 'checkbox' }); finChk.checked = !!n.buffer.finite;
-    finChk.addEventListener('change', () => { n.buffer.finite = finChk.checked; persist(); renderInspector(); });
+    finChk.addEventListener('change', () => { n.buffer.finite = finChk.checked; persist(); rerender(); });
     body.append(H('label', { class: 'toggle-row' }, [finChk, 'Finite capacity (can block / back up)']));
     if (n.buffer.finite) body.append(field('Capacity', numInput(n.buffer.cap, 1, 1, (v) => { n.buffer.cap = Math.max(1, v | 0); persist(); })));
     body.append(H('p', { class: 'subhead' }, 'Scrap'));
     body.append(field('Scrap fraction (0–1)', numInput(n.scrap || 0, 0, 0.01, (v) => { n.scrap = Math.min(1, Math.max(0, v || 0)); persist(); })));
     body.append(H('p', { class: 'subhead' }, 'Breakdowns'));
     const brkChk = H('input', { type: 'checkbox' }); brkChk.checked = !!n.brk.on;
-    brkChk.addEventListener('change', () => { n.brk.on = brkChk.checked; persist(); render(); renderInspector(); });
+    brkChk.addEventListener('change', () => { n.brk.on = brkChk.checked; persist(); render(); rerender(); });
     body.append(H('label', { class: 'toggle-row' }, [brkChk, 'Machine can break down (preempt-resume)']));
     if (n.brk.on) {
       body.append(H('p', { class: 'subhead' }, 'Time to failure'));
@@ -890,16 +889,12 @@ function inspectNode(n, body) {
     }
   } else if (n.kind === 'storage') {
     body.append(H('p', { class: 'subhead' }, 'Symbol / shape'));
-    body.append(symbolPicker(n));
+    body.append(symbolPicker(n, rerender));
     body.append(field('Capacity', numInput(n.cap, 1, 1, (v) => { n.cap = Math.max(1, v | 0); persist(); })));
   } else if (n.kind === 'source') {
     body.append(H('p', { class: 'subhead' }, 'Interarrival time'));
     body.append(distEditor(n.interarrival, persist));
   }
-  // remove the node from the floor (and every part's route) — route ✕ only removes from a route
-  const del = H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-4)' }, 'Delete node');
-  del.addEventListener('click', () => removeNode(n.id));
-  body.append(del);
 }
 function inspectLeg(key, body) {
   const [fromId, toId] = key.split('>'); const from = node(fromId), to = node(toId);
@@ -1003,7 +998,7 @@ function renderTable() {
 /* ---- selection + mutations --------------------------------------------- */
 function selectNode(id) { selected = { kind: 'node', id }; activateTab('inspect'); refreshAll(); }
 function selectLeg(key) { selected = { kind: 'leg', key }; activateTab('inspect'); refreshAll(); }
-function refreshAll() { render(); renderParts(); renderRoute(); renderInspector(); renderBomInset(); if (!$('bomModal').hidden) renderBomModal(); if (!$('tablePanel').hidden) renderTable(); }
+function refreshAll() { render(); renderInspector(); renderTransport(); renderBomInset(); if (!$('bomModal').hidden) renderBomModal(); const d = $('setupDrawer'); if (d && !d.hidden) renderSetup(); if (!$('tablePanel').hidden) renderTable(); }
 function activateTab(name) {
   document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
   document.querySelectorAll('.tabbody').forEach((b) => { b.hidden = (b.id !== 'tab-' + name); });
@@ -1015,14 +1010,17 @@ function activateSubTab(name) {
   document.querySelectorAll('.subpanel').forEach((p) => { p.hidden = (p.dataset.sub !== name); });
 }
 
-function addNode(kind, x, y) {
+function makeNode(kind, x, y) {
   const idp = { resource: 'res', storage: 'sto', source: 'src', sink: 'snk' }[kind] || 'n';
   const n = { kind, id: uid(idp), name: '', x, y };
-  if (kind === 'resource') { n.machines = 1; n.symbol = 'box'; n.service = newDist('exp', { mean: 1 }); n.buffer = { finite: false, cap: 10, init: 0, target: 8 }; n.scrap = 0; n.brk = { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) }; n.batch = { on: false, size: 2, setup: 0 }; }
+  if (kind === 'resource') { n.machines = 1; n.symbol = 'box'; n.service = newDist('exp', { mean: 1 }); n.buffer = { finite: false, cap: 10, init: 0, target: 8 }; n.scrap = 0; n.brk = { on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) }; n.batch = { on: false, size: 2, setup: 0 }; n.assembly = false; }
   if (kind === 'storage') { n.cap = 10; n.symbol = 'triangle'; }
-  if (kind === 'resource') n.assembly = false;
   if (kind === 'source') n.interarrival = newDist('exp', { mean: 3 });
-  model.nodes.push(n);          // placement no longer auto-routes — routes are built explicitly (Route tool)
+  model.nodes.push(n);
+  return n;
+}
+function addNode(kind, x, y) {   // legacy canvas add (kept for safety; the floor no longer places nodes)
+  const n = makeNode(kind, x, y);
   selected = { kind: 'node', id: n.id }; activateTab('inspect'); persist(); refreshAll();
 }
 function removeNode(id) {
@@ -1089,11 +1087,11 @@ function addFactorByBinding(binding, fields) {
   return true;
 }
 // a small "declare as experimental factor" button (disabled once declared), reused across inspectors
-function factorButton(binding, fields) {
+function factorButton(binding, fields, rerender = renderInspector) {
   const have = hasFactor(binding);
   const b = H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-2)' }, have ? '✓ experimental factor' : '+ as experimental factor');
   b.disabled = have;
-  b.addEventListener('click', () => { addFactorByBinding(binding, fields); renderInspector(); renderParts(); if (!$('partsModal').hidden) renderPartsModal(); });
+  b.addEventListener('click', () => { addFactorByBinding(binding, fields); rerender(); });
   return b;
 }
 // declare the standard floor responses the analysis phase will measure
@@ -1402,32 +1400,115 @@ function loadExample5() {
 }
 function clearFloor() { model.nodes = []; setSinglePartRoute(); model.legs = {}; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel();
-  $('results').innerHTML = '<p class="results-empty">Press Play, then “End” when you’ve seen enough, to see results.</p>'; }
+  $('results').innerHTML = '<p class="results-empty">Press Play, then “End” when you’ve seen enough, to see results.</p>';
+  openSetup(); }
+
+/* ===== Model Setup (the system builder) =================================
+   Define stations · parts & BOM · routes · control in a drawer with a live
+   mini-preview; Apply auto-lays-out the floor. After setup the floor is for
+   physical work only (reposition + parameters + transport), not structure. */
+function setupOpen() { const d = $('setupDrawer'); return !!(d && !d.hidden); }
+function openSetup() { const d = $('setupDrawer'); if (!d) return; d.hidden = false; pmSel = model.activePart; renderSetup(); }
+function closeSetup() { const d = $('setupDrawer'); if (d) d.hidden = true; }
+function applySetup() { autoLayout(); persist(); closeSetup(); selected = null; refreshAll(); zoomFit(); }
+
+function renderSetup() {
+  renderSetupStations();
+  renderPartsModal();        // reuses the parts/BOM/demand editor, hosted in the drawer (#pmList/#pmEditor)
+  renderSetupRoutes();
+  renderControl();           // hosted in the drawer (#controlBody)
+  renderSetupMini();
+}
+
+const STATION_KINDS = [['source', 'Source'], ['resource', 'Workcenter'], ['storage', 'Storage'], ['sink', 'Sink']];
+function renderSetupStations() {
+  const host = $('setupStations'); if (!host) return; host.innerHTML = '';
+  if (!model.nodes.length) host.append(H('p', { class: 'floor-hint', style: 'margin:0 0 var(--s-2)' }, 'No stations yet — add a source, one or more workcenters, and a sink.'));
+  model.nodes.forEach((n) => {
+    const card = H('div', { class: 'setup-card' });
+    const head = H('div', { class: 'setup-card-h' }, [H('span', { class: 'setup-kind' }, n.kind), H('span', { class: 'setup-cardname' }, n.name || n.kind)]);
+    head.append(mini('✕', () => { removeNode(n.id); renderSetup(); }));
+    card.append(head);
+    const b = H('div', { class: 'setup-card-b stack' }); stationEditor(n, b, renderSetupStations); card.append(b);
+    host.append(card);
+  });
+  const add = H('div', { class: 'setup-add' });
+  STATION_KINDS.forEach(([k, label]) => { const btn = H('button', { class: 'btn btn-ghost' }, '+ ' + label); btn.addEventListener('click', () => addStation(k)); add.append(btn); });
+  host.append(add);
+}
+function addStation(kind) {
+  const i = model.nodes.length;
+  makeNode(kind, 8 + (i % 6) * 12, 10 + Math.floor(i / 6) * 12);   // temp spot; autoLayout fixes it on Apply
+  persist(); renderSetup();
+}
+function renderSetupRoutes() {
+  const host = $('setupRoutes'); if (!host) return; host.innerHTML = '';
+  if (!model.nodes.length) { host.append(H('p', { class: 'floor-hint', style: 'margin:0' }, 'Add stations and parts first, then order each part’s route here.')); return; }
+  model.parts.forEach((p, idx) => {
+    const block = H('div', { class: 'route-block' });
+    const dot = H('span', { class: 'part-dot' }); dot.style.background = partColor(idx);
+    block.append(H('div', { class: 'route-block-h' }, [dot, H('span', { class: 'part-name' }, p.name)]));
+    const chips = H('div', { class: 'route-seqs' });
+    p.route.forEach((id, i) => {
+      const chip = H('span', { class: 'route-chip' }, (i + 1) + '. ' + ((node(id) || {}).name || '?'));
+      chip.append(mini('✕', () => { p.route.splice(i, 1); persist(); renderSetupRoutes(); renderSetupMini(); }));
+      chips.append(chip);
+      if (i < p.route.length - 1) chips.append(H('span', { class: 'route-arrow' }, '→'));
+    });
+    if (!p.route.length) chips.append(H('span', { class: 'floor-hint', style: 'margin:0' }, '(no route yet)'));
+    block.append(chips);
+    const sel = H('select', { class: 'input' });
+    sel.append(H('option', { value: '' }, '+ add station to route…'));
+    model.nodes.forEach((nd) => sel.append(H('option', { value: nd.id }, (nd.name || nd.kind) + ' · ' + nd.kind)));
+    sel.addEventListener('change', () => { if (sel.value) { p.route.push(sel.value); persist(); renderSetupRoutes(); renderSetupMini(); } });
+    block.append(sel);
+    host.append(block);
+  });
+}
+// Layered auto-layout: column = longest-path depth along route edges; row = a lane per part.
+function computeLayout() {
+  const nodes = model.nodes; const pos = {}; if (!nodes.length) return pos;
+  const depth = {}, succ = {}, indeg = {};
+  nodes.forEach((n) => { depth[n.id] = 0; succ[n.id] = []; indeg[n.id] = 0; });
+  for (const p of model.parts) for (let i = 0; i < p.route.length - 1; i++) {
+    const a = p.route[i], b = p.route[i + 1];
+    if (depth[a] == null || depth[b] == null) continue;
+    succ[a].push(b); indeg[b]++;
+  }
+  const q = nodes.filter((n) => indeg[n.id] === 0).map((n) => n.id);
+  while (q.length) { const a = q.shift(); for (const b of succ[a]) { depth[b] = Math.max(depth[b], depth[a] + 1); if (--indeg[b] === 0) q.push(b); } }
+  const COLX = 16, ROWY = 13, X0 = 8, Y0 = 9; let lane = 0;
+  for (const p of model.parts) { let used = false; for (const id of p.route) { if (pos[id]) continue; if (depth[id] == null) continue; pos[id] = { x: X0 + depth[id] * COLX, y: Y0 + lane * ROWY }; used = true; } if (used) lane++; }
+  for (const n of nodes) if (!pos[n.id]) { pos[n.id] = { x: X0 + (depth[n.id] || 0) * COLX, y: Y0 + lane * ROWY }; lane++; }
+  return pos;
+}
+function autoLayout() { const pos = computeLayout(); for (const n of model.nodes) if (pos[n.id]) { n.x = pos[n.id].x; n.y = pos[n.id].y; } }
+function renderSetupMini() {
+  const host = $('setupMini'); if (!host) return;
+  const pos = computeLayout(); const ids = Object.keys(pos);
+  if (!ids.length) { host.innerHTML = '<p class="floor-hint" style="margin:0">Add stations to preview the layout.</p>'; return; }
+  let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+  ids.forEach((id) => { const p = pos[id]; minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); });
+  const pad = 16, W = 300, H = Math.max(86, Math.min(240, (maxY - minY) * 7 + pad * 2));
+  const sx = (maxX - minX) ? (W - pad * 2) / (maxX - minX) : 1, sy = (maxY - minY) ? (H - pad * 2) / (maxY - minY) : 1;
+  const X = (x) => pad + (x - minX) * sx, Y = (y) => pad + (y - minY) * sy;
+  let g = '';
+  model.parts.forEach((p, idx) => { const col = partColor(idx); const pts = p.route.map((id) => pos[id]).filter(Boolean).map((q) => `${X(q.x).toFixed(1)},${Y(q.y).toFixed(1)}`); if (pts.length > 1) g += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="1.5" opacity=".8"/>`; });
+  for (const n of model.nodes) { const q = pos[n.id]; if (!q) continue; const x = X(q.x), y = Y(q.y);
+    if (n.kind === 'resource' || n.kind === 'storage') g += `<rect x="${(x - 9).toFixed(1)}" y="${(y - 6).toFixed(1)}" width="18" height="12" rx="2" fill="var(--surface)" stroke="${n.assembly ? 'var(--accent)' : 'var(--line-strong)'}" stroke-width="1"/>`;
+    else g += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" fill="var(--surface-2)" stroke="var(--line-strong)"/>`;
+    g += `<text x="${x.toFixed(1)}" y="${(y - 8).toFixed(1)}" text-anchor="middle" font-size="6" fill="var(--ink-2)">${esc((n.name || n.kind).slice(0, 12))}</text>`; }
+  host.innerHTML = `<svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="max-height:240px">${g}</svg>`;
+}
 
 /* ---- pointer interaction ------------------------------------------------ */
 function onPointerDown(e) {
   if (playing) return;          // pause to edit the floor
-  const svg = $('svg'); const grp = e.target.closest('[data-node]'); const legHit = e.target.closest('[data-leg]'); const p = svgPoint(e);
-  if (tool === 'move') {
-    if (grp) { const id = grp.getAttribute('data-node'); selectNode(id); drag = { id, moved: false }; svg.setPointerCapture(e.pointerId); }
-    else if (legHit) selectLeg(legHit.getAttribute('data-leg'));
-    else { panning = { sx: e.clientX, sy: e.clientY, cx: view.cx, cy: view.cy }; svg.classList.add('panning'); svg.setPointerCapture(e.pointerId); }
-  } else if (tool === 'route') {
-    if (grp) routeClick(grp.getAttribute('data-node'));   // append this node to the active part's route
-  } else if (!grp && !legHit) addNode(tool, p.x / S, p.y / S);
-}
-// Route tool: clicking a placed node appends it to the active part's route (in click order).
-// Clicking the current last node again removes it (lets you back out a misclick).
-function routeClick(id) {
-  const r = aRoute();
-  if (r[r.length - 1] === id) r.pop();
-  else r.push(id);
-  persist(); refreshAll();
-  setRouteHint();
-}
-function setRouteHint() {
-  const p = activePart();
-  $('floorHint').innerHTML = `<strong>Route tool</strong> — building the route of “${esc(p ? p.name : '')}”. Click placed nodes in flow order (source → … → sink). Click the last one again to undo; switch to <em>Move</em> when done.`;
+  // Floor is physical-only: select + drag to reposition, select a leg, or pan. Structure is set in Setup.
+  const svg = $('svg'); const grp = e.target.closest('[data-node]'); const legHit = e.target.closest('[data-leg]');
+  if (grp) { const id = grp.getAttribute('data-node'); selectNode(id); drag = { id, moved: false }; svg.setPointerCapture(e.pointerId); }
+  else if (legHit) selectLeg(legHit.getAttribute('data-leg'));
+  else { panning = { sx: e.clientX, sy: e.clientY, cx: view.cx, cy: view.cy }; svg.classList.add('panning'); svg.setPointerCapture(e.pointerId); }
 }
 function onPointerMove(e) {
   if (panning) { const r = $('svg').getBoundingClientRect();
@@ -1449,14 +1530,15 @@ function init() {
   svg.addEventListener('pointermove', onHover);
   svg.addEventListener('pointerleave', () => { hoverNodeId = null; hideTip(); });
   window.addEventListener('pointerup', onPointerUp);
-  $('palette').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; tool = b.dataset.tool; $('palette').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); $('svg').classList.toggle('routing', tool === 'route'); if (tool === 'route') { activateTab('model'); activateSubTab('parts'); setRouteHint(); render(); } else render(); });
-  // parts manager modal close (Done button, backdrop click, Escape)
-  $('pmDone').addEventListener('click', closePartsModal);
-  $('partsModal').addEventListener('click', (e) => { if (e.target.hasAttribute('data-close')) closePartsModal(); });
+  // Setup drawer (the system builder)
+  $('setupBtn').addEventListener('click', openSetup);
+  $('setupApply').addEventListener('click', applySetup);
+  $('setupCancel').addEventListener('click', closeSetup);
+  $('setupDrawer').addEventListener('click', (e) => { if (e.target.hasAttribute('data-close')) closeSetup(); });
   // BOM magnify modal close (Done, backdrop, Escape)
   $('bomDone').addEventListener('click', closeBomModal);
   $('bomModal').addEventListener('click', (e) => { if (e.target.hasAttribute('data-close')) closeBomModal(); });
-  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (!$('partsModal').hidden) closePartsModal(); else if (!$('bomModal').hidden) closeBomModal(); } });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (!$('bomModal').hidden) closeBomModal(); else if (setupOpen()) closeSetup(); } });
   $('btnExample').addEventListener('click', loadExample);
   $('btnClear').addEventListener('click', clearFloor);
   $('btnTable').addEventListener('click', () => { const p = $('tablePanel'); p.hidden = !p.hidden; $('btnTable').setAttribute('aria-pressed', String(!p.hidden)); if (!p.hidden) renderTable(); });
@@ -1477,18 +1559,18 @@ function init() {
   svg.addEventListener('wheel', (e) => { e.preventDefault(); zoomBy(e.deltaY < 0 ? 1.12 : 1 / 1.12, svgPoint(e)); }, { passive: false });
   // tabs
   document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => activateTab(b.dataset.tab)));
-  document.querySelectorAll('.subtab').forEach((b) => b.addEventListener('click', () => activateSubTab(b.dataset.sub)));
 
-  let startTab = 'model';
-  if (location.hash === '#example' && model.nodes.length === 0) { loadExample(); const r = model.nodes.find((n) => n.kind === 'resource'); if (r) { selected = { kind: 'node', id: r.id }; startTab = 'inspect'; } }
-  else if (location.hash === '#example2') { loadExample2(); const b = model.nodes.find((n) => n.kind === 'storage'); if (b) { selected = { kind: 'node', id: b.id }; startTab = 'inspect'; } }   // bottleneck + buffer demo
-  else if (location.hash === '#example3') { loadExample3(); const b = model.nodes.find((n) => n.kind === 'resource' && n.batch && n.batch.on); if (b) { selected = { kind: 'node', id: b.id }; startTab = 'inspect'; } }   // batch-processing demo
-  else if (location.hash === '#example4') { loadExample4(); startTab = 'model'; }   // assembly / multi-part demo
-  else if (location.hash === '#example5') { loadExample5(); startTab = 'model'; }   // 3-level BOM, sub-assembly also sold
+  let deep = false;
+  if (location.hash === '#example' && model.nodes.length === 0) { loadExample(); const r = model.nodes.find((n) => n.kind === 'resource'); if (r) selected = { kind: 'node', id: r.id }; deep = true; }
+  else if (location.hash === '#example2') { loadExample2(); const b = model.nodes.find((n) => n.kind === 'storage'); if (b) selected = { kind: 'node', id: b.id }; deep = true; }   // bottleneck + buffer demo
+  else if (location.hash === '#example3') { loadExample3(); const b = model.nodes.find((n) => n.kind === 'resource' && n.batch && n.batch.on); if (b) selected = { kind: 'node', id: b.id }; deep = true; }   // batch-processing demo
+  else if (location.hash === '#example4') { loadExample4(); deep = true; }   // assembly / multi-part demo
+  else if (location.hash === '#example5') { loadExample5(); deep = true; }   // 3-level BOM, sub-assembly also sold
   if (model.defaultMover === 'worker' || Object.values(model.legs).some((l) => l.mover === 'worker')) ensureWorkerAssumption();
-  render(); renderParts(); renderRoute(); renderInspector(); renderTransport(); renderControl(); renderBomInset();
-  activateTab(startTab); setPlayLabel(); updateClock(); zoomFit();
+  render(); renderInspector(); renderTransport(); renderBomInset();
+  activateTab('inspect'); setPlayLabel(); updateClock(); zoomFit();
   if (['#play', '#example2', '#example3', '#example4', '#example5'].includes(location.hash)) { if (!model.parts.some((p) => p.route.length >= 2)) loadExample(); play(); }   // deep-link: open running
+  else if (!deep && model.nodes.length === 0) openSetup();   // empty model → start in the system builder
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
 else init();

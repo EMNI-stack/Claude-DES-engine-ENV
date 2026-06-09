@@ -933,3 +933,32 @@ First slice of the approved "Model Setup builder + structure-locked floor" redes
 UI-only; `node --check` clean; verified via headless screenshot of `#example5`. `npm test` 93/93.
 **Next (Milestone 1b):** the Setup drawer (stations / parts & BOM / routes / control) with live
 mini-preview + auto-layout, and locking structure-editing on the floor.
+
+## 2026-06-09 — Floor redesign (Milestone 1b): Setup builder + auto-layout + structure-locked floor
+
+Adopted the old engine's (`advanced.html`) workflow: define the *system* in a guided **Setup drawer**,
+auto-generate the floor, then use the floor only for **physical** work. UI-only — engine untouched.
+- **Setup drawer** (`app/floor.html` `#setupDrawer`, opened by **⚙ Set up model**): a right-side
+  builder with a **live mini-preview** and four sections — **1·Stations** (add source/workcenter/
+  storage/sink; each workcenter's full parameter editor), **2·Parts & BOM** (the former Parts-manager
+  grid, relocated here), **3·Routes** (per-part ordered station picker — replaces the canvas Route
+  tool), **4·Control/source/demand**. **Apply & lay out** runs `autoLayout()` and shows the floor.
+- **`autoLayout()` / `computeLayout()`** — layered auto-layout: column = longest-path depth along
+  route edges; row = a lane per part. Writes the same `nodes[].x/y` the SVG already renders; the live
+  mini-preview (`renderSetupMini`) draws from the same computation, part-coloured.
+- **Floor is now physical-only:** the palette place-tools and Route tool are gone; `onPointerDown` only
+  selects/drags/pans. A **lock banner** explains it; **Inspect** still tunes a station's parameters and
+  a leg's transport; structure (stations/parts/routes/BOM/demand/control) is **Setup-only**. Right-panel
+  tabs are now **Inspect · Transport · Flow · Results** (the old Model tab/subtabs are retired). An
+  empty model and **Clear** open the builder first.
+- **Reuse:** extracted `stationEditor(n, host, rerender)` shared by the floor Inspect panel and the
+  Setup station cards; `renderPartsModal` and `renderControl` are hosted in the drawer unchanged;
+  `symbolPicker`/`factorButton` now take a `rerender` callback so they refresh the right context.
+- **Verification:** `npm test` **93/93** (engine untouched); `node --check` clean. Rewrote
+  `tests/ui/authoring-selftest.html` for the new flow and ran it in **headless Chrome → 21/21 PASS**
+  across four scenarios (push line; pull/CONWIP + demand; batch; 3-part assembly) — each built entirely
+  through the drawer and run after Apply. Screenshots reviewed: empty model auto-opens the builder; the
+  drawer shows the four sections + live preview; Apply lays out the floor; `#example5` floor shows the
+  lock banner, the new tabs, the smaller inset and leg arrows, and runs.
+- **Decision logged:** `docs/DECISIONS.md` (2026-06-09). **Next (Milestone 2):** physical transit on
+  the shared sub-assembly link (engine).
