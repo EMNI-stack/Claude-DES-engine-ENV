@@ -794,23 +794,32 @@ output advancing, no console errors.
   through). Confirmed `newResponse` has no local definition in `floor.js` and is genuinely exported by
   `project.js`, so it was a real missing import, not a sync artefact.
 
-## 2026-06-09 — Phase 3.5 demo: `#example5` — 3-level BOM with a sub-assembly that is also sold
+## 2026-06-09 — Phase 3.5 demo: `#example5` — 3-level BOM with a sub-assembly that is also sold (two sinks)
 
 - Added `loadExample5()` + a `#example5` deep link (auto-loads + auto-plays, like the other demos):
   the **deepest model the current engine supports**. A **Pump** (sold) = 1 **Motor** + 2 **Housing**;
   the **Motor** = 1 **Rotor** + 4 **Magnet** — and the **Motor is itself sold independently** as a
   spare (its own demand stream). BOM levels: Pump → Motor → {Rotor, Magnet}; Housing/Rotor are
-  fabricated leaves, Magnet is bought-in. Two assembly stations (Motor assy, Final assy), spread out
-  so **transport gates assembly** (a component is on-hand only after it travels to its assembler).
-- Run under **CONWIP (pull) + limitless supply**, so it exercises every hard path at once: the
+  fabricated leaves, Magnet is bought-in.
+- **Two products → two sinks (redo per stakeholder).** First cut deposited finished Motors at Final assy
+  and sold them invisibly from the shared shelf; the stakeholder asked that the sold sub-assembly have
+  its own output. Re-laid out as **two parallel lines**: the Pump line ends at **"Pumps out"**, the
+  Motor line ends at its own **"Motors out (spares)"** sink. Finished Motors land on the **global
+  per-part Motor inventory**, from which the Motor demand stream sells some and Pump assembly pulls the
+  rest. (Engine note: component inventory is a *global per-part pool*, not per-location, and a part has
+  one route — so there is no physical leg from the Motor line into Final assy; the Pump assembler draws
+  Motors from the shared pool. The other three component links — Housing→Final, Rotor→Motor,
+  Magnet→Motor — are physical and **transport-gated**.)
+- Run under **CONWIP (pull) + limitless supply**, exercising every hard path at once: the
   dependent-demand explosion (`computePullNeeds` netting external + dependent demand through the BOM),
-  a **part that is both product and component** (Motor), and the **`extTurn` fairness** that shares the
-  scarce Motor shelf between Pump assembly and the Motor spares demand — i.e. the exact behaviour the
-  `floor-process.test.js` "multi-level dependent demand" test guards, now visible on the floor.
-- Tuned deliberately under-loaded so it cycles cleanly (no starvation/flood). UI/data only — no engine,
-  schema, or behaviour change; `buildRunModel` already emits this shape.
+  a **part that is both product and component** (Motor), the **`extTurn` fairness** that shares the
+  scarce Motor pool between Pump assembly and the Motor spares demand, **two demand streams + two
+  sinks**, and per-product CONWIP — the exact behaviour `floor-process.test.js` "multi-level dependent
+  demand" guards, now visible on the floor.
+- Tuned deliberately under-loaded so it cycles cleanly. UI/data only — no engine, schema, or behaviour
+  change; `buildRunModel` already emits this shape.
 - **Verification:** headless `FloorSim` run mirroring `buildRunModel` over 3 seeds @ t=20 000 — **no
-  deadlock**; Pump fill ≈100%, **Motor fill 100%** (the sub-assembly is genuinely sold); exact BOM
-  ratios (housing = 2 × motor; magnet = 4 × rotor); every Motor produced is either consumed by a Pump
-  or sold (perfect accounting); headline product throughput ≈ 0.17 pumps/min (matches the ~1/6 min
-  demand). `node --check` clean; `npm test` → **93/93** (engine untouched).
+  deadlock**; Pump fill ≈100% **and** Motor fill ≈100% (the sub-assembly genuinely sells from its own
+  sink/stream); exact BOM ratios (housing = 2 × motor; magnet = 4 × rotor); of ~5000 Motors produced,
+  ~1670 sold as spares + ~3340 built into Pumps = produced (perfect split, no double-count).
+  `node --check` clean; `npm test` → **93/93** (engine untouched).

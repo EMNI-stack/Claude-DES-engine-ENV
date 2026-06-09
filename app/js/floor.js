@@ -1189,13 +1189,19 @@ function loadExample4() {
   $('floorHint').textContent = 'Assembly demo: a Widget needs 1 Body + 4 Bolts. The Assemble station waits for a full set before building one — the slower-supplied component paces output. Hover Assemble for live counts; press Play.';
 }
 /* Deepest model the engine supports (#example5): a 3-LEVEL BOM where the sub-assembly is
-   ALSO sold independently. Pump (sold) = 1 Motor + 2 Housing; Motor (sold AND a component of
-   Pump) = 1 Rotor + 4 Magnet; Housing/Rotor are fabricated leaves, Magnet is bought-in.
-   Levels: Pump → Motor → {Rotor, Magnet}. Run under CONWIP (pull) + limitless supply, so
-   demand is exploded through the BOM (computePullNeeds) and the scarce Motor is SHARED FAIRLY
-   between Pump assembly and the Motor spares demand (extTurn). Exercises every hard path at
-   once: multi-level dependent demand, a part that is product AND component, transport-gated
-   fork-join at two assembly nodes, and per-product CONWIP. Tuned under-loaded so it cycles. */
+   ALSO sold independently, so there are TWO finished-goods sinks. Pump (sold) = 1 Motor +
+   2 Housing; Motor (sold AND a component of Pump) = 1 Rotor + 4 Magnet; Housing/Rotor are
+   fabricated leaves, Magnet is bought-in. Levels: Pump → Motor → {Rotor, Magnet}.
+     • The Motor line ends at its own sink "Motors out (spares)" — finished Motors land on the
+       shared Motor shelf, from which the Motor demand stream sells some and Pump assembly pulls
+       the rest (component inventory is a global per-part pool in this engine — there is no leg
+       from the Motor line into Final assy; the Pump assembler draws Motors from that pool).
+     • The Pump line ends at "Pumps out".
+   Run under CONWIP (pull) + limitless supply so demand is exploded through the BOM
+   (computePullNeeds) and the scarce Motor is SHARED FAIRLY between Pump assembly and the Motor
+   spares demand (extTurn). Exercises every hard path at once: multi-level dependent demand, a
+   part that is product AND component, transport-gated fork-join, two demand streams + two sinks,
+   per-product CONWIP. Tuned under-loaded so it cycles. */
 function loadExample5() {
   const mk = (kind, name, x, y, extra = {}) => Object.assign({ kind, id: uid(kind.slice(0, 3)), name, x, y }, extra);
   const brk = () => ({ on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) });
@@ -1203,26 +1209,28 @@ function loadExample5() {
   const res = (name, x, y, sym, mean, extra = {}) => mk('resource', name, x, y, Object.assign(
     { machines: 1, symbol: sym, service: newDist('lognormal', { mean, sd: mean * 0.3 }), buffer: buf(),
       scrap: 0, brk: brk(), batch: { on: false, size: 2, setup: 0 }, assembly: false }, extra));
+  // top line → Pumps;  bottom line → Motors (also sold). Two sinks, one per saleable product.
   const housingSrc = mk('source', 'Steel (housing)', 8, 9, { interarrival: newDist('exp', { mean: 2.5 }) });
   const mill = res('Mill', 28, 9, 'gear', 1.4);
-  const rotorSrc = mk('source', 'Bar (rotor)', 8, 30, { interarrival: newDist('exp', { mean: 3 }) });
-  const lathe = res('Lathe', 24, 30, 'cpu', 1.2);
-  const magnetStore = mk('source', 'Magnet store', 24, 45, { interarrival: newDist('exp', { mean: 0.6 }) });
-  const motorAssy = res('Motor assy', 43, 35, 'assemble', 1.5, { assembly: true });
-  const finalAssy = res('Final assy', 61, 20, 'assemble', 2, { assembly: true });
-  const ship = mk('sink', 'Ship', 77, 13);
-  model.nodes = [housingSrc, mill, rotorSrc, lathe, magnetStore, motorAssy, finalAssy, ship];
+  const finalAssy = res('Final assy', 54, 14, 'assemble', 2, { assembly: true });
+  const pumpShip = mk('sink', 'Pumps out', 76, 14);
+  const rotorSrc = mk('source', 'Bar (rotor)', 8, 40, { interarrival: newDist('exp', { mean: 3 }) });
+  const lathe = res('Lathe', 26, 40, 'cpu', 1.2);
+  const magnetStore = mk('source', 'Magnet store', 26, 26, { interarrival: newDist('exp', { mean: 0.6 }) });
+  const motorAssy = res('Motor assy', 46, 38, 'assemble', 1.5, { assembly: true });
+  const motorShip = mk('sink', 'Motors out (spares)', 70, 38);
+  model.nodes = [housingSrc, mill, finalAssy, pumpShip, rotorSrc, lathe, magnetStore, motorAssy, motorShip];
 
   const dem = (mean) => ({ on: false, dist: newDist('exp', { mean }), qty: 1, conwip: 5 });
   const housing = { id: uid('part'), name: 'Housing', kind: 'fabricated', route: [housingSrc.id, mill.id, finalAssy.id], bom: [], demand: dem(3) };
   const rotor   = { id: uid('part'), name: 'Rotor',   kind: 'fabricated', route: [rotorSrc.id, lathe.id, motorAssy.id], bom: [], demand: dem(3) };
   const magnet  = { id: uid('part'), name: 'Magnet',  kind: 'purchased',  route: [magnetStore.id, motorAssy.id], bom: [], demand: dem(3) };
-  // Motor: assembled at Motor assy, then travels to Final assy where it is deposited on the shared
-  // Motor shelf — consumed there by Pump assembly AND drawn down by its own (spares) demand stream.
-  const motor = { id: uid('part'), name: 'Motor', kind: 'product', route: [motorAssy.id, finalAssy.id],
+  // Motor: assembled at Motor assy, then shipped to its own sink — finished Motors land on the shared
+  // Motor shelf, from which the Motor demand sells some and Pump assembly pulls the rest.
+  const motor = { id: uid('part'), name: 'Motor', kind: 'product', route: [motorAssy.id, motorShip.id],
     bom: [{ partId: rotor.id, qty: 1 }, { partId: magnet.id, qty: 4 }],
-    demand: { on: true, dist: newDist('exp', { mean: 12 }), qty: 1, conwip: 5 } };   // sub-assembly ALSO sold as a spare
-  const pump = { id: uid('part'), name: 'Pump', kind: 'product', route: [finalAssy.id, ship.id],
+    demand: { on: true, dist: newDist('exp', { mean: 12 }), qty: 1, conwip: 6 } };   // sub-assembly ALSO sold as a spare
+  const pump = { id: uid('part'), name: 'Pump', kind: 'product', route: [finalAssy.id, pumpShip.id],
     bom: [{ partId: motor.id, qty: 1 }, { partId: housing.id, qty: 2 }],
     demand: { on: true, dist: newDist('exp', { mean: 6 }), qty: 1, conwip: 4 } };
   model.parts = [housing, rotor, magnet, motor, pump]; model.activePart = pump.id;
@@ -1230,7 +1238,7 @@ function loadExample5() {
   model.control = 'conwip'; model.supply = 'limitless';   // pull: dependent demand exploded through the BOM
   ensureProcessAssumption();
   persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
-  $('floorHint').textContent = '3-level BOM: a Pump = 1 Motor + 2 Housings, a Motor = 1 Rotor + 4 Magnets — and the Motor is ALSO sold as a spare. Under pull/CONWIP the scarce Motors are shared fairly between Pump assembly and spare-part demand. Hover the two assembly stations for live counts; press Play.';
+  $('floorHint').textContent = '3-level BOM, two products: Pumps (= 1 Motor + 2 Housings) ship from “Pumps out”, and the Motor sub-assembly (= 1 Rotor + 4 Magnets) is ALSO sold as a spare and ships from “Motors out”. Under pull/CONWIP the scarce Motors are shared fairly between Pump assembly and spare-part demand. Hover the two assembly stations for live counts; press Play.';
 }
 function clearFloor() { model.nodes = []; setSinglePartRoute(); model.legs = {}; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel();
