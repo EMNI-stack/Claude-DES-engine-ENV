@@ -1188,6 +1188,50 @@ function loadExample4() {
   persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
   $('floorHint').textContent = 'Assembly demo: a Widget needs 1 Body + 4 Bolts. The Assemble station waits for a full set before building one — the slower-supplied component paces output. Hover Assemble for live counts; press Play.';
 }
+/* Deepest model the engine supports (#example5): a 3-LEVEL BOM where the sub-assembly is
+   ALSO sold independently. Pump (sold) = 1 Motor + 2 Housing; Motor (sold AND a component of
+   Pump) = 1 Rotor + 4 Magnet; Housing/Rotor are fabricated leaves, Magnet is bought-in.
+   Levels: Pump → Motor → {Rotor, Magnet}. Run under CONWIP (pull) + limitless supply, so
+   demand is exploded through the BOM (computePullNeeds) and the scarce Motor is SHARED FAIRLY
+   between Pump assembly and the Motor spares demand (extTurn). Exercises every hard path at
+   once: multi-level dependent demand, a part that is product AND component, transport-gated
+   fork-join at two assembly nodes, and per-product CONWIP. Tuned under-loaded so it cycles. */
+function loadExample5() {
+  const mk = (kind, name, x, y, extra = {}) => Object.assign({ kind, id: uid(kind.slice(0, 3)), name, x, y }, extra);
+  const brk = () => ({ on: false, ttf: newDist('weibull', { shape: 1.5, scale: 40 }), ttr: newDist('exp', { mean: 4 }) });
+  const buf = () => ({ finite: false, cap: 10, init: 0, target: 8 });
+  const res = (name, x, y, sym, mean, extra = {}) => mk('resource', name, x, y, Object.assign(
+    { machines: 1, symbol: sym, service: newDist('lognormal', { mean, sd: mean * 0.3 }), buffer: buf(),
+      scrap: 0, brk: brk(), batch: { on: false, size: 2, setup: 0 }, assembly: false }, extra));
+  const housingSrc = mk('source', 'Steel (housing)', 8, 9, { interarrival: newDist('exp', { mean: 2.5 }) });
+  const mill = res('Mill', 28, 9, 'gear', 1.4);
+  const rotorSrc = mk('source', 'Bar (rotor)', 8, 30, { interarrival: newDist('exp', { mean: 3 }) });
+  const lathe = res('Lathe', 24, 30, 'cpu', 1.2);
+  const magnetStore = mk('source', 'Magnet store', 24, 45, { interarrival: newDist('exp', { mean: 0.6 }) });
+  const motorAssy = res('Motor assy', 43, 35, 'assemble', 1.5, { assembly: true });
+  const finalAssy = res('Final assy', 61, 20, 'assemble', 2, { assembly: true });
+  const ship = mk('sink', 'Ship', 77, 13);
+  model.nodes = [housingSrc, mill, rotorSrc, lathe, magnetStore, motorAssy, finalAssy, ship];
+
+  const dem = (mean) => ({ on: false, dist: newDist('exp', { mean }), qty: 1, conwip: 5 });
+  const housing = { id: uid('part'), name: 'Housing', kind: 'fabricated', route: [housingSrc.id, mill.id, finalAssy.id], bom: [], demand: dem(3) };
+  const rotor   = { id: uid('part'), name: 'Rotor',   kind: 'fabricated', route: [rotorSrc.id, lathe.id, motorAssy.id], bom: [], demand: dem(3) };
+  const magnet  = { id: uid('part'), name: 'Magnet',  kind: 'purchased',  route: [magnetStore.id, motorAssy.id], bom: [], demand: dem(3) };
+  // Motor: assembled at Motor assy, then travels to Final assy where it is deposited on the shared
+  // Motor shelf — consumed there by Pump assembly AND drawn down by its own (spares) demand stream.
+  const motor = { id: uid('part'), name: 'Motor', kind: 'product', route: [motorAssy.id, finalAssy.id],
+    bom: [{ partId: rotor.id, qty: 1 }, { partId: magnet.id, qty: 4 }],
+    demand: { on: true, dist: newDist('exp', { mean: 12 }), qty: 1, conwip: 5 } };   // sub-assembly ALSO sold as a spare
+  const pump = { id: uid('part'), name: 'Pump', kind: 'product', route: [finalAssy.id, ship.id],
+    bom: [{ partId: motor.id, qty: 1 }, { partId: housing.id, qty: 2 }],
+    demand: { on: true, dist: newDist('exp', { mean: 6 }), qty: 1, conwip: 4 } };
+  model.parts = [housing, rotor, magnet, motor, pump]; model.activePart = pump.id;
+  model.legs = {}; selected = { kind: 'node', id: finalAssy.id }; sim = null;
+  model.control = 'conwip'; model.supply = 'limitless';   // pull: dependent demand exploded through the BOM
+  ensureProcessAssumption();
+  persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
+  $('floorHint').textContent = '3-level BOM: a Pump = 1 Motor + 2 Housings, a Motor = 1 Rotor + 4 Magnets — and the Motor is ALSO sold as a spare. Under pull/CONWIP the scarce Motors are shared fairly between Pump assembly and spare-part demand. Hover the two assembly stations for live counts; press Play.';
+}
 function clearFloor() { model.nodes = []; setSinglePartRoute(); model.legs = {}; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel();
   $('results').innerHTML = '<p class="results-empty">Press Play, then “End” when you’ve seen enough, to see results.</p>'; }
@@ -1269,10 +1313,11 @@ function init() {
   else if (location.hash === '#example2') { loadExample2(); const b = model.nodes.find((n) => n.kind === 'storage'); if (b) { selected = { kind: 'node', id: b.id }; startTab = 'inspect'; } }   // bottleneck + buffer demo
   else if (location.hash === '#example3') { loadExample3(); const b = model.nodes.find((n) => n.kind === 'resource' && n.batch && n.batch.on); if (b) { selected = { kind: 'node', id: b.id }; startTab = 'inspect'; } }   // batch-processing demo
   else if (location.hash === '#example4') { loadExample4(); startTab = 'model'; }   // assembly / multi-part demo
+  else if (location.hash === '#example5') { loadExample5(); startTab = 'model'; }   // 3-level BOM, sub-assembly also sold
   if (model.defaultMover === 'worker' || Object.values(model.legs).some((l) => l.mover === 'worker')) ensureWorkerAssumption();
   render(); renderParts(); renderRoute(); renderInspector(); renderTransport(); renderControl();
   activateTab(startTab); setPlayLabel(); updateClock(); zoomFit();
-  if (location.hash === '#play' || location.hash === '#example2' || location.hash === '#example3' || location.hash === '#example4') { if (!model.parts.some((p) => p.route.length >= 2)) loadExample(); play(); }   // deep-link: open running
+  if (['#play', '#example2', '#example3', '#example4', '#example5'].includes(location.hash)) { if (!model.parts.some((p) => p.route.length >= 2)) loadExample(); play(); }   // deep-link: open running
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
 else init();

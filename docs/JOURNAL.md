@@ -793,3 +793,24 @@ output advancing, no console errors.
   (engine untouched — this is UI-only and not covered by the Node test suite, which is why it slipped
   through). Confirmed `newResponse` has no local definition in `floor.js` and is genuinely exported by
   `project.js`, so it was a real missing import, not a sync artefact.
+
+## 2026-06-09 — Phase 3.5 demo: `#example5` — 3-level BOM with a sub-assembly that is also sold
+
+- Added `loadExample5()` + a `#example5` deep link (auto-loads + auto-plays, like the other demos):
+  the **deepest model the current engine supports**. A **Pump** (sold) = 1 **Motor** + 2 **Housing**;
+  the **Motor** = 1 **Rotor** + 4 **Magnet** — and the **Motor is itself sold independently** as a
+  spare (its own demand stream). BOM levels: Pump → Motor → {Rotor, Magnet}; Housing/Rotor are
+  fabricated leaves, Magnet is bought-in. Two assembly stations (Motor assy, Final assy), spread out
+  so **transport gates assembly** (a component is on-hand only after it travels to its assembler).
+- Run under **CONWIP (pull) + limitless supply**, so it exercises every hard path at once: the
+  dependent-demand explosion (`computePullNeeds` netting external + dependent demand through the BOM),
+  a **part that is both product and component** (Motor), and the **`extTurn` fairness** that shares the
+  scarce Motor shelf between Pump assembly and the Motor spares demand — i.e. the exact behaviour the
+  `floor-process.test.js` "multi-level dependent demand" test guards, now visible on the floor.
+- Tuned deliberately under-loaded so it cycles cleanly (no starvation/flood). UI/data only — no engine,
+  schema, or behaviour change; `buildRunModel` already emits this shape.
+- **Verification:** headless `FloorSim` run mirroring `buildRunModel` over 3 seeds @ t=20 000 — **no
+  deadlock**; Pump fill ≈100%, **Motor fill 100%** (the sub-assembly is genuinely sold); exact BOM
+  ratios (housing = 2 × motor; magnet = 4 × rotor); every Motor produced is either consumed by a Pump
+  or sold (perfect accounting); headline product throughput ≈ 0.17 pumps/min (matches the ~1/6 min
+  demand). `node --check` clean; `npm test` → **93/93** (engine untouched).
