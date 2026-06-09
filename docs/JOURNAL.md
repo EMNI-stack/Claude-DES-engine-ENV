@@ -1061,3 +1061,23 @@ larger), **type-distinct nodes** — filled petrol **source** dots, ink **sink**
 **workcenter** boxes, **accent ⊕** assembly boxes, dashed **storage** — and **thick part-coloured routes
 with direction arrowheads**, with readable labels. Verified headless (`#example5`): clear at a glance.
 Self-test 21/21; `npm test` 94/94. `floor.js` only.
+
+## 2026-06-09 — Phase 3.6 · Milestone 0: transport-revision audit + design note (PAUSED for review)
+
+- Audited the current Phase-3 transport in `src/floor-engine.js`: three movers — **instant**
+  (capacity-aware, 0 time), **conveyor** (`conv[key]={cap,speed,items}`, straight only, blocking), and a
+  single shared **worker pool** (`workers={count,speed}`, loaded-trip-only, no positions/home/travel-to-
+  pickup) — driven by `board()` + the `settle()` fixpoint; machine starts have no operator coupling;
+  shared-component **supply-leg deliveries** bypass the pool. That's the seed; it lacks per-unit
+  positions, travel-to-pickup, home/return, machine coupling, and AGV-vs-operator separation.
+- Wrote `docs/PHASE-3-6-DESIGN.md` proposing: the **four leg modes** (Instant · Conveyor straight/bent ·
+  AGV · Operator), **placed flexible units** with a **standard/home location** (centre-default, draggable)
+  that **return home when idle** and are **re-dispatched mid-return from their current position**, a
+  **single fixed dispatch rule** (longest-waiting request → nearest free eligible unit → ties by id), and
+  the **operator↔machine coupling** (`operatorRequired` machines seize a free assigned operator for the
+  op duration; an operator does a move XOR an op). Worker pool → Operator; AGV is the new transport-only
+  mover. Migration + units fixed; supply-leg deliveries become real requests on flexible legs.
+- Logged a PROPOSED `docs/DECISIONS.md` entry (T1–T6) — **supersedes** the 2026-06-07 "worker empty-return
+  ignored" simplification (idle units now return home). **No engine/UI/test code yet — PAUSED** to confirm
+  the dispatch rule, the home/re-dispatch behaviour, and the operator coupling (incl. the two flagged
+  forks: op-travel and moves-vs-ops priority) before Milestone 1. `npm test` unchanged (94/94).

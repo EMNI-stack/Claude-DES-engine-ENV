@@ -621,3 +621,45 @@ These choices are proposed and PAUSED for stakeholder confirmation before any co
   engine, regression-tested), §6/§7 (transport is a real resource; the best flow is no flow); theory-notes
   §4.6 (fork-join, now spatial for the shared link too). Covered by `tests/floor-process.test.js`
   (new test; `npm test` 94/94).
+
+## [2026-06-09] — Phase 3.6 transport revision: four modes · operator machines · home locations (Milestone 0, PROPOSAL — awaiting ratification)
+*Full design note: `docs/PHASE-3-6-DESIGN.md`. These choices are proposed and PAUSED for stakeholder
+confirmation (the dispatch rule, the home-location/re-dispatch behaviour, and the operator coupling)
+before any engine/UI code.*
+- **T1 — Four leg modes** (per `transport.legs[key].mover`, floor default): **Instant** (zero time,
+  capacity-aware) · **Conveyor straight/bent** (path length = Σ Euclidean segments through waypoints ÷
+  speed; finite capacity + downstream blocking) · **AGV** (flexible, transport-only) · **Operator**
+  (flexible: transport + operate a machine + both). The Phase-3 **worker pool maps to OPERATOR**; **AGV**
+  is the new transport-only mover.
+- **T2 — Flexible units are placed, with a standard (home) location.** `transport.movers[] =
+  {id, kind, name, speed, home:{x,y}, serves:{links, machines}}` replaces the single `workers` pool.
+  Units auto-line-up at the floor centre by default and are draggable to a custom home. Each unit tracks a
+  position; a move is **travel-to-pickup (empty, from current position) + carry (loaded)**; an **idle unit
+  returns to its home**, and a unit **en route home is re-dispatched from its current (interpolated)
+  position**. **This supersedes the 2026-06-07 "worker empty-return ignored" simplification** — idle
+  repositioning (returning home) is now modelled; only *anticipatory* repositioning beyond returning home
+  stays out (Charter §9).
+- **T3 — Single fixed minimal dispatch rule:** serve the **longest-waiting request** first; among free
+  eligible units the **nearest** (smallest travel-to-pickup distance) takes it; ties by unit id. No
+  optimisation / look-ahead / batching.
+- **T4 — Operator↔machine coupling:** each resource has **`operatorRequired`** (default false = automatic).
+  An operator-required machine starts an op only after **seizing a free assigned operator for the op
+  duration**; an operator does a **move XOR a machine-op**, never both; AGVs never operate. *Proposed:
+  operating incurs no travel (operator seized for the op only); moves and ops compete under one T3 queue.*
+- **T5 — Units/geometry unchanged:** minutes · metres · m/min; `travel = distance/speed`; Euclidean;
+  conveyor path = Σ segment lengths. Display scale presentation-only.
+- **T6 — Migration:** `workers{count,speed}` → `count` operator units (`serves:"all"`, centre home,
+  pool speed); legs `mover:"worker"` → `"operator"`; `operatorRequired` defaults false; supply-leg
+  (shared sub-assembly) deliveries become real transport requests on AGV/operator legs.
+- Rationale: Charter §6 defines exactly these four modes, the operator coupling, the flexible-unit
+  home/return-when-idle behaviour, travel-to-pickup, and a single fixed dispatch rule; §9 fixes the
+  not-list. theory-notes §5.3: conveyors trade volume/predictability, flexible movers trade flexibility;
+  transport is non-value-adding ("best flow is no flow"). Kept minimal (Charter §9, review-2).
+- Alternatives considered: keep the count+speed pool with a single depot (rejected — can't model
+  travel-to-pickup + return-home without per-unit positions); nearest-first dispatch (offered as the T3
+  alternative to confirm); always-prioritise-machine-ops over moves (offered as the T4 alternative);
+  operators travel to the machine before operating (rejected for v1 simplicity, flagged). Out of scope per
+  §9: path-finding, collisions, optimising dispatch, anticipatory repositioning, multi-load, jockeying,
+  multi-floor.
+- Governing principle / source: Charter §6, §9; `Reference/theory-notes.md` §5.3; design note
+  `docs/PHASE-3-6-DESIGN.md`. **Pending stakeholder review before implementation.**
