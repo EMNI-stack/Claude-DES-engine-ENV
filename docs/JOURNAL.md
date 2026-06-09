@@ -1002,3 +1002,20 @@ travelling it — the stakeholder's chosen "route units physically (engine chang
 - **Decision logged:** `docs/DECISIONS.md` (2026-06-09) — supersedes the dotted-overlay decision.
   Rewrote `docs/HOWTO-build-example5.md` for the Setup-builder flow. This completes the approved
   redesign plan (`.claude/plans/staged-finding-haven.md`).
+
+## 2026-06-09 — Floor redesign (Milestone 1d): tidy the Setup layout (rail + accordion + faithful preview)
+
+Stakeholder: the Setup screen looked ridiculous — huge empty sections, and the preview "looked nothing
+like the current model". Reworked the layout:
+- **Left rail + single-column content.** `.setup-body` is now a `340px` sticky **rail** (live preview)
+  + a single-column **main** (the four sections stacked). This removes the 2-column grid's
+  unequal-height empty gaps.
+- **Stations are a compact accordion.** Each station is a one-line row — kind badge · name · a mono
+  summary (e.g. `1× · Lognormal μ=1.40 · assembly`) · ✕ — and **clicking it expands its full editor**
+  (one open at a time); adding a station opens it. No more eight giant expanded cards with histograms.
+- **Faithful preview.** `renderSetupMini` now draws from the nodes' **current positions** (so it matches
+  the floor) when any are placed, with **uniform scale** (no stretching), the real legs **and supply
+  legs**, and each part's route in its colour — instead of a stretched recomputed auto-layout.
+- Verified headless: `#example5` setup shows the preview matching the floor + 8 compact station rows;
+  a fresh build expands the workcenter editor inline. Authoring self-test updated (expand a row before
+  editing) → **21/21**. `npm test` 94/94 (UI-only). CSS + `floor.js`/`floor.html` only.

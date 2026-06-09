@@ -37,6 +37,7 @@ function model() { return JSON.parse(localStorage.getItem(KEY)).model; }
 function clickByText(root, text) { for (const b of root.querySelectorAll('button')) if (b.textContent.trim() === text || b.textContent.includes(text)) { b.click(); return true; } return false; }
 function addStation(label) { return clickByText(D.querySelector('#setupStations .setup-add'), '+ ' + label); }
 function card(i) { return D.querySelectorAll('#setupStations .setup-card')[i]; }
+function openCard(i) { const c = card(i); if (c && !c.classList.contains('open')) c.querySelector('.setup-card-h').click(); return card(i); }   // expand the accordion row before editing
 function fieldInput(root, label) { for (const f of root.querySelectorAll('.field')) { const l = f.querySelector('label'); if (l && l.textContent.trim().toLowerCase() === label.toLowerCase()) return f.querySelector('input,select'); } return null; }
 function setNum(root, label, v) { const i = fieldInput(root, label); if (!i) return false; i.value = String(v); i.dispatchEvent(new W.Event('input', { bubbles: true })); return true; }
 function toggle(root, includes, checked) { for (const r of root.querySelectorAll('.toggle-row')) if (r.textContent.includes(includes)) { const cb = r.querySelector('input[type=checkbox]'); if (cb.checked !== checked) { cb.checked = checked; cb.dispatchEvent(new W.Event('change', { bubbles: true })); } return true; } return false; }
@@ -55,8 +56,8 @@ async function S1_pushLine() {
   await reset();
   ok(!D.getElementById('setupDrawer').hidden, 'empty model auto-opened the Setup drawer');
   addStation('Source'); addStation('Workcenter'); addStation('Sink');
-  setNum(card(0), 'mean', 2);     // source interarrival
-  setNum(card(1), 'mean', 1.2);   // workcenter service
+  setNum(openCard(0), 'mean', 2);     // source interarrival
+  setNum(openCard(1), 'mean', 1.2);   // workcenter service
   const ids = model().nodes.map(n => n.id);
   ids.forEach(id => routeAppend(0, id));   // route the default part through all three
   apply();
@@ -73,7 +74,7 @@ async function S2_pullDemand() {
   log('\n## S2 — pull / CONWIP with per-product demand (control + parts editor)');
   await reset();
   addStation('Source'); addStation('Workcenter'); addStation('Sink');
-  setNum(card(0), 'mean', 1.5); setNum(card(1), 'mean', 1.2);
+  setNum(openCard(0), 'mean', 1.5); setNum(openCard(1), 'mean', 1.2);
   model().nodes.map(n => n.id).forEach(id => routeAppend(0, id));
   clickByText(D.getElementById('controlBody'), 'CONWIP (pull)');
   pmSelectPart(0); toggle(D.getElementById('pmEditor'), 'Sold to customers', true);
@@ -86,8 +87,8 @@ async function S3_batch() {
   log('\n## S3 — batch processing (toggle batch in a workcenter card)');
   await reset();
   addStation('Source'); addStation('Workcenter'); addStation('Sink');
-  setNum(card(0), 'mean', 2.5); setNum(card(1), 'mean', 4);
-  ok(toggle(card(1), 'Process parts in batches', true), 'toggled batch on the workcenter');
+  setNum(openCard(0), 'mean', 2.5); setNum(openCard(1), 'mean', 4);
+  ok(toggle(openCard(1), 'Process parts in batches', true), 'toggled batch on the workcenter');
   setNum(card(1), 'Batch size B', 3); setNum(card(1), 'Setup time (once per batch)', 2);
   model().nodes.map(n => n.id).forEach(id => routeAppend(0, id));
   const rb = model().nodes[1].batch;
@@ -100,7 +101,7 @@ async function S4_assembly() {
   log('\n## S4 — multi-part assembly (stations + assembly flag + 3 parts + BOM + per-part routes)');
   await reset();
   addStation('Source'); addStation('Source'); addStation('Workcenter'); addStation('Sink');
-  ok(toggle(card(2), 'Assembly station', true), 'toggled the workcenter to an assembly station');
+  ok(toggle(openCard(2), 'Assembly station', true), 'toggled the workcenter to an assembly station');
   pmAddPart(); pmAddPart();   // product (default) + two components
   const parts = model().parts; const prodId = parts[0].id;
   pmSelectPart(1); clickByText(D.getElementById('pmEditor'), 'Bought');

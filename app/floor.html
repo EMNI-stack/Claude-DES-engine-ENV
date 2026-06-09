@@ -139,33 +139,35 @@
       </span>
     </div>
     <div class="setup-body">
-      <div class="setup-prev">
+      <aside class="setup-rail">
         <p class="section-label">Live preview</p>
         <div id="setupMini" class="setup-mini"></div>
-        <p class="floor-hint" style="margin:var(--s-2) 0 0">Apply auto-arranges this into the factory floor; then you can drag to fine-tune.</p>
+        <p class="floor-hint" style="margin:var(--s-2) 0 0">A thumbnail of the model. <b>Apply &amp; lay out</b> arranges it on the floor; then you can drag to fine-tune.</p>
+      </aside>
+      <div class="setup-main">
+        <section class="setup-sec">
+          <h3>1 · Stations</h3>
+          <p class="floor-hint">Add sources, workcenters, storage and sinks; click a station to edit it.</p>
+          <div id="setupStations"></div>
+        </section>
+        <section class="setup-sec">
+          <h3>2 · Parts &amp; BOM</h3>
+          <p class="floor-hint">Add parts (product / made / bought), give products a bill of materials, and mark which are sold to customers.</p>
+          <div class="pm-grid">
+            <div class="pm-list-col"><p class="subhead">Parts</p><div id="pmList"></div></div>
+            <div class="pm-editor-col"><p class="subhead">Definition</p><div id="pmEditor" class="stack"></div></div>
+          </div>
+        </section>
+        <section class="setup-sec">
+          <h3>3 · Routes</h3>
+          <p class="floor-hint">For each part, order the stations it visits (entry → … → exit). A component’s route ends at the assembler that consumes it.</p>
+          <div id="setupRoutes"></div>
+        </section>
+        <section class="setup-sec">
+          <h3>4 · Control, source &amp; demand</h3>
+          <div id="controlBody" class="stack"></div>
+        </section>
       </div>
-      <section class="setup-sec">
-        <h3>1 · Stations</h3>
-        <p class="floor-hint">Add the sources, workcenters, storage and sinks. A workcenter carries capacity, a service-time distribution, optional finite buffer, scrap, breakdowns, batch mode, and an assembly flag.</p>
-        <div id="setupStations"></div>
-      </section>
-      <section class="setup-sec">
-        <h3>2 · Parts &amp; BOM</h3>
-        <p class="floor-hint">Add parts (product / made / bought), give products a bill of materials, and mark which parts are sold to customers.</p>
-        <div class="pm-grid">
-          <div class="pm-list-col"><p class="subhead">Parts</p><div id="pmList"></div></div>
-          <div class="pm-editor-col"><p class="subhead">Definition</p><div id="pmEditor" class="stack"></div></div>
-        </div>
-      </section>
-      <section class="setup-sec">
-        <h3>3 · Routes</h3>
-        <p class="floor-hint">For each part, order the stations it visits (entry → … → exit). A component’s route ends at the assembler that consumes it.</p>
-        <div id="setupRoutes"></div>
-      </section>
-      <section class="setup-sec">
-        <h3>4 · Control, source &amp; demand</h3>
-        <div id="controlBody" class="stack"></div>
-      </section>
     </div>
   </aside>
 </div>

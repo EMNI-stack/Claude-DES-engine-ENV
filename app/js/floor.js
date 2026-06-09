@@ -1419,24 +1419,39 @@ function renderSetup() {
 }
 
 const STATION_KINDS = [['source', 'Source'], ['resource', 'Workcenter'], ['storage', 'Storage'], ['sink', 'Sink']];
+let setupOpenStation = null;   // id of the station whose editor is expanded (accordion)
+function stationSummary(n) {
+  if (n.kind === 'resource') return `${n.machines || 1}× · ${DISTS[n.service.type].label} μ=${distMean(n.service).toFixed(2)}${n.assembly ? ' · assembly' : ''}${(n.batch && n.batch.on) ? ` · batch ${n.batch.size}` : ''}${n.scrap ? ` · scrap ${(n.scrap * 100) | 0}%` : ''}${n.brk && n.brk.on ? ' · brk' : ''}`;
+  if (n.kind === 'source') return `${DISTS[n.interarrival.type].label} μ=${distMean(n.interarrival).toFixed(2)}`;
+  if (n.kind === 'storage') return `cap ${n.cap}`;
+  return '';
+}
 function renderSetupStations() {
   const host = $('setupStations'); if (!host) return; host.innerHTML = '';
-  if (!model.nodes.length) host.append(H('p', { class: 'floor-hint', style: 'margin:0 0 var(--s-2)' }, 'No stations yet — add a source, one or more workcenters, and a sink.'));
-  model.nodes.forEach((n) => {
-    const card = H('div', { class: 'setup-card' });
-    const head = H('div', { class: 'setup-card-h' }, [H('span', { class: 'setup-kind' }, n.kind), H('span', { class: 'setup-cardname' }, n.name || n.kind)]);
-    head.append(mini('✕', () => { removeNode(n.id); renderSetup(); }));
-    card.append(head);
-    const b = H('div', { class: 'setup-card-b stack' }); stationEditor(n, b, renderSetupStations); card.append(b);
-    host.append(card);
-  });
   const add = H('div', { class: 'setup-add' });
   STATION_KINDS.forEach(([k, label]) => { const btn = H('button', { class: 'btn btn-ghost' }, '+ ' + label); btn.addEventListener('click', () => addStation(k)); add.append(btn); });
   host.append(add);
+  if (!model.nodes.length) { host.append(H('p', { class: 'floor-hint', style: 'margin:0' }, 'No stations yet — add a source, one or more workcenters, and a sink.')); return; }
+  const list = H('div', { class: 'setup-list' });
+  model.nodes.forEach((n) => {
+    const open = setupOpenStation === n.id;
+    const card = H('div', { class: 'setup-card' + (open ? ' open' : '') });
+    const head = H('div', { class: 'setup-card-h' }, [
+      H('span', { class: 'setup-kind' }, n.kind), H('span', { class: 'setup-cardname' }, n.name || n.kind),
+      H('span', { class: 'setup-sum' }, open ? '' : stationSummary(n)),
+    ]);
+    head.append(mini('✕', () => { removeNode(n.id); if (setupOpenStation === n.id) setupOpenStation = null; renderSetup(); }));
+    head.addEventListener('click', (e) => { if (e.target.classList.contains('mini')) return; setupOpenStation = open ? null : n.id; renderSetupStations(); });
+    card.append(head);
+    if (open) { const b = H('div', { class: 'setup-card-b stack' }); stationEditor(n, b, renderSetupStations); card.append(b); }
+    list.append(card);
+  });
+  host.append(list);
 }
 function addStation(kind) {
   const i = model.nodes.length;
-  makeNode(kind, 8 + (i % 6) * 12, 10 + Math.floor(i / 6) * 12);   // temp spot; autoLayout fixes it on Apply
+  const n = makeNode(kind, 8 + (i % 6) * 12, 10 + Math.floor(i / 6) * 12);   // temp spot; autoLayout fixes it on Apply
+  setupOpenStation = n.id;                                                    // open the new station for editing
   persist(); renderSetup();
 }
 function renderSetupRoutes() {
@@ -1481,22 +1496,30 @@ function computeLayout() {
   return pos;
 }
 function autoLayout() { const pos = computeLayout(); for (const n of model.nodes) if (pos[n.id]) { n.x = pos[n.id].x; n.y = pos[n.id].y; } }
+// A faithful thumbnail of the model: uses the nodes' CURRENT positions (so it matches the floor)
+// once any have been placed, else the proposed auto-layout. Uniform scale (no stretching), real
+// legs + supply legs, and each part's route drawn in its colour.
 function renderSetupMini() {
   const host = $('setupMini'); if (!host) return;
-  const pos = computeLayout(); const ids = Object.keys(pos);
-  if (!ids.length) { host.innerHTML = '<p class="floor-hint" style="margin:0">Add stations to preview the layout.</p>'; return; }
+  const ns = model.nodes;
+  if (!ns.length) { host.innerHTML = '<p class="floor-hint" style="margin:0">Add stations to preview the layout.</p>'; return; }
+  const placed = ns.some((n) => (n.x || n.y));
+  const pos = {}; if (placed) ns.forEach((n) => { pos[n.id] = { x: n.x || 0, y: n.y || 0 }; }); else Object.assign(pos, computeLayout());
   let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
-  ids.forEach((id) => { const p = pos[id]; minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); });
-  const pad = 16, W = 300, H = Math.max(86, Math.min(240, (maxY - minY) * 7 + pad * 2));
-  const sx = (maxX - minX) ? (W - pad * 2) / (maxX - minX) : 1, sy = (maxY - minY) ? (H - pad * 2) / (maxY - minY) : 1;
-  const X = (x) => pad + (x - minX) * sx, Y = (y) => pad + (y - minY) * sy;
+  for (const n of ns) { const p = pos[n.id]; if (!p) continue; minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+  const W = 600, H = 320, pad = 26;
+  const s = Math.min((maxX - minX) ? (W - pad * 2) / (maxX - minX) : 1, (maxY - minY) ? (H - pad * 2) / (maxY - minY) : 1);  // uniform scale → keep aspect
+  const X = (x) => (W - (maxX - minX) * s) / 2 + (x - minX) * s, Y = (y) => (H - (maxY - minY) * s) / 2 + (y - minY) * s;
   let g = '';
-  model.parts.forEach((p, idx) => { const col = partColor(idx); const pts = p.route.map((id) => pos[id]).filter(Boolean).map((q) => `${X(q.x).toFixed(1)},${Y(q.y).toFixed(1)}`); if (pts.length > 1) g += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="1.5" opacity=".8"/>`; });
-  for (const n of model.nodes) { const q = pos[n.id]; if (!q) continue; const x = X(q.x), y = Y(q.y);
-    if (n.kind === 'resource' || n.kind === 'storage') g += `<rect x="${(x - 9).toFixed(1)}" y="${(y - 6).toFixed(1)}" width="18" height="12" rx="2" fill="var(--surface)" stroke="${n.assembly ? 'var(--accent)' : 'var(--line-strong)'}" stroke-width="1"/>`;
-    else g += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" fill="var(--surface-2)" stroke="var(--line-strong)"/>`;
-    g += `<text x="${x.toFixed(1)}" y="${(y - 8).toFixed(1)}" text-anchor="middle" font-size="6" fill="var(--ink-2)">${esc((n.name || n.kind).slice(0, 12))}</text>`; }
-  host.innerHTML = `<svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="max-height:240px">${g}</svg>`;
+  // legs (route legs + supply legs) as quiet grey lines, then routes coloured on top
+  const legSet = new Set([...allLegKeys(), ...bomDepLinks().map((d) => `${d.from}>${d.to}`)]);
+  for (const key of legSet) { const [a, b] = key.split('>'); if (!pos[a] || !pos[b]) continue; g += `<line x1="${X(pos[a].x).toFixed(1)}" y1="${Y(pos[a].y).toFixed(1)}" x2="${X(pos[b].x).toFixed(1)}" y2="${Y(pos[b].y).toFixed(1)}" stroke="var(--ink-2)" stroke-width="1" opacity=".28"/>`; }
+  model.parts.forEach((p, idx) => { const col = partColor(idx); const pts = p.route.map((id) => pos[id]).filter(Boolean).map((q) => `${X(q.x).toFixed(1)},${Y(q.y).toFixed(1)}`); if (pts.length > 1) g += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="1.6" opacity=".85"/>`; });
+  for (const n of ns) { const q = pos[n.id]; if (!q) continue; const x = X(q.x), y = Y(q.y);
+    if (n.kind === 'resource' || n.kind === 'storage') g += `<rect x="${(x - 10).toFixed(1)}" y="${(y - 7).toFixed(1)}" width="20" height="14" rx="2.5" fill="var(--surface)" stroke="${n.assembly ? 'var(--accent)' : 'var(--line-strong)'}" stroke-width="1.2"/>`;
+    else g += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="6" fill="var(--surface-2)" stroke="var(--line-strong)" stroke-width="1.2"/>`;
+    g += `<text x="${x.toFixed(1)}" y="${(y - 10).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--ink-2)">${esc((n.name || n.kind).slice(0, 14))}</text>`; }
+  host.innerHTML = `<svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="display:block">${g}</svg>`;
 }
 
 /* ---- pointer interaction ------------------------------------------------ */
