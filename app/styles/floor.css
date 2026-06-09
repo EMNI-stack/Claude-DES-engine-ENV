@@ -348,20 +348,24 @@ svg.floor .leg-dir.leg-off { opacity: .16; }
   border: 1px solid var(--line); border-radius: var(--r-control); padding: 7px 11px; margin: var(--s-3) 0 0; }
 .setup-drawer-wrap { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; }
 .setup-drawer-wrap[hidden] { display: none; }
-/* large centred popup (nearly full screen) so every section has room to breathe */
-.setup-aside { position: relative; width: min(1180px, 95vw); height: min(900px, 92vh); background: var(--surface);
+/* the dialog hugs its content (no forced full-height dead space), capped at the viewport */
+.setup-aside { position: relative; width: min(1060px, 95vw); max-height: 92vh; background: var(--surface);
   border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 10px 36px rgba(27,29,26,.24);
   display: flex; flex-direction: column; overflow: hidden; }
 .setup-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4);
   padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--line); flex: 0 0 auto; }
 .setup-head .panel__title { margin: 2px 0 0; }
-/* two-column body on wide screens; the live preview spans the full width at the top */
-/* left rail (sticky preview) + right single column (no empty-grid gaps) */
-.setup-body { padding: var(--s-4) var(--s-5); overflow: auto; display: grid; grid-template-columns: 340px 1fr; gap: var(--s-5); align-items: start; }
-@media (max-width: 900px) { .setup-body { grid-template-columns: 1fr; } .setup-rail { position: static; } }
-.setup-rail { position: sticky; top: 0; }
-.setup-main { min-width: 0; display: flex; flex-direction: column; gap: var(--s-5); }
+/* defined sidebar (full-height surface panel) + content; both columns always read as intentional */
+.setup-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: grid; grid-template-columns: 296px 1fr; align-items: stretch; }
+@media (max-width: 900px) { .setup-body { grid-template-columns: 1fr; } }
+.setup-rail { background: var(--surface-2); border-right: 1px solid var(--line); padding: var(--s-4); }
+.setup-rail-inner { position: sticky; top: 0; }
+.setup-main { min-width: 0; padding: var(--s-4) var(--s-5); display: flex; flex-direction: column; gap: var(--s-5); }
 .setup-mini { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-control); margin-top: var(--s-2); }
+/* "at a glance" model summary at the foot of the rail */
+.setup-summary { margin-top: var(--s-4); border-top: 1px solid var(--line); padding-top: var(--s-3); }
+.setup-sum-row { display: flex; align-items: baseline; justify-content: space-between; font-size: var(--fs-small); color: var(--ink-2); padding: 3px 0; }
+.setup-sum-row b { color: var(--ink); font-family: var(--mono); }
 .setup-sec { margin: 0; }
 /* bold numbered step headline + short subtitle */
 .setup-step-h { display: flex; align-items: flex-start; gap: var(--s-3); margin: 0 0 var(--s-3); }

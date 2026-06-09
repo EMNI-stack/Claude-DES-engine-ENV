@@ -116,7 +116,7 @@ function ensureModel(m) {
   if (!m.activePart || !m.parts.some((p) => p.id === m.activePart)) m.activePart = m.parts[0].id;
   return m;
 }
-function persist() { project.model = model; save(project); needsBuild = true; finished = false; const d = $('setupDrawer'); if (d && !d.hidden) renderSetupMini(); }
+function persist() { project.model = model; save(project); needsBuild = true; finished = false; const d = $('setupDrawer'); if (d && !d.hidden) { renderSetupMini(); renderSetupSummary(); } }
 
 /* ---- geometry ----------------------------------------------------------- */
 const px = (mm) => mm * S;
@@ -1416,6 +1416,17 @@ function renderSetup() {
   renderSetupRoutes();
   renderControl();           // hosted in the drawer (#controlBody)
   renderSetupMini();
+  renderSetupSummary();
+}
+// live "at a glance" counts in the rail (fills the sidebar; helps a student track progress)
+function renderSetupSummary() {
+  const host = $('setupSummary'); if (!host) return;
+  const comp = componentPidSet();
+  const products = model.parts.filter((p) => !comp.has(p.id)).length;
+  const sold = model.parts.filter((p) => p.demand && p.demand.on).length;
+  const routed = model.parts.filter((p) => p.route.length >= 2).length;
+  const rows = [['Products', products], ['Parts total', model.parts.length], ['Stations', model.nodes.length], ['Routes set', `${routed}/${model.parts.length}`], ['Sold to demand', sold]];
+  host.innerHTML = rows.map(([k, v]) => `<div class="setup-sum-row"><span>${k}</span><b class="num">${v}</b></div>`).join('');
 }
 
 const STATION_KINDS = [['source', 'Source'], ['resource', 'Workcenter'], ['storage', 'Storage'], ['sink', 'Sink']];

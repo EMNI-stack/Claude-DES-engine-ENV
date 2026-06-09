@@ -1035,3 +1035,20 @@ headlines + short subtitles, better use of space; keep it neat, don't over-expla
 - Renamed a few labels for plain language (“Your parts”, “Details”, “Run settings”). Verified headless
   (`#example5` setup): rail nav + bold numbered steps render on-brand; **self-test 21/21**; `npm test`
   **94/94**. `floor.html` + `floor.css` + one `init` wiring only.
+
+## 2026-06-09 — Floor redesign (Milestone 1f): kill the Setup dead space (hug-content dialog + sidebar panel)
+
+Stakeholder: the unused space still hurt professionalism. Fixes:
+- **Dialog hugs its content.** `.setup-aside` dropped the fixed `height: min(900px,92vh)` for
+  `height:auto; max-height:92vh` (width trimmed to 1060px), so a small model gives a small dialog and a
+  big one grows then scrolls — no forced empty height.
+- **The rail is now a real sidebar panel.** `.setup-body` is a stretch grid; the rail has a
+  `surface-2` background + right border and fills the full dialog height, with its content
+  (`.setup-rail-inner`) pinned sticky. Empty space inside a defined panel reads as intentional, not as a
+  void.
+- **Live “At a glance” summary** at the foot of the rail (`renderSetupSummary`): Products · Parts total ·
+  Stations · Routes set (n/total) · Sold to demand — fills the sidebar and helps a student track
+  progress; updates on every edit.
+- Verified headless: fresh model → compact dialog with a full sidebar; `#example5` → tall dialog,
+  sidebar fills and the summary reads 5 parts / 9 stations / 5⁄5 routes / 2 sold. **Self-test 21/21**;
+  `npm test` **94/94**. UI-only.

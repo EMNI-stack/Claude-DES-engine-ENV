@@ -140,15 +140,18 @@
     </div>
     <div class="setup-body">
       <aside class="setup-rail">
-        <p class="section-label">Live preview</p>
-        <div id="setupMini" class="setup-mini"></div>
-        <p class="floor-hint" style="margin:var(--s-2) 0 var(--s-4)">A thumbnail of your model. <b>Apply &amp; lay out</b> arranges it on the floor.</p>
-        <nav class="setup-nav" aria-label="Setup steps">
-          <a data-target="sec-products"><span class="setup-step-no">1</span><span class="setup-nav-t"><b>Products</b><i>what you make</i></span></a>
-          <a data-target="sec-stations"><span class="setup-step-no">2</span><span class="setup-nav-t"><b>Stations</b><i>the machines</i></span></a>
-          <a data-target="sec-routing"><span class="setup-step-no">3</span><span class="setup-nav-t"><b>Routing</b><i>how parts flow</i></span></a>
-          <a data-target="sec-run"><span class="setup-step-no">4</span><span class="setup-nav-t"><b>Run</b><i>release &amp; demand</i></span></a>
-        </nav>
+        <div class="setup-rail-inner">
+          <p class="section-label">Live preview</p>
+          <div id="setupMini" class="setup-mini"></div>
+          <p class="floor-hint" style="margin:var(--s-2) 0 var(--s-4)">A thumbnail of your model. <b>Apply &amp; lay out</b> arranges it on the floor.</p>
+          <nav class="setup-nav" aria-label="Setup steps">
+            <a data-target="sec-products"><span class="setup-step-no">1</span><span class="setup-nav-t"><b>Products</b><i>what you make</i></span></a>
+            <a data-target="sec-stations"><span class="setup-step-no">2</span><span class="setup-nav-t"><b>Stations</b><i>the machines</i></span></a>
+            <a data-target="sec-routing"><span class="setup-step-no">3</span><span class="setup-nav-t"><b>Routing</b><i>how parts flow</i></span></a>
+            <a data-target="sec-run"><span class="setup-step-no">4</span><span class="setup-nav-t"><b>Run</b><i>release &amp; demand</i></span></a>
+          </nav>
+          <div class="setup-summary"><p class="section-label">At a glance</p><div id="setupSummary"></div></div>
+        </div>
       </aside>
       <div class="setup-main">
         <section class="setup-sec" id="sec-products">
