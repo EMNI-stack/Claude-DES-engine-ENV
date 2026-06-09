@@ -1052,3 +1052,12 @@ Stakeholder: the unused space still hurt professionalism. Fixes:
 - Verified headless: fresh model → compact dialog with a full sidebar; `#example5` → tall dialog,
   sidebar fills and the summary reads 5 parts / 9 stations / 5⁄5 routes / 2 sold. **Self-test 21/21**;
   `npm test` **94/94**. UI-only.
+
+## 2026-06-09 — Floor redesign (Milestone 1g): bolder, clearer mini preview
+
+Stakeholder: the preview was too literal/thin to read at a glance — make it bolder and a bit playful.
+Reworked `renderSetupMini` (still faithful to the model's positions): smaller viewBox (everything renders
+larger), **type-distinct nodes** — filled petrol **source** dots, ink **sink** dots, rounded
+**workcenter** boxes, **accent ⊕** assembly boxes, dashed **storage** — and **thick part-coloured routes
+with direction arrowheads**, with readable labels. Verified headless (`#example5`): clear at a glance.
+Self-test 21/21; `npm test` 94/94. `floor.js` only.

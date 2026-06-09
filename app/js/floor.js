@@ -1518,18 +1518,35 @@ function renderSetupMini() {
   const pos = {}; if (placed) ns.forEach((n) => { pos[n.id] = { x: n.x || 0, y: n.y || 0 }; }); else Object.assign(pos, computeLayout());
   let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
   for (const n of ns) { const p = pos[n.id]; if (!p) continue; minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
-  const W = 600, H = 320, pad = 26;
+  const W = 380, H = 250, pad = 40;   // smaller viewBox → everything renders larger / clearer
   const s = Math.min((maxX - minX) ? (W - pad * 2) / (maxX - minX) : 1, (maxY - minY) ? (H - pad * 2) / (maxY - minY) : 1);  // uniform scale → keep aspect
   const X = (x) => (W - (maxX - minX) * s) / 2 + (x - minX) * s, Y = (y) => (H - (maxY - minY) * s) / 2 + (y - minY) * s;
   let g = '';
-  // legs (route legs + supply legs) as quiet grey lines, then routes coloured on top
+  // structural legs (quiet, behind the routes)
   const legSet = new Set([...allLegKeys(), ...bomDepLinks().map((d) => `${d.from}>${d.to}`)]);
-  for (const key of legSet) { const [a, b] = key.split('>'); if (!pos[a] || !pos[b]) continue; g += `<line x1="${X(pos[a].x).toFixed(1)}" y1="${Y(pos[a].y).toFixed(1)}" x2="${X(pos[b].x).toFixed(1)}" y2="${Y(pos[b].y).toFixed(1)}" stroke="var(--ink-2)" stroke-width="1" opacity=".28"/>`; }
-  model.parts.forEach((p, idx) => { const col = partColor(idx); const pts = p.route.map((id) => pos[id]).filter(Boolean).map((q) => `${X(q.x).toFixed(1)},${Y(q.y).toFixed(1)}`); if (pts.length > 1) g += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="1.6" opacity=".85"/>`; });
+  for (const key of legSet) { const [a, b] = key.split('>'); if (!pos[a] || !pos[b]) continue; g += `<line x1="${X(pos[a].x).toFixed(1)}" y1="${Y(pos[a].y).toFixed(1)}" x2="${X(pos[b].x).toFixed(1)}" y2="${Y(pos[b].y).toFixed(1)}" stroke="var(--line-strong)" stroke-width="2" stroke-linecap="round" opacity=".35"/>`; }
+  // each part's route — thick, coloured, with a direction arrowhead near the end
+  model.parts.forEach((p, idx) => {
+    const col = partColor(idx); const r = p.route.map((id) => pos[id]).filter(Boolean); if (r.length < 2) return;
+    g += `<polyline points="${r.map((q) => `${X(q.x).toFixed(1)},${Y(q.y).toFixed(1)}`).join(' ')}" fill="none" stroke="${col}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>`;
+    const a = r[r.length - 2], b = r[r.length - 1], ang = Math.atan2(Y(b.y) - Y(a.y), X(b.x) - X(a.x));
+    const ex = X(b.x) - Math.cos(ang) * 17, ey = Y(b.y) - Math.sin(ang) * 17, ah = 8;
+    g += `<polygon points="${ex.toFixed(1)},${ey.toFixed(1)} ${(ex - Math.cos(ang - 0.5) * ah).toFixed(1)},${(ey - Math.sin(ang - 0.5) * ah).toFixed(1)} ${(ex - Math.cos(ang + 0.5) * ah).toFixed(1)},${(ey - Math.sin(ang + 0.5) * ah).toFixed(1)}" fill="${col}" opacity=".9"/>`;
+  });
+  // nodes — bigger, type-distinct shapes (filled in/out dots, accent ⊕ assemblers, dashed storage)
   for (const n of ns) { const q = pos[n.id]; if (!q) continue; const x = X(q.x), y = Y(q.y);
-    if (n.kind === 'resource' || n.kind === 'storage') g += `<rect x="${(x - 10).toFixed(1)}" y="${(y - 7).toFixed(1)}" width="20" height="14" rx="2.5" fill="var(--surface)" stroke="${n.assembly ? 'var(--accent)' : 'var(--line-strong)'}" stroke-width="1.2"/>`;
-    else g += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="6" fill="var(--surface-2)" stroke="var(--line-strong)" stroke-width="1.2"/>`;
-    g += `<text x="${x.toFixed(1)}" y="${(y - 10).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--ink-2)">${esc((n.name || n.kind).slice(0, 14))}</text>`; }
+    if (n.kind === 'resource') {
+      g += `<rect x="${(x - 20).toFixed(1)}" y="${(y - 14).toFixed(1)}" width="40" height="28" rx="7" fill="var(--surface)" stroke="${n.assembly ? 'var(--accent)' : 'var(--ink-2)'}" stroke-width="${n.assembly ? 2.5 : 2}"/>`;
+      if (n.assembly) g += `<text x="${x.toFixed(1)}" y="${(y + 5).toFixed(1)}" text-anchor="middle" font-size="15" fill="var(--accent)">⊕</text>`;
+    } else if (n.kind === 'storage') {
+      g += `<rect x="${(x - 19).toFixed(1)}" y="${(y - 13).toFixed(1)}" width="38" height="26" rx="7" fill="var(--surface-2)" stroke="var(--ink-2)" stroke-width="2" stroke-dasharray="5 3"/>`;
+    } else if (n.kind === 'source') {
+      g += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="12" fill="var(--primary)" stroke="var(--surface)" stroke-width="2"/>`;
+    } else {   // sink
+      g += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="12" fill="var(--ink)" stroke="var(--surface)" stroke-width="2"/>`;
+    }
+    g += `<text x="${x.toFixed(1)}" y="${(y - 19).toFixed(1)}" text-anchor="middle" font-size="13" font-weight="500" fill="var(--ink-2)">${esc((n.name || n.kind).slice(0, 16))}</text>`;
+  }
   host.innerHTML = `<svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="display:block">${g}</svg>`;
 }
 
