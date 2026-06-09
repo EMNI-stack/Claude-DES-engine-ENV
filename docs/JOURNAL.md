@@ -778,3 +778,18 @@ output advancing, no console errors.
   pop-up (parts list + per-part editor: name, type, BOM rows, demand, route summary). The side panel is
   now a compact parts summary with **+ Add part** and **Manage parts…**. Name fields update in place
   (no focus-stealing rebuild). Engine untouched → `npm test` 93/93.
+
+## 2026-06-09 — Fix: missing `newResponse` import broke "Declare these as study responses"
+
+- **Bug (found during a code read-through):** `app/js/floor.js` `addStandardResponses()` calls
+  `newResponse(w)` (line 948), but the module's `project.js` import only pulled in
+  `load, save, uid, newAssumption, newFactor` — `newResponse` was never imported (it *is* exported
+  from `app/js/project.js`). So clicking **"Declare these as study responses"** in the floor Results
+  panel threw a `ReferenceError` and the Phase-3.5.3 study-integration step (declaring throughput /
+  WIP / cycle time / fill rate as conceptual-model responses) silently did nothing.
+- **Fix:** added `newResponse` to the import in `app/js/floor.js`. One line; no engine, behaviour, or
+  schema change.
+- **Verification:** `node --check` on `floor.js` + `project.js` clean; `npm test` → **93/93**
+  (engine untouched — this is UI-only and not covered by the Node test suite, which is why it slipped
+  through). Confirmed `newResponse` has no local definition in `floor.js` and is genuinely exported by
+  `project.js`, so it was a real missing import, not a sync artefact.

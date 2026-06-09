@@ -4,7 +4,7 @@
    (des-floor/v1). Click any node or any leg to edit it; a table view gives an
    overview of every parameter. */
 
-import { load, save, uid, newAssumption, newFactor } from './project.js';
+import { load, save, uid, newAssumption, newFactor, newResponse } from './project.js';
 import { FloorSim, legDistance } from '../../src/floor-engine.js';
 import { DISTS, newDist, distMean, distScv, sample, mulberry32 } from '../../src/distributions.js';
 
