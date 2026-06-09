@@ -962,3 +962,12 @@ auto-generate the floor, then use the floor only for **physical** work. UI-only 
   lock banner, the new tabs, the smaller inset and leg arrows, and runs.
 - **Decision logged:** `docs/DECISIONS.md` (2026-06-09). **Next (Milestone 2):** physical transit on
   the shared sub-assembly link (engine).
+
+## 2026-06-09 — Floor redesign (Milestone 1c): Setup as a large centred popup
+
+Stakeholder: the Setup screen should be a wide centred pop-up, almost full-screen, with room for
+everything. Changed `.setup-aside` from a 560px right drawer to a centred popup
+(`min(1180px, 95vw) × min(900px, 92vh)`, rounded, shadowed), and made `.setup-body` a **two-column
+grid** (the live preview spans full width on top; Stations + Routes on the left, Parts & BOM + Control
+on the right; single column under 900px). CSS-only. Verified via headless screenshot (example5 setup):
+full-width preview with coloured routes, Stations and Parts & BOM side by side, readable.
