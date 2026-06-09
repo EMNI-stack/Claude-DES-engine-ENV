@@ -919,3 +919,17 @@ keyboard**, not just via the `#exampleN` loaders; and write down how to build th
   Route tool → CONWIP + limitless → run/read the BOM inset & Flow tab).
 
 No engine/app change — verification + docs only; `npm test` still **93/93**.
+
+## 2026-06-09 — Floor redesign (Milestone 1a): smaller BOM inset + leg direction arrows
+
+First slice of the approved "Model Setup builder + structure-locked floor" redesign (plan:
+`.claude/plans/staged-finding-haven.md`). Two low-risk visual fixes shipped first:
+- **BOM inset ~50% smaller** — scoped compact overrides in `floor.css` (`max-width 120px`, halved
+  fonts/padding/swatch); the magnified modal is unchanged.
+- **Direction arrowhead on every transport leg** — `render()` now draws a small arrowhead at each
+  leg's downstream node edge (reusing the dep-arrow polygon maths), so flow direction reads at a
+  glance. Off-active-route legs get a fainter arrow.
+
+UI-only; `node --check` clean; verified via headless screenshot of `#example5`. `npm test` 93/93.
+**Next (Milestone 1b):** the Setup drawer (stations / parts & BOM / routes / control) with live
+mini-preview + auto-layout, and locking structure-editing on the floor.

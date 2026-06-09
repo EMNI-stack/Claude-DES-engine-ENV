@@ -328,3 +328,17 @@ svg.floor .dep-label { font-family: var(--mono); font-size: 9px; opacity: .9; }
 /* "shared" split note + small BOM footnote */
 .bom-note { font-size: 10px; color: var(--faint); margin: 6px 0 0; line-height: 1.4; }
 .bom-routes .bomr-split { font-family: var(--sans); font-size: 11px; color: var(--ink-2); margin: 0 0 2px 18px; }
+
+/* BOM inset — compact (~50% smaller); the magnified modal is unaffected */
+.bom-inset { max-width: 120px; padding: 5px 7px; }
+.bom-inset-title { font-size: 8.5px; }
+.bom-inset .bom-mag { font-size: 11px; padding: 0 4px; }
+.bom-inset .bom-tree { gap: 2px; }
+.bom-inset .bomn { font-size: 9.5px; gap: 4px; }
+.bom-inset .bomn-meta { font-size: 8px; }
+.bom-inset .psw { width: 7px; height: 7px; }
+.bom-inset .bom-note { font-size: 8px; margin-top: 4px; }
+
+/* direction arrowhead on every transport leg (flow direction at a glance) */
+svg.floor .leg-dir { fill: var(--ink-2); opacity: .4; }
+svg.floor .leg-dir.leg-off { opacity: .16; }

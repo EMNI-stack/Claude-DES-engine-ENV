@@ -313,6 +313,12 @@ function render() {
     legG.append(E('line', { class: cls.trim(), x1: ax, y1: ay, x2: bx, y2: by }));
     legG.append(E('line', { class: 'leg-hit', 'data-leg': key, x1: ax, y1: ay, x2: bx, y2: by }));
     const far = legDistance(a, b) > 0.5, mx = (ax + bx) / 2, my = (ay + by) / 2;
+    if (far) {   // direction arrowhead at the downstream node's edge
+      const ang = Math.atan2(by - ay, bx - ax), hb = b.kind === 'resource' ? 48 : b.kind === 'storage' ? 40 : 20, ah = 7;
+      const tx = bx - Math.cos(ang) * hb, ty = by - Math.sin(ang) * hb;
+      legG.append(E('polygon', { class: 'leg-dir' + (onActive ? '' : ' leg-off'),
+        points: `${tx.toFixed(1)},${ty.toFixed(1)} ${(tx - Math.cos(ang - 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang - 0.4) * ah).toFixed(1)} ${(tx - Math.cos(ang + 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang + 0.4) * ah).toFixed(1)}` }));
+    }
     if (mover === 'worker' && far) { legG.append(E('circle', { class: 'worker-mark', cx: mx, cy: my, r: 7 })); legG.append(E('text', { class: 'worker-mark-t', x: mx, y: my + 3, 'text-anchor': 'middle' }, 'W')); }
   }
   svg.append(legG);
