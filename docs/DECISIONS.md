@@ -513,3 +513,30 @@ These choices are proposed and PAUSED for stakeholder confirmation before any co
 - Governing principle / source: Charter §2/§4/§9/§10; `Reference/theory-notes.md` §4.6 (Law of Assembly
   Operations — fork-join matching), §5 (layout/flow); `src/advanced-engine.js` as the validated reference.
   To be covered by a new `tests/floor-process.test.js` with existing suites staying green.
+
+## [2026-06-09] — Make the BOM visible: part colours, a magnifiable BOM inset, and a by-location flow ledger
+- Decision: Add a multi-part **visibility layer** to the floor (UI only; no engine change): (1) a
+  **stable per-part colour** drawn everywhere a part appears — parts panel, BOM tree, routes, the run
+  ledger, and the **job tokens themselves** (solid dot = active; part-coloured ring + ×N = waiting/
+  stored); (2) a **BOM inset** pinned in the canvas corner showing the assembly tree, with a **magnify**
+  button opening a modal that shows the full tree **and each part's physical route**, colour-coded; and
+  (3) a new **"Flow" tab** holding a live ledger organised **by location** — every station / transport
+  leg / the on-hand shelf and which parts (counts, in colour) are there right now. Palette extended to
+  10 categorical colours (`--c1…--c10`).
+- Rationale: Stakeholder feedback — because assembly components live in a **global per-part inventory
+  pool** (and a part has one route), there is no drawn leg from a sub-assembly into its parent
+  assembler, so the structure and the "what goes where" were invisible on the floor. The BOM inset makes
+  the structure explicit; colouring the units and a by-location ledger make the flow followable while a
+  run plays — directly serving the charter's "visualisations are the centre of gravity" and
+  clarity-for-a-learner. Two design forks were put to the stakeholder: the **magnified inset shows the
+  BOM tree + route list** (over tree-only or a route-map), and the **ledger is organised by location**
+  (over by-part or a hybrid).
+- Alternatives considered: tree-only inset (rejected — the stakeholder also wanted routes visible); a
+  route-map inset (rejected — loses the hierarchy, which is the thing that was invisible); a by-part
+  ledger / hybrid (rejected by the stakeholder in favour of reading the floor location-by-location);
+  drawing per-part legs on the main floor (rejected — shared legs make per-part colouring of the legs
+  ambiguous, so colour lives on the *units*, not the legs).
+- Governing principle / source: Stakeholder direction (2026-06-09); Charter §8 (data-forward, legible)
+  and §1 (clarity for a learner); DESIGN-LANGUAGE §5 (charts/figures), §7 (quiet, diagrammatic floor,
+  state via colour, no glow), §1 (categorical palette). UI-only; engine untouched (Charter §4.2);
+  `npm test` 93/93; verified via headless-Chrome screenshots of `#example5`.

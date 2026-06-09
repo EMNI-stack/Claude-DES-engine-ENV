@@ -39,9 +39,10 @@
   --down:        #B5462F;
   --scrap:       #8E2F22;
 
-  /* chart palette — desaturated, categorical */
+  /* chart / part palette — desaturated, categorical (up to 10 distinct parts) */
   --c1:#0F5F57; --c2:#B8852A; --c3:#3E5C76;
   --c4:#A8553F; --c5:#6B8F71; --c6:#6E4C6B;
+  --c7:#9C4A4A; --c8:#4E7A8A; --c9:#86773A; --c10:#5E5A87;
 
   /* type families */
   --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;

@@ -54,6 +54,7 @@
               <span class="scaleseg" id="scaleSeg"></span>
               <span class="scalelabel num" id="scaleLabel">10 m</span>
             </div>
+            <div class="bom-inset" id="bomInset" hidden></div>
             <div class="floor-tip" id="floorTip" role="status" hidden></div>
           </div>
 
@@ -82,12 +83,12 @@
             <span class="lg"><span class="lg-cell down"></span>Down</span>
             <span class="lg"><span class="lg-cell"></span>Free</span>
             <span class="lg-sep"></span>
-            <span class="lg"><span class="lg-dot"></span>Unit (in process / moving)</span>
-            <span class="lg"><span class="lg-dot q"></span>Waiting / stored (×N)</span>
+            <span class="lg"><span class="lg-dot"></span>Unit — solid = in process / moving</span>
+            <span class="lg"><span class="lg-dot q"></span>Waiting / stored (ring, ×N)</span>
             <span class="lg"><span class="lg-dot scrap"></span>Scrapped</span>
             <span class="lg"><span class="lg-line"></span>Transport</span>
             <span class="lg-sep"></span>
-            <span class="lg lg-hint">Hover a station for live counts (queue, in service, …)</span>
+            <span class="lg lg-hint">Each unit is coloured by its part — see the BOM inset (top-left) and the Flow tab</span>
           </div>
         </div>
 
@@ -101,6 +102,7 @@
         <div class="tabs" role="tablist">
           <button class="tab" data-tab="inspect" aria-selected="false">Inspect</button>
           <button class="tab" data-tab="model" aria-selected="true">Model</button>
+          <button class="tab" data-tab="flow" aria-selected="false">Flow</button>
           <button class="tab" data-tab="results" aria-selected="false">Results</button>
         </div>
 
@@ -139,6 +141,12 @@
           </div>
         </div>
 
+        <div class="tabbody" id="tab-flow" hidden>
+          <p class="section-label">Flow ledger</p>
+          <h2 class="panel__title" style="margin:2px 0 var(--s-3)">What’s flowing where</h2>
+          <div id="flowLedger"><p class="results-empty">Press Play to see which parts are at each station and on each transport leg, live.</p></div>
+        </div>
+
         <div class="tabbody" id="tab-results" hidden>
           <div id="results"><p class="results-empty">Press Play, then “End” when you’ve seen enough, to read throughput, cycle time, transport and utilisation.</p></div>
         </div>
@@ -163,6 +171,28 @@
       <div class="pm-editor-col">
         <p class="subhead">Definition</p>
         <div id="pmEditor" class="stack"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="bomModal" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal-card bom-modal-card">
+    <div class="modal-head">
+      <div><p class="section-label">Structure</p><h2 class="panel__title">Bill of materials &amp; routes</h2></div>
+      <button class="btn btn-primary" id="bomDone">Done</button>
+    </div>
+    <div class="modal-body bom-modal-grid">
+      <div>
+        <p class="subhead">Assembly tree</p>
+        <div id="bomModalTree" style="margin-top:var(--s-2)"></div>
+        <p class="floor-hint" style="margin-top:var(--s-3)">Indentation = a component of the part above. “×n” is how many are consumed per assembly. Underlined parts are also sold to customers.</p>
+      </div>
+      <div>
+        <p class="subhead">Routes on the floor</p>
+        <div id="bomModalRoutes" style="margin-top:var(--s-2)"></div>
+        <p class="floor-hint" style="margin-top:var(--s-3)">Each part’s physical path. Components finish on a shared on-hand shelf, from which assemblies pull them — so a component’s colour, not a drawn leg, shows where it goes.</p>
       </div>
     </div>
   </div>

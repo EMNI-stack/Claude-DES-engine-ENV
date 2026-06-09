@@ -823,3 +823,37 @@ output advancing, no console errors.
   sink/stream); exact BOM ratios (housing = 2 × motor; magnet = 4 × rotor); of ~5000 Motors produced,
   ~1670 sold as spares + ~3340 built into Pumps = produced (perfect split, no double-count).
   `node --check` clean; `npm test` → **93/93** (engine untouched).
+
+## 2026-06-09 — Floor: make the BOM visible + colour the flow (part colours · BOM inset · Flow ledger)
+
+**Trigger:** with assembly components pooled globally (no drawn leg from a sub-assembly into its
+parent assembler), the stakeholder couldn't *see* the structure or follow which part goes where —
+"I can't see the connections." A design change to make multi-part flow legible.
+
+**Done (UI only — no engine/schema/behaviour change):**
+- **Per-part colours, everywhere.** Extended the categorical palette to 10 (`--c1…--c10` in
+  `design-system.css`). A stable colour per part (by position in `model.parts`), shared by the parts
+  panel, the BOM tree, the routes, the run ledger, and the **job tokens** — a colour means one part
+  across the whole UI. (Also fixes the parts-panel dots, which previously referenced undefined
+  `--c4…--c6`.)
+- **BOM inset on the canvas.** A small structural map pinned top-left (`#bomInset`) showing the
+  assembly tree (roots = top-level products; components indented with the consumed `×qty`; sold parts
+  marked). A **magnify ⤢** opens a modal (`#bomModal`) with the full tree **and** each part's physical
+  **route** (colour-coded) — the stakeholder-chosen "BOM tree + route list". Shown only for multi-part /
+  BOM models; hidden for the basics-first single-part default.
+- **Coloured units while running.** Job tokens are filled with their part colour (solid = in
+  service / moving); waiting/stored units now draw as a part-coloured **ring + ×N**, split per part
+  per location (stacked) instead of one grey dot. Legend updated.
+- **Flow ledger (new "Flow" tab), by location** (the stakeholder-chosen organisation): a live table of
+  every station / transport leg / the on-hand shelf and which parts (with counts, in colour) are there
+  right now. Reads the running `sim`; refreshed from `renderFrame`, throttled to ~4×/s.
+
+**Verification:** `node --check` clean; `npm test` → **93/93** (engine untouched). Served the app over
+a local HTTP server and drove **headless Chrome** (screenshots reviewed): `#example5` renders the BOM
+inset (Pump → Motor ×1 → Rotor ×1 / Magnet ×4, Housing ×2) with colour swatches, coloured tokens flow,
+both sinks present, no console errors; the Flow tab populated live and correctly — Mill ● Housing ×2,
+Lathe ● Rotor ×1, in-transit legs (Mill→Final, Lathe→Motor), and On-hand shelf ● Magnet ×5, each in its
+part colour. On-brand with the design language (hairline, muted palette, no glow).
+
+**Design decision logged:** `docs/DECISIONS.md` (2026-06-09) — incl. the two stakeholder-chosen forks
+(magnified inset = BOM tree + route list; ledger = by location).

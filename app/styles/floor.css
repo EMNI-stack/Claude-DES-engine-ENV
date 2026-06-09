@@ -270,3 +270,50 @@ svg.floor .leg-label { font-family: var(--mono); font-size: 9px; fill: var(--fai
 #tab-results .table td:first-child, #tab-results .table th:first-child {
   width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #tab-results .table td.num, #tab-results .table th.num { white-space: nowrap; }
+
+/* ===== part colours · BOM inset · flow ledger (multi-part visibility) ===== */
+/* part colour swatch, shared by the parts panel, BOM tree, routes and ledger */
+.psw { width: 10px; height: 10px; border-radius: 2px; flex: 0 0 auto; display: inline-block; }
+
+/* BOM inset — a small structural map pinned in the canvas corner; magnifies to a modal */
+.bom-inset { position: absolute; top: 8px; left: 8px; z-index: 6; max-width: 220px;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(27,29,26,.06); padding: 8px 10px; }
+.bom-inset[hidden] { display: none; }
+.bom-inset-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.bom-inset-title { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+.bom-mag { appearance: none; background: transparent; border: 1px solid var(--line); border-radius: 3px;
+  cursor: pointer; color: var(--ink-2); font-size: 13px; line-height: 1; padding: 1px 6px; }
+.bom-mag:hover { border-color: var(--ink-2); color: var(--ink); }
+
+/* BOM tree (shared by inset + modal) */
+.bom-tree { display: flex; flex-direction: column; gap: 3px; }
+.bom-tree .bomn { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink); }
+.bom-tree .bomn-name { font-weight: 500; }
+.bom-tree .bomn-meta { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+.bom-tree .bomn.sold .bomn-name { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 2px; }
+
+/* BOM magnified modal */
+.bom-modal-card { width: min(780px, 94vw); }
+.bom-modal-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: var(--s-5); align-items: start; }
+@media (max-width: 560px) { .bom-modal-grid { grid-template-columns: 1fr; } }
+.bom-routes { display: flex; flex-direction: column; gap: 7px; }
+.bom-routes .bomr { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-small); }
+.bom-routes .bomr-name { font-weight: 500; min-width: 76px; flex: 0 0 auto; }
+.bom-routes .bomr-path { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+.bom-routes .bomr-tag { font-family: var(--mono); font-size: 9px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--faint); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+
+/* flow ledger — by location (which parts are where right now) */
+.flow-tbl td { vertical-align: top; padding: var(--s-2); }
+.flow-tbl .flow-loc { font-size: var(--fs-small); color: var(--ink); width: 40%; }
+.flow-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.flow-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line);
+  border-radius: 10px; padding: 1px 7px 1px 5px; font-size: 11px; background: var(--surface); }
+.flow-chip .flow-pname { color: var(--ink-2); }
+.flow-chip .flow-pn { color: var(--ink); }
+
+/* job tokens: solid dot = active (in service / moving); ring = waiting / stored.
+   Both are filled/stroked with the unit's PART colour (set inline in renderFrame). */
+svg.floor .tok.q { fill: var(--surface); stroke-width: 2; }
+.floor-legend .lg-dot.q { background: var(--surface); border: 2px solid var(--idle); }

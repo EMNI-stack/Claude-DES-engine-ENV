@@ -55,6 +55,7 @@ let lastBuildError = '';     // why buildSim() last refused (missing nodes, or a
 let tokenEls = new Map(), queueEls = new Map(), tokenLayer = null;
 let scrapSeen = 0;            // index into sim.scrapLog of the last scrap we've animated
 let hoverNodeId = null;       // node currently hovered, for the live count tooltip
+let lastLedger = 0;           // throttle stamp for the live Flow ledger (ms)
 
 // view (zoom / pan). Base coordinate space is 820×480 px (= 82×48 m at S=10).
 const BASE_W = 820, BASE_H = 480;
@@ -123,7 +124,19 @@ function node(id) { return model.nodes.find((n) => n.id === id); }
 /* ---- parts / routes (Phase 3.5) ---------------------------------------- */
 function activePart() { return model.parts.find((p) => p.id === model.activePart) || model.parts[0]; }
 function aRoute() { const p = activePart(); return p ? p.route : []; }   // the active part's ordered route
-function partColor(idx) { const cs = ['--c1', '--c2', '--c3', '--c4', '--c5', '--c6']; return `var(${cs[idx % cs.length]})`; }
+// stable per-part colour (by position in model.parts), shared by the parts panel, BOM tree,
+// routes, the run ledger, and the coloured job tokens — so a colour means one part everywhere.
+const PART_VARS = ['--c1', '--c2', '--c3', '--c4', '--c5', '--c6', '--c7', '--c8', '--c9', '--c10'];
+function partColor(idx) { return `var(${PART_VARS[idx % PART_VARS.length]})`; }
+function partIndex(pid) { const i = model.parts.findIndex((p) => p.id === pid); return i < 0 ? 0 : i; }
+function colorForPart(pid) { return partColor(partIndex(pid)); }
+function partById(pid) { return model.parts.find((p) => p.id === pid); }
+// parts consumed by some assembly (appear in another part's BOM)
+function componentPidSet() { const s = new Set(); for (const p of model.parts) for (const b of (p.bom || [])) s.add(b.partId); return s; }
+// show the BOM inset only when the structure is non-trivial (a BOM, or several parts)
+function bomActive() { return model.parts.length > 1 || model.parts.some((p) => p.bom && p.bom.length); }
+// top-level parts (not a component of anything) — the roots of the assembly tree
+function bomRoots() { const comp = componentPidSet(); return model.parts.filter((p) => !comp.has(p.id)); }
 // every transport leg used by ANY part (union of consecutive pairs) — shared physical edges = one leg
 function allLegKeys() {
   const set = new Set();
@@ -324,7 +337,7 @@ function renderFrame(cursor) {
   // so a long queue or a full storage reads at a glance instead of a cloud of dots.
   const TOK_CAP = 150;
   const seen = new Set(); let drawn = 0;
-  const queues = new Map();
+  const queues = new Map();   // locKey -> { x, y, anchor, parts: Map(pid -> n) }
   for (const job of sim.jobs.values()) {
     const loc = job.loc; if (!loc) continue;
     if (loc.k === 'service' || loc.k === 'transit') {
@@ -334,22 +347,29 @@ function renderFrame(cursor) {
       let c = tokenEls.get(job.id);
       if (!c) { c = E('circle', { class: 'tok' }); tokenLayer.append(c); tokenEls.set(job.id, c); }
       c.setAttribute('cx', p.x.toFixed(1)); c.setAttribute('cy', p.y.toFixed(1)); c.setAttribute('r', p.r);
+      c.style.fill = colorForPart(job.part);                 // solid dot, coloured by its part
     } else {
       const a = queueLoc(loc); if (!a) continue;
       let q = queues.get(a.key);
-      if (!q) { q = { x: a.x, y: a.y, anchor: a.anchor, n: 0 }; queues.set(a.key, q); }
-      q.n++;
+      if (!q) { q = { x: a.x, y: a.y, anchor: a.anchor, parts: new Map() }; queues.set(a.key, q); }
+      q.parts.set(job.part, (q.parts.get(job.part) || 0) + 1);   // count waiting/stored units per part
     }
   }
   for (const [id, c] of tokenEls) if (!seen.has(id)) { c.remove(); tokenEls.delete(id); }
+  // waiting / stored units: one part-coloured RING + "×N" per (location, part), stacked vertically
   const qSeen = new Set();
-  for (const [key, q] of queues) {
-    qSeen.add(key);
-    let el = queueEls.get(key);
-    if (!el) { const g = E('g', { class: 'qmark' }); const dot = E('circle', { class: 'tok q', r: 6 }); const lbl = E('text', { class: 'qcount' }); g.append(dot, lbl); tokenLayer.append(g); el = { dot, lbl, g }; queueEls.set(key, el); }
-    el.dot.setAttribute('cx', q.x.toFixed(1)); el.dot.setAttribute('cy', q.y.toFixed(1));
-    el.lbl.setAttribute('x', (q.anchor === 'end' ? q.x - 10 : q.x + 10).toFixed(1)); el.lbl.setAttribute('y', (q.y + 3.5).toFixed(1)); el.lbl.setAttribute('text-anchor', q.anchor);
-    el.lbl.textContent = q.n > 1 ? '×' + q.n : '';
+  for (const [locKey, q] of queues) {
+    const entries = [...q.parts.entries()].sort((a, b) => partIndex(a[0]) - partIndex(b[0]));
+    entries.forEach(([pid, n], i) => {
+      const key = locKey + '|' + pid; qSeen.add(key);
+      let el = queueEls.get(key);
+      if (!el) { const g = E('g', { class: 'qmark' }); const dot = E('circle', { class: 'tok q', r: 6 }); const lbl = E('text', { class: 'qcount' }); g.append(dot, lbl); tokenLayer.append(g); el = { dot, lbl, g }; queueEls.set(key, el); }
+      const yy = q.y + (i - (entries.length - 1) / 2) * 15;       // stack the parts present at one location
+      el.dot.style.stroke = colorForPart(pid);
+      el.dot.setAttribute('cx', q.x.toFixed(1)); el.dot.setAttribute('cy', yy.toFixed(1));
+      el.lbl.setAttribute('x', (q.anchor === 'end' ? q.x - 10 : q.x + 10).toFixed(1)); el.lbl.setAttribute('y', (yy + 3.5).toFixed(1)); el.lbl.setAttribute('text-anchor', q.anchor);
+      el.lbl.textContent = '×' + n;
+    });
   }
   for (const [key, el] of queueEls) if (!qSeen.has(key)) { el.g.remove(); queueEls.delete(key); }
   // scrapped parts: drop-and-fade where they were destroyed (only when watching live)
@@ -359,6 +379,8 @@ function renderFrame(cursor) {
     if (playing && spawned < 12) { spawnScrapAnim(s.node); spawned++; }   // skip animating bulk (run-to-end) scraps
   }
   if (hoverNodeId && !$('floorTip').hidden) $('floorTip').innerHTML = tipHTML(hoverNodeId);   // keep counts live
+  // live Flow ledger (throttled): which parts are at each station / leg right now
+  if (!$('tab-flow').hidden) { const tnow = (typeof performance !== 'undefined' ? performance.now() : 0); if (tnow - lastLedger > 240) { lastLedger = tnow; renderFlowLedger(); } }
 }
 /* a scrapped part: a red-ish token at the machine that drops straight down and fades out */
 function spawnScrapAnim(nodeId) {
@@ -475,6 +497,91 @@ function nodeEl(n) {
       g.append(b); }
   }
   return g;
+}
+
+/* ---- BOM visibility: corner inset + magnified modal + flow ledger ------- */
+// the assembly tree (shared by the inset and the modal): roots are top-level products,
+// each component indented under its parent with the quantity consumed; cycles are guarded.
+function bomTreeEl() {
+  const wrap = H('div', { class: 'bom-tree' });
+  const addNode = (pid, qty, depth, chain) => {
+    const p = partById(pid); if (!p) return;
+    const sold = p.demand && p.demand.on;
+    const sw = H('span', { class: 'psw' }); sw.style.background = colorForPart(pid);
+    const meta = []; if (qty != null) meta.push('×' + qty); if (sold) meta.push('sold');
+    const kids = [sw, H('span', { class: 'bomn-name' }, p.name)];
+    if (meta.length) kids.push(H('span', { class: 'bomn-meta' }, meta.join(' · ')));
+    wrap.append(H('div', { class: 'bomn' + (sold ? ' sold' : ''), style: `padding-left:${depth * 14}px` }, kids));
+    if (chain.has(pid)) return;                          // guard a cyclic BOM
+    const next = new Set(chain); next.add(pid);
+    for (const b of (p.bom || [])) addNode(b.partId, b.qty, depth + 1, next);
+  };
+  const roots = bomRoots();
+  if (!roots.length) wrap.append(H('p', { class: 'floor-hint', style: 'margin:0' }, 'No products yet.'));
+  for (const r of roots) addNode(r.id, null, 0, new Set());
+  return wrap;
+}
+// each part's physical route (colour-coded), shown in the magnified modal
+function bomRoutesEl() {
+  const wrap = H('div', { class: 'bom-routes' });
+  model.parts.forEach((p) => {
+    const sw = H('span', { class: 'psw' }); sw.style.background = colorForPart(p.id);
+    const path = p.route.map((id) => (node(id) || {}).name || '?').join('  →  ') || '(no route yet)';
+    const row = H('div', { class: 'bomr' }, [sw, H('span', { class: 'bomr-name' }, p.name), H('span', { class: 'bomr-path' }, path)]);
+    if (p.demand && p.demand.on) row.append(H('span', { class: 'bomr-tag' }, 'sold'));
+    wrap.append(row);
+  });
+  return wrap;
+}
+function renderBomInset() {
+  const host = $('bomInset'); if (!host) return;
+  if (!bomActive()) { host.hidden = true; host.innerHTML = ''; return; }
+  host.hidden = false; host.innerHTML = '';
+  const mag = H('button', { class: 'bom-mag', title: 'Magnify — show the full tree and routes' }, '⤢');
+  mag.addEventListener('click', openBomModal);
+  host.append(H('div', { class: 'bom-inset-head' }, [H('span', { class: 'bom-inset-title' }, 'Bill of materials'), mag]), bomTreeEl());
+}
+function openBomModal() { renderBomModal(); $('bomModal').hidden = false; }
+function closeBomModal() { $('bomModal').hidden = true; }
+function renderBomModal() {
+  const t = $('bomModalTree'), r = $('bomModalRoutes'); if (!t || !r) return;
+  t.innerHTML = ''; r.innerHTML = '';
+  t.append(bomTreeEl()); r.append(bomRoutesEl());
+}
+// Live ledger, organised BY LOCATION: which parts (and how many) are at each station / leg /
+// shelf right now, each shown in its part colour. Reads the running sim; throttled by renderFrame.
+function renderFlowLedger() {
+  const host = $('flowLedger'); if (!host) return;
+  if (!sim || needsBuild) { host.innerHTML = '<p class="results-empty">Press Play to see which parts are at each station and on each transport leg, live.</p>'; return; }
+  const order = {}; model.nodes.forEach((n, i) => { order[n.id] = i; });
+  const buckets = new Map();   // key -> { label, ord, parts: Map(pid -> n) }
+  const add = (key, label, ord, pid, n = 1) => { let b = buckets.get(key); if (!b) { b = { label, ord, parts: new Map() }; buckets.set(key, b); } b.parts.set(pid, (b.parts.get(pid) || 0) + n); };
+  for (const job of sim.jobs.values()) {
+    const loc = job.loc; if (!loc) continue;
+    if (loc.k === 'transit') {
+      const f = node(loc.from), t = node(loc.to);
+      add('leg:' + loc.from + '>' + loc.to, `${(f && f.name) || loc.from} → ${(t && t.name) || loc.to}`, 1000 + (order[loc.from] || 0), job.part);
+    } else if (loc.node != null) {
+      const n = node(loc.node);
+      add('node:' + loc.node, (n && n.name) || loc.node, order[loc.node] || 0, job.part);
+    }
+  }
+  if (sim.inventory) for (const pid in sim.inventory) { const v = sim.inventory[pid]; if (v > 0 && isFinite(v)) add('shelf', 'On-hand shelf (finished)', 3000, pid, v); }
+  const rows = [...buckets.values()].filter((b) => b.parts.size).sort((a, b) => a.ord - b.ord);
+  host.innerHTML = '';
+  host.append(H('p', { class: 'floor-hint', style: 'margin:0 0 var(--s-2)' }, 'Live — each unit in its part colour. “On-hand shelf” is finished components/products waiting to be used or sold.'));
+  if (!rows.length) { host.append(H('p', { class: 'results-empty' }, 'Nothing in the system right now.')); return; }
+  const tbl = H('table', { class: 'table flow-tbl' }); const tb = H('tbody');
+  for (const b of rows) {
+    const chips = H('div', { class: 'flow-chips' });
+    [...b.parts.entries()].sort((x, y) => partIndex(x[0]) - partIndex(y[0])).forEach(([pid, c]) => {
+      const sw = H('span', { class: 'psw' }); sw.style.background = colorForPart(pid);
+      chips.append(H('span', { class: 'flow-chip' }, [sw, H('span', { class: 'flow-pname' }, (partById(pid) || {}).name || pid), H('span', { class: 'flow-pn num' }, '×' + c)]));
+    });
+    const td2 = H('td'); td2.append(chips);
+    tb.append(H('tr', {}, [H('td', { class: 'flow-loc' }, b.label), td2]));
+  }
+  tbl.append(tb); host.append(tbl);
 }
 
 /* ---- parts panel (Phase 3.5) ------------------------------------------- */
@@ -844,10 +951,11 @@ function renderTable() {
 /* ---- selection + mutations --------------------------------------------- */
 function selectNode(id) { selected = { kind: 'node', id }; activateTab('inspect'); refreshAll(); }
 function selectLeg(key) { selected = { kind: 'leg', key }; activateTab('inspect'); refreshAll(); }
-function refreshAll() { render(); renderParts(); renderRoute(); renderInspector(); if (!$('tablePanel').hidden) renderTable(); }
+function refreshAll() { render(); renderParts(); renderRoute(); renderInspector(); renderBomInset(); if (!$('bomModal').hidden) renderBomModal(); if (!$('tablePanel').hidden) renderTable(); }
 function activateTab(name) {
   document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
   document.querySelectorAll('.tabbody').forEach((b) => { b.hidden = (b.id !== 'tab-' + name); });
+  if (name === 'flow') renderFlowLedger();
 }
 // Model sub-sections: BOM & Parts | Defaults | Control & Demand
 function activateSubTab(name) {
@@ -1293,7 +1401,10 @@ function init() {
   // parts manager modal close (Done button, backdrop click, Escape)
   $('pmDone').addEventListener('click', closePartsModal);
   $('partsModal').addEventListener('click', (e) => { if (e.target.hasAttribute('data-close')) closePartsModal(); });
-  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('partsModal').hidden) closePartsModal(); });
+  // BOM magnify modal close (Done, backdrop, Escape)
+  $('bomDone').addEventListener('click', closeBomModal);
+  $('bomModal').addEventListener('click', (e) => { if (e.target.hasAttribute('data-close')) closeBomModal(); });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (!$('partsModal').hidden) closePartsModal(); else if (!$('bomModal').hidden) closeBomModal(); } });
   $('btnExample').addEventListener('click', loadExample);
   $('btnClear').addEventListener('click', clearFloor);
   $('btnTable').addEventListener('click', () => { const p = $('tablePanel'); p.hidden = !p.hidden; $('btnTable').setAttribute('aria-pressed', String(!p.hidden)); if (!p.hidden) renderTable(); });
@@ -1323,7 +1434,7 @@ function init() {
   else if (location.hash === '#example4') { loadExample4(); startTab = 'model'; }   // assembly / multi-part demo
   else if (location.hash === '#example5') { loadExample5(); startTab = 'model'; }   // 3-level BOM, sub-assembly also sold
   if (model.defaultMover === 'worker' || Object.values(model.legs).some((l) => l.mover === 'worker')) ensureWorkerAssumption();
-  render(); renderParts(); renderRoute(); renderInspector(); renderTransport(); renderControl();
+  render(); renderParts(); renderRoute(); renderInspector(); renderTransport(); renderControl(); renderBomInset();
   activateTab(startTab); setPlayLabel(); updateClock(); zoomFit();
   if (['#play', '#example2', '#example3', '#example4', '#example5'].includes(location.hash)) { if (!model.parts.some((p) => p.route.length >= 2)) loadExample(); play(); }   // deep-link: open running
 }
