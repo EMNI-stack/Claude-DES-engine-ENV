@@ -77,6 +77,21 @@
   "replications for a target precision" estimate, so the student sees the cost of certainty
   rather than guessing a rep count. *Applied in Phase 4.1.* — [L] (theory-notes §3.3, §3.5)
 
+- **Delete the warm-up before estimating steady state.** A run started empty is biased low at the
+  start; the Welch across-replication WIP(t) curve shows the climb, and the analysis window begins
+  after it. When the curve never settles (too short / near-saturated), the app says so rather than
+  trusting a degenerate cut-off. *Applied in Phase 4.2.* — [L]; [R] (theory-notes §3.4)
+
+- **Compare designs by a paired difference on common random numbers.** Two scenarios are run on the
+  SAME seeds; the difference is tested with a paired-t CI — if it excludes 0 the designs genuinely
+  differ. Sharing random numbers cancels common noise and tightens the comparison without more runs.
+  *Applied in Phase 4.4.* — [L] (theory-notes §3.6)
+
+- **Output analysis closes the V&V loop, and still only builds confidence.** Real output lets the
+  student check experimentation adequacy (warm-up, run length, replications) and test category-C
+  assumptions by sensitivity — but a tight CI bounds *random* uncertainty, it is never *proof* the
+  model is right. *Applied in Phase 4.4.* — [R] ch 12 (theory-notes §2.5)
+
 ## Metrics & conventions
 
 - **Time-average vs sample-average metrics are computed differently.** Time-persistent

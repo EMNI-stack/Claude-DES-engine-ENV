@@ -365,7 +365,7 @@ function persist(cards, bottleneck, cutoffTime) {
       schema: 'des-results/v1',
       kind: 'replications',
       ran: new Date().toISOString(),
-      studyType,
+      studyType, timeUnit: timeUnit(),
       reps: lastOpts.reps, horizon: lastOpts.horizon, alpha: ALPHA, precisionTarget: lastOpts.target,
       warmupCutoff: studyType === 'steady' ? cutoffTime : 0,
       seeds: lastResult.reps.map((r) => r.seed),

@@ -92,8 +92,42 @@ function renderDoc() {
   doc.append(ul);
   if (has(project.vv.notes)) doc.append(el('h3', {}, 'Notes'), para(project.vv.notes));
 
+  // Output analysis (Phase 4) — only when the study has been run
+  const R = project.results;
+  if (R && Array.isArray(R.responses) && R.responses.length) {
+    const u = R.timeUnit || 'time units';
+    doc.append(el('h2', {}, 'Output analysis'));
+    const warm = R.studyType === 'steady'
+      ? (R.warmupCutoff > 0 ? `steady-state study; the first ${num(R.warmupCutoff)} ${u} deleted as warm-up` : 'steady-state study; no warm-up deleted')
+      : 'terminating study; the whole run analysed (no warm-up)';
+    doc.append(el('p', { class: 'small' },
+      `${R.reps} independent replications (seeds ${R.seeds ? R.seeds[0] : 1}–${R.seeds ? R.seeds[R.seeds.length - 1] : R.reps}), each run for ${num(R.horizon)} ${u} — ${warm}. ` +
+      `Every response is a ${Math.round((1 - (R.alpha || 0.05)) * 100)}% confidence interval; a single run is never reported alone.`));
+    doc.append(table(
+      ['Response', 'Mean', '95% CI', 'Half-width', 'Rel. half-width', `Reps for ±${Math.round((R.precisionTarget || 0.15) * 100)}%`],
+      R.responses.map((r) => [
+        `${r.label}${has(r.unit) ? ' (' + r.unit + ')' : ''}`,
+        num(r.mean), `[${num(r.ci_low)}, ${num(r.ci_high)}]`, `±${num(r.halfwidth)}`,
+        Number.isFinite(r.rel_halfwidth) ? `±${(r.rel_halfwidth * 100).toFixed(1)}%` : '—',
+        r.meetsTarget ? `met (${r.n})` : `~${r.repsForTarget}`,
+      ]),
+    ));
+    if (R.bottleneck) doc.append(el('p', { class: 'small' }, `Bottleneck: ${R.bottleneck.name} at ${(R.bottleneck.utilisation * 100).toFixed(1)}% mean utilisation.`));
+    const cm = R.comparison;
+    if (cm) {
+      doc.append(el('h3', {}, 'Scenario comparison'));
+      const verdict = cm.differs
+        ? `a real difference (95% CI on the difference [${num(cm.ci_low)}, ${num(cm.ci_high)}] excludes 0)`
+        : `no significant difference (95% CI [${num(cm.ci_low)}, ${num(cm.ci_high)}] includes 0)`;
+      doc.append(el('p', { class: 'small' },
+        `Factor "${cm.factor}" — ${cm.response}: level ${cm.levelA} → ${num(cm.meanA)} vs level ${cm.levelB} → ${num(cm.meanB)} ${cm.unit || ''}. ` +
+        `Difference ${num(cm.difference)} ± ${num(cm.halfwidth_crn)} (paired, common random numbers) — ${verdict}.`));
+    }
+  }
+
   return doc;
 }
+const num = (x) => { if (!Number.isFinite(x)) return '—'; const a = Math.abs(x); return a >= 100 ? x.toFixed(0) : a >= 10 ? x.toFixed(1) : a >= 1 ? x.toFixed(2) : x.toFixed(3); };
 
 function table(headers, rows) {
   const t = el('table', { class: 'table' });
@@ -155,13 +189,35 @@ function md() {
   project.vv.checklist.forEach((i) => L.push(`- [${i.done ? 'x' : ' '}] ${i.label}`));
   if (has(project.vv.notes)) { L.push('', `**Notes:** ${project.vv.notes}`); }
 
+  const R = project.results;
+  if (R && Array.isArray(R.responses) && R.responses.length) {
+    const u = R.timeUnit || 'time units';
+    sec('Output analysis');
+    const warm = R.studyType === 'steady'
+      ? (R.warmupCutoff > 0 ? `steady-state; first ${num(R.warmupCutoff)} ${u} deleted as warm-up` : 'steady-state; no warm-up deleted')
+      : 'terminating; whole run analysed';
+    L.push(`_${R.reps} independent replications, run length ${num(R.horizon)} ${u} — ${warm}. ${Math.round((1 - (R.alpha || 0.05)) * 100)}% confidence intervals; a single run is never reported alone._`, '');
+    L.push('| Response | Mean | 95% CI | Half-width | Rel. | Reps for target |', '|---|---|---|---|---|---|');
+    R.responses.forEach((r) => L.push(`| ${cell(r.label)}${has(r.unit) ? ' (' + cell(r.unit) + ')' : ''} | ${num(r.mean)} | [${num(r.ci_low)}, ${num(r.ci_high)}] | ±${num(r.halfwidth)} | ${Number.isFinite(r.rel_halfwidth) ? '±' + (r.rel_halfwidth * 100).toFixed(1) + '%' : '—'} | ${r.meetsTarget ? 'met (' + r.n + ')' : '~' + r.repsForTarget} |`));
+    if (R.bottleneck) L.push('', `**Bottleneck:** ${cell(R.bottleneck.name)} at ${(R.bottleneck.utilisation * 100).toFixed(1)}% mean utilisation.`);
+    const cm = R.comparison;
+    if (cm) {
+      L.push('', '### Scenario comparison', '');
+      const verdict = cm.differs
+        ? `a real difference (95% CI [${num(cm.ci_low)}, ${num(cm.ci_high)}] excludes 0)`
+        : `no significant difference (95% CI [${num(cm.ci_low)}, ${num(cm.ci_high)}] includes 0)`;
+      L.push(`Factor **${cell(cm.factor)}** — ${cell(cm.response)}: ${cell(cm.levelA)} → ${num(cm.meanA)} vs ${cell(cm.levelB)} → ${num(cm.meanB)} ${cell(cm.unit || '')}. Difference ${num(cm.difference)} ± ${num(cm.halfwidth_crn)} (paired / common random numbers) — ${verdict}.`);
+    }
+  }
+
   return L.join('\n');
 }
 const cell = (s) => String(s == null ? '' : s).replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
 function downloadMd() {
   const blob = new Blob([md()], { type: 'text/markdown' });
-  const a = el('a', { href: URL.createObjectURL(blob), download: (slug(project.meta.title) || 'study') + '.conceptual-model.md' });
+  const suffix = (project.results && project.results.responses && project.results.responses.length) ? '.study.md' : '.conceptual-model.md';
+  const a = el('a', { href: URL.createObjectURL(blob), download: (slug(project.meta.title) || 'study') + suffix });
   a.click(); URL.revokeObjectURL(a.href);
 }
 

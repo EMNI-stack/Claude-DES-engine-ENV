@@ -1543,3 +1543,26 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   line's warm-up/run-length as inadequate. No console errors.
 
 **Sources:** theory-notes §3.6 (paired-t, CRN); Robinson ch 12 (experimentation validation); Charter §5.
+
+## 2026-06-10 — Phase 4.5: extend the study export with analysis results
+
+**Done today**
+- Extended `app/js/export.js` (both the on-brand HTML document and the Markdown download) with an
+  **Output analysis** section, read from `project.results`: the run description (replications, seeds, run
+  length, terminating/steady-state, warm-up cut-off, confidence level), a per-response table
+  (mean · 95% CI · half-width · relative half-width · replications for the target), the bottleneck, and
+  the scenario comparison (factor, levels, the two means, and the paired difference CI / verdict). Added
+  `timeUnit` to the persisted results so the export can label the run length; download is named
+  `.study.md` once a run exists.
+- A student can now submit one document that carries the conceptual model, assumptions, V&V, **and** the
+  rigorous output analysis — confidence intervals, the warm-up choice, and a paired scenario comparison.
+- **Verified end-to-end in browser**: ran the analysis (15 reps, 5000 min, steady-state, 150 min warm-up),
+  compared Weld 1 vs 2 machines, then opened the export — the Output-analysis section rendered with the
+  CI table (Throughput ±0.9%, Cycle time ±2.4%, both met), the bottleneck, and the comparison
+  (cycle time 10.8 → 7.90 min, difference 2.95 ± 0.193, CI excludes 0). No console errors.
+- `npm test` **120/120**. Updated PRINCIPLES (warm-up deletion, paired/CRN comparison, V&V-closes-the-loop)
+  and DECISIONS (Phase-4 as-built notes).
+
+**Phase 4 complete (4.0 design → 4.5 export).** Next: Phase 5 — Factory Physics overlays.
+
+**Sources:** Charter §5; theory-notes §3; DESIGN-LANGUAGE §5.

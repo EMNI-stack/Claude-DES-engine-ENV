@@ -837,3 +837,28 @@ Three findings from the `tests/ui/stress2.html` sweep were resolved (stakeholder
   selection, metamodelling.
 - Governing principle / source: Charter §5/§9; theory-notes §3; DESIGN-LANGUAGE §5;
   `docs/PHASE-4-DESIGN.md`. **RATIFIED 2026-06-10** (α=0.05, N=10, γ=0.15).
+
+## 2026-06-10 — Phase 4 complete (4.1–4.5): as-built notes
+
+- **Shared run-model.** The editor→engine transform was extracted to `app/js/run-model.js`; `floor.js`
+  delegates to it so the floor and the analysis replicate the identical model. Governing: DRY / "what you
+  see is what you run".
+- **Replication driver (no engine change).** `src/analysis/replicate.js` snapshots public accumulators on
+  a time grid; responses over a window are snapshot deltas. Snapshots extend **forward-only** and record
+  the true area-time — `run({until:t})` overshoots `t` by one event, so accumulating back to `t` would
+  rewind `lastT` and double-count (it pushed mover utilisation > 100%). `wipTimeseries` labels buckets by
+  the nominal grid time so reps align in the Welch average.
+- **Warm-up default guard.** Welch's auto cut-off is degenerate when the WIP curve never settles (it lands
+  near the run end). The view caps the warm-up at 50% of the run, falls back to a light 10% when not
+  converged, and tells the student to run longer / treat as terminating. Rationale: a sensible default
+  beats deleting 95% of the run; the student still adjusts on the plot.
+- **Scenario comparison.** `applyFactor` (app/js/scenario.js) overrides one declared factor by its binding
+  key; two scenarios run on the **same seeds** (CRN) and are tested with `pairedDifference` (paired-t).
+  Supports machine/mover/batch/demand/CONWIP/speed/group-rule factors; structural factors
+  (group membercount, merge streams) are out of scope for the comparator.
+- **Export.** `project.results` (`des-results/v1`) carries means/CIs/half-widths, study type + warm-up
+  cut-off, reps/seeds, bottleneck, and the scenario comparison; `export.js` renders it (HTML + Markdown),
+  filename `.study.md` once a run exists.
+- Tests: `tests/analysis-replicate.test.js` — CI coverage, √N, warm-up bias reduction, mover utilisation,
+  paired comparison (real diff / none). `npm test` 120/120. Governing principle/source: Charter §5/§9;
+  theory-notes §3; DESIGN-LANGUAGE §5.
