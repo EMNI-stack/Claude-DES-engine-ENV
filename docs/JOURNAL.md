@@ -1566,3 +1566,28 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
 **Phase 4 complete (4.0 design → 4.5 export).** Next: Phase 5 — Factory Physics overlays.
 
 **Sources:** Charter §5; theory-notes §3; DESIGN-LANGUAGE §5.
+
+## 2026-06-10 — Phase 4 stress test + visual fixes
+
+**Done today**
+- **Functional stress battery** (headless, ad-hoc): ran the full analysis pipeline (buildRunModel →
+  replicate → responsesAtCutoff at cut-offs 0/mid/end → welchWarmup → repsForPrecision →
+  confidenceInterval, plus applyFactor + pairedDifference) over **11 extreme models** × 3 horizons
+  (near-unstable ρ0.97, source→sink only, BOM assembly, batch, parallel group, convergence, AGV+operator,
+  pull/CONWIP/limitless, heavy scrap, zero-completion, deadlocking batch) and 5 scenario comparisons.
+  Result: **no throws, no Infinity, all utilisation in [0,1]** (NaN allowed for zero-completion). The
+  Phase-4 model holds across the whole feature surface.
+- **Visual overlap fixes** (charts.js + analyse.css):
+  - Welch plot: the bottom-right "time (unit)" label collided with the last x-axis tick — moved both axis
+    titles to the top corners; the "warm-up cut-off" label now flips to the inside of the line near the
+    right edge and is hidden when there's no warm-up region.
+  - Utilisation bars: a near-100% (bottleneck) bar's "%" label overflowed the right margin — long bars now
+    print the value **inside** the bar end (white, right-aligned); the bottleneck stays flagged by colour.
+  - Response cards: large values (e.g. WIP in the hundreds) pushed the unit out — the mean line is now a
+    wrapping flex row, so number/half-width/unit reflow instead of overlapping.
+  - Replication dot-plot ticks: anchored inward at the ends (no edge clip) and de-duplicated when the
+    value range is tiny.
+- Verified in browser on a deliberately saturated AGV line (AGV at 100%, WIP in the hundreds, unsettled
+  warm-up): no overlaps, no console errors. `npm test` **120/120**.
+
+**Sources:** DESIGN-LANGUAGE §5.

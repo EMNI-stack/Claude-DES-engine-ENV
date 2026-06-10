@@ -21,7 +21,8 @@
   padding: var(--s-4) var(--s-5);
 }
 .resp__label { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--faint); }
-.resp__mean { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 30px; color: var(--ink); margin-top: var(--s-2); line-height: 1.05; }
+.resp__mean { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 28px; color: var(--ink); margin-top: var(--s-2); line-height: 1.1;
+  display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 5px; row-gap: 2px; }
 .resp__mean .pm { color: var(--ink-2); font-size: 18px; }
 .resp__mean .hw { font-size: 18px; color: var(--ink-2); }
 .resp__unit { font-size: 13px; color: var(--faint); }
@@ -63,6 +64,7 @@
 .chart-grid { stroke: var(--line); stroke-width: 1; }
 .chart-axis { stroke: var(--line-strong); stroke-width: 1; }
 .chart-tick { font-family: var(--mono); font-size: 10px; fill: var(--faint); }
+.chart-tick--inbar { fill: var(--surface); font-weight: 600; }
 .chart-axis-label { font-family: var(--mono); font-size: 10px; fill: var(--faint); }
 .chart-line { fill: none; stroke: var(--primary); stroke-width: 1.5; }
 .chart-line-faint { fill: none; stroke: var(--line-strong); stroke-width: 1; }

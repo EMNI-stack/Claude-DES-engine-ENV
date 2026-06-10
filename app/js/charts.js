@@ -76,9 +76,9 @@ export function welchPlot(welch, { cutoffTime = 0, unit = 'min', width = 720, he
     <path d="${rawPath}" class="chart-line-faint"/>
     <path d="${smPath}" class="chart-line"/>
     <line x1="${cx.toFixed(1)}" y1="${y1}" x2="${cx.toFixed(1)}" y2="${y0}" class="chart-cutoff"/>
-    <text x="${(cx + 5).toFixed(1)}" y="${y1 + 12}" class="chart-tick" fill="var(--accent)">warm-up cut-off</text>
+    ${cutoffTime > tmin ? `<text x="${((cx > x0 + (x1 - x0) * 0.62 ? cx - 5 : cx + 5)).toFixed(1)}" y="${y1 + 12}" class="chart-tick" fill="var(--accent)" text-anchor="${cx > x0 + (x1 - x0) * 0.62 ? 'end' : 'start'}">warm-up cut-off</text>` : ''}
     <text x="${x0}" y="${y1 - 4}" class="chart-axis-label">avg WIP (jobs)</text>
-    <text x="${x1}" y="${y0 + 18}" class="chart-tick" text-anchor="end">time (${esc(unit)})</text>
+    <text x="${x1}" y="${y1 - 4}" class="chart-axis-label" text-anchor="end">time (${esc(unit)})</text>
   </svg>`;
 }
 
@@ -105,8 +105,11 @@ export function repDotPlot(values, ci, { unit = '', width = 720, height = 92 } =
     : '';
   const meanLine = `<line x1="${sx(ci.mean).toFixed(1)}" y1="${m.t - 2}" x2="${sx(ci.mean).toFixed(1)}" y2="${H - m.b + 2}" class="chart-mean"/>`;
   const dots = v.map((x) => `<circle cx="${sx(x).toFixed(1)}" cy="${yMid.toFixed(1)}" r="3.5" class="chart-dot"/>`).join('');
-  const ticks = [lo + pad, (lo + hi) / 2, hi - pad].map((tv) =>
-    `<text x="${sx(tv).toFixed(1)}" y="${H - 8}" class="chart-tick" text-anchor="middle">${fmt(tv)}</text>`).join('');
+  // ticks anchored inward at the ends (no edge clip) and de-duplicated when the range is tiny
+  const tvals = [{ v: lo + pad, x: x0, a: 'start' }, { v: (lo + hi) / 2, x: (x0 + x1) / 2, a: 'middle' }, { v: hi - pad, x: x1, a: 'end' }];
+  const seen = new Set();
+  const ticks = tvals.filter((t) => { const s = fmt(t.v); if (seen.has(s)) return false; seen.add(s); return true; })
+    .map((t) => `<text x="${t.x.toFixed(1)}" y="${H - 8}" class="chart-tick" text-anchor="${t.a}">${fmt(t.v)}</text>`).join('');
   return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Replication values with mean and confidence band">
     ${band}${meanLine}<line x1="${x0}" y1="${yMid.toFixed(1)}" x2="${x1}" y2="${yMid.toFixed(1)}" class="chart-axis"/>${dots}${ticks}
     <text x="${x1}" y="${m.t}" class="chart-tick" text-anchor="end">${esc(unit)}</text>
@@ -134,15 +137,20 @@ export function utilBars(rows, { width = 720, rowH = 30, bottleneckName = null }
   const bars = rows.map((r, i) => {
     const y = m.t + i * rowH + rowH / 2;
     const isBn = bottleneckName && r.name === bottleneckName;
-    const w = Math.max(0, sx(Math.min(1, r.mean)) - x0);
+    const barEnd = sx(Math.min(1, r.mean));
+    const w = Math.max(0, barEnd - x0);
     const whisker = Number.isFinite(r.halfwidth)
       ? `<line x1="${sx(Math.max(0, r.mean - r.halfwidth)).toFixed(1)}" y1="${y.toFixed(1)}" x2="${sx(Math.min(1, r.mean + r.halfwidth)).toFixed(1)}" y2="${y.toFixed(1)}" class="chart-whisker"/>`
       : '';
+    // long bars (near 100%): put the % label INSIDE the bar end (right-aligned) so it never overflows
+    // the right margin; short bars label just to the right. The bottleneck is shown by bar colour.
+    const long = r.mean > 0.78;
+    const labelX = long ? barEnd - 6 : barEnd + 6;
+    const label = `<text x="${labelX.toFixed(1)}" y="${(y + 3).toFixed(1)}" class="chart-tick${long ? ' chart-tick--inbar' : ''}" text-anchor="${long ? 'end' : 'start'}">${(r.mean * 100).toFixed(1)}%</text>`;
     return `<g>
       <text x="${x0 - 8}" y="${(y + 3).toFixed(1)}" class="chart-tick" text-anchor="end">${esc(r.name)}</text>
       <rect x="${x0}" y="${(y - 7).toFixed(1)}" width="${w.toFixed(1)}" height="14" class="chart-bar${isBn ? ' chart-bar--bn' : ''}"/>
-      ${whisker}
-      <text x="${(sx(Math.min(1, r.mean)) + 6).toFixed(1)}" y="${(y + 3).toFixed(1)}" class="chart-tick">${(r.mean * 100).toFixed(1)}%${isBn ? ' · bottleneck' : ''}</text>
+      ${whisker}${label}
     </g>`;
   }).join('');
   return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Resource utilisation">${grid.join('')}${bars}</svg>`;
