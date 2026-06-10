@@ -1591,3 +1591,17 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   warm-up): no overlaps, no console errors. `npm test` **120/120**.
 
 **Sources:** DESIGN-LANGUAGE §5.
+
+## 2026-06-10 — Phase 5 (Factory Physics overlays): visual research collected (pre-design)
+
+- Gathered the FP theory worth visualising and a prioritised visual catalogue into
+  `docs/PHASE-5-RESEARCH.md` — characteristic curve (best/PWC/worst + W₀), VUT/congestion (Kingman),
+  production-flow zones, Little's-Law consistency, variability propagation, cycle-time vs theory,
+  buffer-portfolio frontier, process-flow Sankey — each with formula, teaching payoff, and data needs.
+- **Key finding:** most FP machinery is already built and tested (`src/analysis/characteristic.js`,
+  `metrics.js`, `compare.js`; `distMean`/`distScv`). The one real task is a **bridge** from the Phase-4
+  `replicate()` output to the `des-analysis/v1` `Dataset` those functions consume (+ a CONWIP-sweep
+  helper for the curve). No engine change anticipated.
+- **Not executed:** no Phase-5 code or Milestone-0 design note yet — research only, per request.
+
+**Sources:** theory-notes §4/§6/§8; Reference/_notes/{hopp-spearman,fp-managers}.md; Charter §7.
