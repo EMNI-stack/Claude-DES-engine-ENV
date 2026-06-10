@@ -862,3 +862,28 @@ Three findings from the `tests/ui/stress2.html` sweep were resolved (stakeholder
 - Tests: `tests/analysis-replicate.test.js` — CI coverage, √N, warm-up bias reduction, mover utilisation,
   paired comparison (real diff / none). `npm test` 120/120. Governing principle/source: Charter §5/§9;
   theory-notes §3; DESIGN-LANGUAGE §5.
+
+## 2026-06-10 — Phase 5: Factory Physics overlays — DESIGN (built autonomously)
+
+- **Decision:** overlay closed-form Factory Physics on the Phase-4 responses, with a per-comparison
+  **applicability flag** (exact / approximate / out-of-range). Honesty about where a formula no longer
+  holds IS the teaching point. No new simulation mechanics. Surfaces FP vocabulary; FP-for-Managers
+  language for the qualitative read-out. (Charter §3, §7; theory-notes §4, §6.)
+- **Comparisons & applicability rules:**
+  - **Little's Law** `WIP=TH×CT` — **always exact** (any distribution/topology); the backbone validation.
+  - **Utilisation** `u=ra·te/m` — **exact** for a stable single-class serial line; **approximate** under
+    scrap, assembly/BOM, convergence, or groups (per-resource own-rate used + flagged).
+  - **VUT/Kingman** `CTq=((ca²+ce²)/2)(u/(1−u))te` — **exact** for M/M/1; **approximate** for G/G/1·G/G/m
+    (Sakasegawa m-form) and breakdowns folded into te/ce²; **out-of-range** for finite buffers/blocking,
+    batching, assembly, convergence, transport-dominated delay (shown muted: "simulation needed here").
+    Computed at the bottleneck; ca² propagated downstream via `cd²=u²ce²+(1−u²)ca²` and flagged.
+  - **Best/Worst/PWC** curves (`characteristic.js`) with `W₀=rb·T₀` and the simulated operating point
+    (+CI) — curves exact by definition; the lean/fat reading exact for a single-product serial CONWIP
+    line, approximate/illustrative otherwise. Operating point only (no WIP sweep — out of scope).
+- **Line params:** `te=t0/A`, `ce²` breakdown-inflated (theory-notes §4.4), `rb=m_b/te_b` at max-u
+  station, `T₀=Σte`, `W₀=rb·T₀`, `ra=1/E[interarrival]` — all from public run-model + distMean/distScv;
+  no engine change.
+- **Location:** `app/physics.html` + `app/js/physics.js` (reuses Phase-4 driver + `charts.js`);
+  `src/analysis/factory_physics.js` holds the pure, tested theory functions.
+- Governing principle/source: Charter §3/§7; theory-notes §4/§6/§8; DESIGN-LANGUAGE §5;
+  `docs/PHASE-5-DESIGN.md`. **Built autonomously — review the applicability rules.**
