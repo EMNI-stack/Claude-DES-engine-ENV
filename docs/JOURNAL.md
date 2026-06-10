@@ -1349,3 +1349,18 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   product output ~0.28/min, cycle ~3.8 min, yield ~98%, two group hulls + one merge marker render, casters
   show breakdown downtime, the cell runs ~57% on two operators. `npm test` 113/113; authoring 21/21;
   stress 24/24.
+
+## 2026-06-10 — #example8 refinements + merge/batch label-overlap fix
+
+- **Bug fix (general):** on a node that is BOTH a merge and a batch resource (e.g. Heat-treat), the
+  "⋎ merge" tag and the "batch N/B" badge were both drawn at y:-40 and overlapped. `mergeMarkEl` now sits
+  at y:-52 when the node is a batch resource, so the two tags stack cleanly.
+- **#example8 — purchased-part feed is now automatic:** the Bearings → cell leg is left at the default
+  INSTANT mover (no operator carries it), matching "purchased parts feed automatically".
+- **#example8 — the cell is now a real U-shaped CELL (theory-notes §5.5):** the single assembly node was
+  replaced by **three operator-run workstations** — Press-fit (assembles 1 Casing + 2 Bearings) → Fasten
+  → Test & pack — arranged in a U; the **two workers stay inside the cell** (homes inside; they serve only
+  the cell's stations and the within-cell hand-off legs) and move parts station-to-station "circularly".
+- Verified headless: ~890 Gearboxes out, no deadlock, two group hulls + one (non-overlapping) merge tag,
+  three cell stations each operator-run, casters showing breakdown downtime. `npm test` 113/113;
+  authoring 21/21; stress 24/24.

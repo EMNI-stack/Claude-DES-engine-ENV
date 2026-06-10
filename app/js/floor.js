@@ -420,7 +420,9 @@ function groupHullEl(g) {
 function mergeMarkEl(id) {
   const n = node(id); if (!n) return null;
   const g = E('g', { class: 'mergemark', 'data-merge': id, transform: `translate(${px(n.x)},${px(n.y)})` });
-  g.append(E('text', { class: 'mergemark-lab', x: 0, y: -40, 'text-anchor': 'middle' }, '⋎ merge'));
+  // sit above the batch badge (y:-40) when the merge node is also a batch resource, so the tags don't overlap
+  const y = (n.kind === 'resource' && n.batch && n.batch.on) ? -52 : -40;
+  g.append(E('text', { class: 'mergemark-lab', x: 0, y, 'text-anchor': 'middle' }, '⋎ merge'));
   return g;
 }
 function moverEl(u) {
@@ -1683,9 +1685,13 @@ function loadExample8() {
   const castB1 = res('Caster B1', 22, 39, 'gear', 4, { scrap: 0.05, brk: brk(true) });
   const castB2 = res('Caster B2', 22, 49, 'gear', 4, { scrap: 0.05, brk: brk(true) });
   const heat = res('Heat-treat', 43, 27, 'furnace', 2.5, { batch: { on: true, size: 4, setup: 1.5 } });   // merge + batch
-  const cell = res('Assembly cell', 66, 27, 'assemble', 2, { assembly: true, operatorRequired: true });
-  const ship = mk('sink', 'Gearboxes out', 88, 27);
-  model.nodes = [steelA, castA1, castA2, steelB, castB1, castB2, bearings, heat, cell, ship];
+  // the assembly CELL — three workstations in a U, all operator-run; the two operators stay inside the
+  // cell and move parts station-to-station "circularly" (cellular manufacturing, theory-notes §5.5)
+  const cellA = res('Press-fit', 62, 13, 'assemble', 1.0, { assembly: true, operatorRequired: true });   // assembles 1 Casing + 2 Bearings
+  const cellB = res('Fasten', 78, 27, 'cpu', 0.9, { operatorRequired: true });
+  const cellC = res('Test & pack', 62, 41, 'cpu', 0.9, { operatorRequired: true });
+  const ship = mk('sink', 'Gearboxes out', 90, 41);
+  model.nodes = [steelA, castA1, castA2, steelB, castB1, castB2, bearings, heat, cellA, cellB, cellC, ship];
 
   // parallel-machine groups (3.7) — one per heavy line, shortest-queue
   const castersA = { id: uid('grp'), name: 'Casters A', rule: 'shortest', members: [castA1.id, castA2.id] };
@@ -1695,36 +1701,41 @@ function loadExample8() {
   // parts — Casing = two converging heavy lines (primary + feeder) through the batch furnace into the cell
   const dem = (mean, cw) => ({ on: false, dist: newDist('exp', { mean }), qty: 1, conwip: cw });
   const casing = { id: uid('part'), name: 'Casing', kind: 'fabricated',
-    route: [steelA.id, castersA.id, heat.id, cell.id],
+    route: [steelA.id, castersA.id, heat.id, cellA.id],
     feeders: [{ path: [steelB.id, castersB.id, heat.id] }], bom: [], demand: dem(6, 5) };
-  const bearing = { id: uid('part'), name: 'Bearing', kind: 'purchased', route: [bearings.id, cell.id], feeders: [], bom: [], demand: dem(2, 5) };
-  const gearbox = { id: uid('part'), name: 'Gearbox', kind: 'product', route: [cell.id, ship.id], feeders: [],
+  const bearing = { id: uid('part'), name: 'Bearing', kind: 'purchased', route: [bearings.id, cellA.id], feeders: [], bom: [], demand: dem(2, 5) };
+  const gearbox = { id: uid('part'), name: 'Gearbox', kind: 'product', route: [cellA.id, cellB.id, cellC.id, ship.id], feeders: [],
     bom: [{ partId: casing.id, qty: 1 }, { partId: bearing.id, qty: 2 }], demand: { on: true, dist: newDist('exp', { mean: 3.2 }), qty: 1, conwip: 8 } };
   model.parts = [casing, bearing, gearbox]; model.activePart = gearbox.id;
 
-  // transport — AGVs feed the heavy lines + carry the Casing to the cell; operators carry Bearings + run the cell
-  const agv = { mover: 'agv' }, bearingLeg = `${bearings.id}>${cell.id}`;
+  // transport — AGVs feed the heavy lines + carry the Casing to the cell; the purchased Bearings feed
+  // the cell AUTOMATICALLY (instant); inside the cell the two operators carry parts station-to-station.
+  const agv = { mover: 'agv' }, op = { mover: 'operator' };
   model.legs = {
     [`${steelA.id}>${castA1.id}`]: agv, [`${steelA.id}>${castA2.id}`]: agv,
     [`${castA1.id}>${heat.id}`]: agv, [`${castA2.id}>${heat.id}`]: agv,
     [`${steelB.id}>${castB1.id}`]: agv, [`${steelB.id}>${castB2.id}`]: agv,
     [`${castB1.id}>${heat.id}`]: agv, [`${castB2.id}>${heat.id}`]: agv,
-    [`${heat.id}>${cell.id}`]: agv,
-    [bearingLeg]: { mover: 'operator' },
+    [`${heat.id}>${cellA.id}`]: agv,                              // Casing into the cell, by AGV
+    [`${cellA.id}>${cellB.id}`]: op, [`${cellB.id}>${cellC.id}`]: op,   // within-cell hand-offs, by the operators
+    // (Bearings → cell is left at the default INSTANT mover — automatic feed of the purchased part)
   };
   const agvLinks = Object.keys(model.legs).filter((k) => model.legs[k].mover === 'agv');
+  const cellLinks = [`${cellA.id}>${cellB.id}`, `${cellB.id}>${cellC.id}`];
+  const cellMachines = [cellA.id, cellB.id, cellC.id];
   model.movers = [
     { id: uid('mv'), kind: 'agv', name: 'AGV 1', speed: 70, home: { x: 33, y: 20 }, serves: { links: agvLinks.slice(), machines: [] } },
     { id: uid('mv'), kind: 'agv', name: 'AGV 2', speed: 70, home: { x: 33, y: 27 }, serves: { links: agvLinks.slice(), machines: [] } },
     { id: uid('mv'), kind: 'agv', name: 'AGV 3', speed: 70, home: { x: 33, y: 34 }, serves: { links: agvLinks.slice(), machines: [] } },
-    { id: uid('mv'), kind: 'operator', name: 'Operator 1', speed: 60, home: { x: 60, y: 16 }, serves: { links: [bearingLeg], machines: [cell.id] } },
-    { id: uid('mv'), kind: 'operator', name: 'Operator 2', speed: 60, home: { x: 60, y: 38 }, serves: { links: [bearingLeg], machines: [cell.id] } },
+    // the two cell workers stay INSIDE the cell — they only serve the cell's stations and hand-offs
+    { id: uid('mv'), kind: 'operator', name: 'Worker 1', speed: 55, home: { x: 70, y: 22 }, serves: { links: cellLinks.slice(), machines: cellMachines.slice() } },
+    { id: uid('mv'), kind: 'operator', name: 'Worker 2', speed: 55, home: { x: 70, y: 32 }, serves: { links: cellLinks.slice(), machines: cellMachines.slice() } },
   ];
   model.defaultMover = 'instant'; model.control = 'conwip'; model.supply = 'stream';
-  selected = { kind: 'node', id: cell.id }; sim = null;
+  selected = { kind: 'node', id: cellA.id }; sim = null;
   ensureProcessAssumption(); ensureMoverAssumption();
   persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
-  $('floorHint').textContent = 'The grand demo: two heavy-duty automatic CASTING LINES (each a parallel-machine GROUP, with breakdowns + scrap, AGV-fed) CONVERGE into a shared BATCH heat-treat furnace, then feed a CELLULAR assembly station — 1 Casing + 2 bought Bearings → Gearbox — run by TWO OPERATORS who carry bearings AND assemble. Sold under pull/CONWIP. Press Play and watch it all move.';
+  $('floorHint').textContent = 'The grand demo: two heavy-duty automatic CASTING LINES (each a parallel-machine GROUP, with breakdowns + scrap, AGV-fed) CONVERGE into a shared BATCH heat-treat furnace, then feed a U-shaped CELL of three workstations — Press-fit (1 Casing + 2 auto-fed Bearings) → Fasten → Test & pack — where TWO WORKERS stay in the cell and move parts station-to-station. Gearboxes sold under pull/CONWIP. Press Play and watch it all move.';
 }
 function clearFloor() { model.nodes = []; setSinglePartRoute(); model.legs = {}; model.movers = []; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel();
