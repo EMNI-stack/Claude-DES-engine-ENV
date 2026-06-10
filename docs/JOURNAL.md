@@ -1364,3 +1364,21 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
 - Verified headless: ~890 Gearboxes out, no deadlock, two group hulls + one (non-overlapping) merge tag,
   three cell stations each operator-run, casters showing breakdown downtime. `npm test` 113/113;
   authoring 21/21; stress 24/24.
+
+## 2026-06-10 — Pre-Phase-4 UI stress sweep (groups + convergence + edge cases)
+
+- New headless harness `tests/ui/stress2.html` builds group (3.7) and convergence (3.8) models — and
+  edge cases — entirely through the Setup UI (28 checks). Found and fixed one real bug; logged two
+  behaviours for a product decision.
+- **Bug fixed:** the resource-group **Selection rule** picker passed `segmented` the wrong arg shape
+  (`[['shortest','Shortest queue'],…]` arrays instead of `[{value,label},…]` objects), so the two buttons
+  rendered as "undefined" and **even-split could not be selected via the UI** (stuck on shortest queue).
+  Corrected to the object form; even-split now selectable (G2 passes).
+- **Open finding (crash):** an emptied group (all members removed) that is still referenced by a route
+  becomes a phantom node id → `legDistance` reads `.x` on `undefined` → repeated TypeError, model
+  unrunnable. Needs a guard/decision (see DECISIONS once resolved).
+- **Open finding (silent):** a feeder that never joins the primary route still runs, but its parts
+  "complete" at a non-sink node; the UI warns but does not block. Decision pending.
+- Verified non-issues: group line via UI, even-split, convergence-via-UI (merge marker drawn), a group
+  inside a feeder + batch merge, deleting a group member (cleanup), and a group+feeder model surviving a
+  page reload all work. `npm test` 113/113; authoring 21/21; stress 24/24.

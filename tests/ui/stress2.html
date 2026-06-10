@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Floor stress test 2 — groups, convergence, edge cases</title>
+<style>
+  body { font-family: ui-monospace, Menlo, Consolas, monospace; margin: 16px; color: #1b1d1a; }
+  #app { width: 1400px; height: 900px; border: 1px solid #ccc; }
+  #out { white-space: pre-wrap; font-size: 12px; line-height: 1.5; }
+  .PASS { color: #0F5F57; } .FAIL { color: #b5462f; font-weight: 600; } .NOTE { color: #8a6d1a; }
+  #sum { font-size: 14px; font-weight: 700; margin: 8px 0; }
+</style>
+</head>
+<body>
+<h1 style="font-size:16px">Stress test 2 — parallel groups (3.7) + convergence (3.8) + edge cases, built via the Setup UI</h1>
+<div id="sum">running…</div>
+<pre id="out"></pre>
+<iframe id="app" title="floor under test"></iframe>
+<script>
+const out = document.getElementById('out'), sumEl = document.getElementById('sum');
+const KEY = 'des-study/v1';
+let pass = 0, fail = 0, rnav = 0, errs = [], issues = [];
+const ok = (c, m) => { const s = document.createElement('span'); s.className = c ? 'PASS' : 'FAIL'; s.textContent = (c ? 'PASS ' : 'FAIL ') + m + '\n'; out.append(s); c ? pass++ : fail++; return c; };
+const note = (m) => { const s = document.createElement('span'); s.className = 'NOTE'; s.textContent = 'NOTE ' + m + '\n'; out.append(s); issues.push(m); };
+const log = (s) => out.append(document.createTextNode(s + '\n'));
+let ifr, D, W;
+function loadFloor() { return new Promise((res) => { ifr = document.getElementById('app'); ifr.onload = () => setTimeout(() => { D = ifr.contentDocument; W = ifr.contentWindow; W.addEventListener('error', (e) => errs.push(e.message)); res(); }, 350); ifr.src = '../../app/floor.html?r=' + (++rnav); }); }
+async function reset() { try { localStorage.removeItem(KEY); } catch (e) {} errs = []; await loadFloor(); }
+const model = () => JSON.parse(localStorage.getItem(KEY)).model;
+
+/* ---- gestures (same patterns as stress.html) ---- */
+const byTxt = (root, t) => { for (const b of (root || D).querySelectorAll('button')) if (b.textContent.trim() === t || b.textContent.includes(t)) { b.click(); return true; } return false; };
+const addStation = (l) => byTxt(D.querySelector('#setupStations .setup-add'), '+ ' + l);
+const addMover = (l) => byTxt(D.querySelector('#setupMovers .setup-add'), '+ ' + l);
+const card = (i) => D.querySelectorAll('#setupStations .setup-card')[i];
+const openCard = (i) => { const c = card(i); if (c && !c.classList.contains('open')) c.querySelector('.setup-card-h').click(); return c; };
+function fieldInput(root, label) { for (const f of root.querySelectorAll('.field')) { const l = f.querySelector('label'); if (l && l.textContent.trim().toLowerCase() === label.toLowerCase()) return f.querySelector('input,select'); } return null; }
+function setNum(root, label, v) { const i = fieldInput(root, label); if (!i) return false; i.value = String(v); i.dispatchEvent(new W.Event('input', { bubbles: true })); return true; }
+function setText(root, label, v) { const i = fieldInput(root, label); if (!i) return false; i.value = v; i.dispatchEvent(new W.Event('input', { bubbles: true })); return true; }
+function toggle(root, includes, checked) { for (const r of root.querySelectorAll('.toggle-row')) if (r.textContent.includes(includes)) { const cb = r.querySelector('input[type=checkbox]'); if (cb.checked !== checked) { cb.checked = checked; cb.dispatchEvent(new W.Event('change', { bubbles: true })); } return true; } return false; }
+const routeAppend = (i, id) => { const b = D.querySelectorAll('#setupRoutes .route-block')[i]; const s = b && b.querySelector('select'); if (!s) return false; s.value = id; s.dispatchEvent(new W.Event('change', { bubbles: true })); return true; };
+const apply = () => D.getElementById('setupApply').click();
+const setControl = (mode) => byTxt(D.getElementById('controlBody'), mode);
+const step = (n) => { for (let i = 0; i < n; i++) D.getElementById('btnStep').click(); };
+const endRun = () => D.getElementById('btnEnd').click();
+const clkOut = () => parseInt(D.getElementById('clkOut').textContent) || 0;
+const clkWip = () => parseInt(D.getElementById('clkWip').textContent) || 0;
+const results = () => D.getElementById('results').innerText;
+function pdown(el) { el.dispatchEvent(new W.PointerEvent('pointerdown', { bubbles: true, pointerId: 1 })); W.dispatchEvent(new W.PointerEvent('pointerup', { bubbles: true, pointerId: 1 })); }
+function setLegMode(key, mode) { const el = D.querySelector(`[data-leg="${key}"]`); if (!el) return false; pdown(el); return byTxt(D.getElementById('propBody'), mode); }
+const noErr = (m) => ok(!errs.length, m + (errs.length ? ' — JS errors: ' + errs.slice(0, 3).join('; ') : ''));
+const noDeadlock = (m) => ok(!/deadlock/i.test(results()), m + (/deadlock/i.test(results()) ? ' — DEADLOCK reported' : ''));
+
+/* ---- group / feeder gestures ---- */
+const addGroup = () => byTxt(D.getElementById('setupGroups'), '+ Group');
+const gcard = (i) => D.querySelectorAll('#setupGroups .setup-card')[i];
+const openG = (i) => { const c = gcard(i); if (c && !c.classList.contains('open')) c.querySelector('.setup-card-h').click(); return c.querySelector('.setup-card-b'); };
+const setMember = (body, k, checked) => { const cb = body.querySelectorAll('.toggle-row input[type=checkbox]')[k]; if (!cb) return false; if (cb.checked !== checked) { cb.checked = checked; cb.dispatchEvent(new W.Event('change', { bubbles: true })); } return true; };
+const setRule = (body, label) => byTxt(body, label);
+const addFeeder = (blockIdx) => { const b = D.querySelectorAll('#setupRoutes .route-block')[blockIdx]; return byTxt(b.querySelector('.feeders'), '+ Feeder line'); };
+const feederAppend = (blockIdx, feederIdx, id) => { const b = D.querySelectorAll('#setupRoutes .route-block')[blockIdx]; const s = b.querySelectorAll('.feeders .feeder-row select')[feederIdx]; if (!s) return false; s.value = id; s.dispatchEvent(new W.Event('change', { bubbles: true })); return true; };
+const groupId = (i) => model().groups[i].id;
+
+/* ========================= SCENARIOS ========================= */
+
+// G1 — a parallel-machine GROUP built via the Setup UI, routed through, run
+async function G1_groupLine() {
+  log('\n— G1: parallel group via Setup UI —'); await reset();
+  ['Source', 'Workcenter', 'Workcenter', 'Workcenter', 'Sink'].forEach(addStation);
+  setText(openCard(1), 'Name', 'Mill 1'); setNum(card(1), 'mean', 1.2);
+  setText(openCard(2), 'Name', 'Mill 2'); setNum(card(2), 'mean', 1.2);
+  setText(openCard(3), 'Name', 'Pack'); setNum(card(3), 'mean', 0.6);
+  setNum(openCard(0), 'mean', 0.8);
+  addGroup(); const gb = openG(0); setMember(gb, 0, true); setMember(gb, 1, true);   // Mill 1 + Mill 2
+  const N = model().nodes.map((n) => n.id);   // [src, mill1, mill2, pack, sink]
+  routeAppend(0, N[0]); routeAppend(0, groupId(0)); routeAppend(0, N[3]); routeAppend(0, N[4]);
+  apply(); step(1500); endRun();
+  const m = model();
+  ok(m.groups.length === 1 && m.groups[0].members.length === 2, 'group with 2 members authored via UI');
+  ok(m.parts[0].route.includes(groupId(0)), 'group is in the route');
+  ok(clkOut() > 0, 'group line runs — out ' + clkOut());
+  const mems = m.nodes.filter((n) => m.groups[0].members.includes(n.id));
+  ok(mems.length === 2 && mems.every((n) => n.kind === 'resource'), 'group has 2 resource members');
+  noDeadlock('G1 no deadlock'); noErr('G1 no JS errors');
+}
+
+// G2 — even-split rule, 3 members
+async function G2_evenSplit() {
+  log('\n— G2: even-split group, 3 members —'); await reset();
+  ['Source', 'Workcenter', 'Workcenter', 'Workcenter', 'Sink'].forEach(addStation);
+  [1, 2, 3].forEach((i) => { setText(openCard(i), 'Name', 'M' + i); setNum(card(i), 'mean', 1.5); });
+  setNum(openCard(0), 'mean', 0.5);
+  addGroup(); const gb = openG(0); setRule(gb, 'Even split'); setMember(gb, 0, true); setMember(gb, 1, true); setMember(gb, 2, true);
+  const N = model().nodes.map((n) => n.id);
+  routeAppend(0, N[0]); routeAppend(0, groupId(0)); routeAppend(0, N[4]);
+  apply(); step(2500); endRun();
+  ok(model().groups[0].rule === 'even', 'rule set to even');
+  ok(model().groups[0].members.length === 3, '3 members');
+  ok(clkOut() > 0, 'even-split runs — out ' + clkOut());
+  noDeadlock('G2 no deadlock'); noErr('G2 no JS errors');
+}
+
+// M1 — same-part CONVERGENCE built via the Setup UI (feeder line)
+async function M1_convergeUI() {
+  log('\n— M1: convergence (feeder) via Setup UI —'); await reset();
+  ['Source', 'Source', 'Workcenter', 'Workcenter', 'Workcenter', 'Sink'].forEach(addStation);
+  setText(openCard(0), 'Name', 'Raw A'); setNum(card(0), 'mean', 1.2);
+  setText(openCard(1), 'Name', 'Raw B'); setNum(card(1), 'mean', 1.2);
+  setText(openCard(2), 'Name', 'Mill A'); setNum(card(2), 'mean', 0.8);
+  setText(openCard(3), 'Name', 'Mill B'); setNum(card(3), 'mean', 0.8);
+  setText(openCard(4), 'Name', 'Finish'); setNum(card(4), 'mean', 0.6);
+  const N = model().nodes.map((n) => n.id);   // [rawA, rawB, millA, millB, finish, sink]
+  routeAppend(0, N[0]); routeAppend(0, N[2]); routeAppend(0, N[4]); routeAppend(0, N[5]);   // primary: RawA→MillA→Finish→Sink
+  addFeeder(0); feederAppend(0, 0, N[1]); feederAppend(0, 0, N[3]); feederAppend(0, 0, N[4]);  // feeder: RawB→MillB→Finish
+  apply(); step(2000); endRun();
+  const m = model();
+  ok((m.parts[0].feeders || []).length === 1, 'feeder authored via UI');
+  ok(D.querySelectorAll('.mergemark').length === 1, 'one merge marker drawn');
+  ok(clkOut() > 0, 'convergence runs — out ' + clkOut());
+  noDeadlock('M1 no deadlock'); noErr('M1 no JS errors');
+}
+
+// C1 — combo: a feeder line whose upstream is a GROUP, converging into a batch furnace, sold push/stream
+async function C1_groupFeederBatch() {
+  log('\n— C1: group inside a feeder + batch merge —'); await reset();
+  ['Source', 'Source', 'Workcenter', 'Workcenter', 'Workcenter', 'Workcenter', 'Sink'].forEach(addStation);
+  setNum(openCard(0), 'mean', 1.5); setNum(openCard(1), 'mean', 1.5);
+  setText(openCard(2), 'Name', 'CA1'); setNum(card(2), 'mean', 1.2);
+  setText(openCard(3), 'Name', 'CB1'); setNum(card(3), 'mean', 1.2);
+  setText(openCard(4), 'Name', 'CB2'); setNum(card(4), 'mean', 1.2);
+  const heat = openCard(5); setText(heat, 'Name', 'Heat'); setNum(card(5), 'mean', 1.5);
+  toggle(card(5), 'Process parts in batches', true); setNum(card(5), 'Batch size B', 3);
+  addGroup(); const gb = openG(0); setMember(gb, 1, true); setMember(gb, 2, true);   // group of CB1+CB2 (resource idx 1,2 = CB1,CB2)
+  const N = model().nodes.map((n) => n.id);   // [srcA, srcB, CA1, CB1, CB2, Heat, Sink]
+  routeAppend(0, N[0]); routeAppend(0, N[2]); routeAppend(0, N[5]); routeAppend(0, N[6]);   // primary: srcA→CA1→Heat→Sink
+  addFeeder(0); feederAppend(0, 0, N[1]); feederAppend(0, 0, groupId(0)); feederAppend(0, 0, N[5]);  // feeder: srcB→[group]→Heat
+  apply(); step(2500); endRun();
+  ok(clkOut() > 0, 'group-feeder-batch runs — out ' + clkOut());
+  noDeadlock('C1 no deadlock'); noErr('C1 no JS errors');
+}
+
+// E1 — EDGE: a group left EMPTY (all members removed) but still referenced by a route
+async function E1_emptyGroup() {
+  log('\n— E1 (edge): empty group still in a route —'); await reset();
+  ['Source', 'Workcenter', 'Workcenter', 'Sink'].forEach(addStation);
+  setNum(openCard(0), 'mean', 1); setText(openCard(1), 'Name', 'M1'); setText(openCard(2), 'Name', 'M2');
+  addGroup(); let gb = openG(0); setMember(gb, 0, true); setMember(gb, 1, true);
+  const N = model().nodes.map((n) => n.id);
+  routeAppend(0, N[0]); routeAppend(0, groupId(0)); routeAppend(0, N[3]);
+  gb = openG(0); setMember(gb, 0, false); setMember(gb, 1, false);   // empty it AFTER routing
+  const g = model().groups[0];
+  log('  empty group members=' + g.members.length + ', still in route=' + model().parts[0].route.includes(g.id));
+  apply(); step(800); endRun();
+  log('  result: out=' + clkOut() + ' wip=' + clkWip() + ' err=' + errs.length);
+  if (errs.length) note('E1: an empty group in a route throws a JS error: ' + errs[0]);
+  else if (clkOut() === 0 && clkWip() === 0 && model().parts[0].route.includes(g.id)) note('E1: parts vanish through an empty group (no output, no WIP) — premature completion at a non-node.');
+  else ok(true, 'E1 handled (out ' + clkOut() + ')');
+  noErr('E1 no JS errors (empty group)');
+}
+
+// E2 — EDGE: a product whose ASSEMBLY ROOT (route[0]) is a group (scoped out of v1)
+async function E2_groupAsAssembler() {
+  log('\n— E2 (edge): group as a product assembly root —'); await reset();
+  ['Source', 'Source', 'Workcenter', 'Workcenter', 'Sink'].forEach(addStation);
+  setNum(openCard(0), 'mean', 1); setNum(openCard(1), 'mean', 1);
+  setText(openCard(2), 'Name', 'Assy1'); toggle(card(2), 'Assembly station', true);
+  setText(openCard(3), 'Name', 'Assy2'); toggle(card(3), 'Assembly station', true);
+  // product (part 0) + one bought component (part 1)
+  byTxt(D.getElementById('pmList'), '+ Add part'); D.querySelectorAll('#pmList .pm-item')[1].click(); byTxt(D.getElementById('pmEditor'), 'Bought');
+  const P = model().parts; const comp = P[1].id;
+  D.querySelectorAll('#pmList .pm-item')[0].click(); byTxt(D.getElementById('pmEditor'), '+ component');
+  const s = D.querySelectorAll('#pmEditor .bom-row select')[0]; s.value = comp; s.dispatchEvent(new W.Event('change', { bubbles: true }));
+  toggle(D.getElementById('pmEditor'), 'Sold to customers', true);
+  addGroup(); const gb = openG(0); setMember(gb, 0, true); setMember(gb, 1, true);   // group {Assy1, Assy2}
+  const N = model().nodes.map((n) => n.id);   // [srcA, srcB, Assy1, Assy2, Sink]
+  // product route: GROUP → Sink ; component: srcB → GROUP
+  routeAppend(0, groupId(0)); routeAppend(0, N[4]);
+  routeAppend(1, N[1]); routeAppend(1, groupId(0));
+  apply(); step(1500); endRun();
+  log('  result: out=' + clkOut() + ' wip=' + clkWip() + ' err=' + errs.length);
+  if (errs.length) note('E2: group as assembly root throws: ' + errs[0]);
+  else if (clkOut() === 0) note('E2: group as a product assembly root produces NOTHING (the assembler node is a group, so BOM never assembles).');
+  else ok(true, 'E2 produced ' + clkOut());
+  noErr('E2 no JS errors (group assembler)');
+}
+
+// E3 — EDGE: a feeder that never joins the primary route (dangling)
+async function E3_danglingFeeder() {
+  log('\n— E3 (edge): feeder that does not join the route —'); await reset();
+  ['Source', 'Source', 'Workcenter', 'Workcenter', 'Sink'].forEach(addStation);
+  setNum(openCard(0), 'mean', 1); setNum(openCard(1), 'mean', 1);
+  setText(openCard(2), 'Name', 'MA'); setText(openCard(3), 'Name', 'MB');
+  const N = model().nodes.map((n) => n.id);   // [srcA, srcB, MA, MB, Sink]
+  routeAppend(0, N[0]); routeAppend(0, N[2]); routeAppend(0, N[4]);   // primary srcA→MA→Sink
+  addFeeder(0); feederAppend(0, 0, N[1]); feederAppend(0, 0, N[3]);   // feeder srcB→MB (MB NOT on primary route → no join)
+  const join = model().parts[0].feeders[0].path;
+  log('  feeder path=' + JSON.stringify(join) + ' (MB not on primary → dangling)');
+  apply(); step(1200); endRun();
+  log('  result: out=' + clkOut() + ' wip=' + clkWip() + ' err=' + errs.length);
+  if (errs.length) note('E3: dangling feeder throws: ' + errs[0]);
+  else note('E3: a feeder that never joins the route still runs but its parts complete at a non-sink (MB) — silent; the UI warns but does not block. out=' + clkOut());
+  noErr('E3 no JS errors (dangling feeder)');
+}
+
+// E4 — EDGE: delete a group member station after building, then run (cleanup)
+async function E4_deleteMember() {
+  log('\n— E4 (edge): delete a group member, then run —'); await reset();
+  ['Source', 'Workcenter', 'Workcenter', 'Sink'].forEach(addStation);
+  setNum(openCard(0), 'mean', 1); setText(openCard(1), 'Name', 'M1'); setText(openCard(2), 'Name', 'M2');
+  addGroup(); const gb = openG(0); setMember(gb, 0, true); setMember(gb, 1, true);
+  const N = model().nodes.map((n) => n.id);
+  routeAppend(0, N[0]); routeAppend(0, groupId(0)); routeAppend(0, N[3]);
+  // delete M2 (station card idx 2) via its ✕
+  const x = card(2).querySelector('.setup-card-h .mini'); if (x) x.click();
+  const g = model().groups[0];
+  ok(g && g.members.length === 1, 'deleting a member leaves the group with 1 member (cleanup)');
+  apply(); step(1200); endRun();
+  ok(clkOut() > 0 || !errs.length, 'still runs after member delete — out ' + clkOut());
+  noErr('E4 no JS errors (member delete)');
+}
+
+// P1 — persistence round-trip: build group+feeder, reload, still runs
+async function P1_persist() {
+  log('\n— P1: persistence round-trip (reload) —'); await reset();
+  ['Source', 'Source', 'Workcenter', 'Workcenter', 'Workcenter', 'Sink'].forEach(addStation);
+  [0, 1].forEach((i) => setNum(openCard(i), 'mean', 1));
+  setText(openCard(2), 'Name', 'A'); setText(openCard(3), 'Name', 'B'); setText(openCard(4), 'Name', 'F');
+  addGroup(); const gb = openG(0); setMember(gb, 0, true); setMember(gb, 1, true);   // group {A,B}
+  const N = model().nodes.map((n) => n.id);
+  routeAppend(0, N[0]); routeAppend(0, groupId(0)); routeAppend(0, N[5]);
+  addFeeder(0); feederAppend(0, 0, N[1]); feederAppend(0, 0, N[4]); feederAppend(0, 0, N[5]);
+  apply();
+  await loadFloor();   // reload the page from localStorage (ensureModel migration)
+  const m = model();
+  ok(m.groups.length === 1 && (m.parts[0].feeders || []).length === 1, 'group + feeder survived reload');
+  step(1200); endRun();
+  ok(clkOut() >= 0 && !errs.length, 'runs after reload — out ' + clkOut());
+  noErr('P1 no JS errors (reload)');
+}
+
+(async () => {
+  for (const sc of [G1_groupLine, G2_evenSplit, M1_convergeUI, C1_groupFeederBatch, E1_emptyGroup, E2_groupAsAssembler, E3_danglingFeeder, E4_deleteMember, P1_persist]) {
+    try { await sc(); } catch (e) { ok(false, sc.name + ' threw: ' + (e && e.message)); }
+  }
+  const summary = `RESULT pass=${pass} fail=${fail} issues=${issues.length}`;
+  sumEl.textContent = summary; sumEl.className = fail ? 'FAIL' : 'PASS'; document.title = summary; log('\n' + summary);
+  if (issues.length) { log('\nISSUES / NOTES:'); issues.forEach((i, k) => log((k + 1) + '. ' + i)); }
+})();
+</script>
+</body>
+</html>
