@@ -99,6 +99,32 @@ test('Transport coexistence: members reached via their own legs; Little\'s Law h
     `Little's Law across the group incl. transport: avgWIP ${r.avgWIP.toFixed(2)} vs TH*CT ${little.toFixed(2)}`);
 });
 
+test('Parallel assembly cells: a product assembled at a GROUP builds at any cell, consumes the BOM, uses both cells', () => {
+  // Asm = 2 Wid, assembled at a group of two identical cells {c1, c2}; Wid streams in and deposits at a cell
+  const model = {
+    schema: 'des-floor/v1', units: { time: 'min', distance: 'm', speed: 'm/min' },
+    transport: { default: 'instant', speed: 50, legs: {} }, control: 'push', supply: 'stream',
+    nodes: [
+      { kind: 'source', id: 'src', x: 0, y: 0 },
+      { kind: 'resource', id: 'c1', x: 100, y: -20, machines: 1, service: C(0.5), assembly: true },
+      { kind: 'resource', id: 'c2', x: 100, y: 20, machines: 1, service: C(0.5), assembly: true },
+      { kind: 'sink', id: 'snk', x: 200, y: 0 },
+    ],
+    groups: [{ id: 'cells', name: 'Cells', rule: 'shortest', members: ['c1', 'c2'] }],
+    parts: [
+      { id: 'Wid', kind: 'purchased', routing: ['src', 'cells'], arrival: E(0.35), bom: [] },
+      { id: 'Asm', kind: 'product', routing: ['cells', 'snk'], bom: [{ partId: 'Wid', qty: 2 }] },
+    ],
+  };
+  const sim = new FloorSim(model, 6);
+  sim.run({ until: 6000 });
+  assert.ok(sim.pstats.Asm.completed > 100, `products assemble at the group cells (${sim.pstats.Asm.completed})`);
+  // BOM enforced: every Asm STARTED (created) consumed exactly 2 Wid (consumption happens at assembly start)
+  assert.equal(sim.bomConsumed.Asm.Wid, 2 * sim.pstats.Asm.created, 'the BOM is enforced — exactly 2 Wid consumed per Asm');
+  assert.equal(sim.pstats.Wid.completed, sim.bomConsumed.Asm.Wid + sim.inventory.Wid, 'component conservation: delivered = consumed + on-hand');
+  assert.ok(sim.res.c1.processed > 0 && sim.res.c2.processed > 0, `both cells assembled units (c1 ${sim.res.c1.processed}, c2 ${sim.res.c2.processed})`);
+});
+
 test('Pooling lesson: a group of N members queues far less than forcing all flow through one member', () => {
   const service = C(0.4);                                  // each machine: 2.5 parts/min
   const ia = 0.2;                                          // arrivals: 5 parts/min — one machine is overloaded (rho=2)

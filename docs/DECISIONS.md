@@ -780,3 +780,26 @@ Three findings from the `tests/ui/stress2.html` sweep were resolved (stakeholder
   group's membership changed (a freshly-populated group didn't appear as routable until another action).
 - Governing principle / source: Charter §6.2/§6.3/§9; the build-guard pattern mirrors the existing
   batch-deadlock guard. **Covered by `tests/ui/stress2.html` (33 checks); `npm test` 113/113.**
+
+---
+
+## 2026-06-10 — Phase 3.7 extended: parallel ASSEMBLY cells (supersedes the "block group-as-assembler" decision)
+
+- Supersedes the prior resolution that *blocked* a group at a product's assembly root. The stakeholder
+  chose to **support it as a feature**: a group at a product's `route[0]` now means **N identical
+  parallel assembly cells**.
+- **Mechanism (engine only; `src/engine.js`/`advanced-engine.js` untouched):** every member of the
+  assembly-root group is marked an assembler (`res[member].product = p.id`), so components routed to the
+  group deposit into the shared per-part pool at whichever cell they reach; when a unit is authorised
+  (`tryAssembleMulti` + `firstResAccepts` confirms a cell has room), `createAndAdmit` builds it at the
+  **least-loaded** cell (room-aware placement) and the existing per-node machinery (service, operator,
+  scrap) runs it. The BOM is consumed from the shared pool exactly as for a single assembler.
+- Removed the `firstGroupAsAssembler` build guard (no longer needed). The empty-group and dangling-feeder
+  guards from the previous entry remain.
+- **Scope note:** assembly placement uses **least-loaded** (shortest-cell), independent of the group's
+  display rule — placing a new unit at a free cell is the sensible default; "even split" governs
+  *processing* groups. A shared-component **supply leg** into a group-root assembler is not auto-built
+  (components must route directly into the group) — simplest defensible form.
+- Governing principle / source: Charter §6.2; theory-notes §4.6 (pooling), §5.5 (cellular / parallel
+  machines). **Covered by `tests/floor-groups.test.js` "Parallel assembly cells" + `tests/ui/stress2.html`
+  E2; `npm test` 114/114.**

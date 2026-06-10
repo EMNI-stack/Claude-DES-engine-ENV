@@ -1396,3 +1396,14 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   becomes selectable as a route step as soon as it has members.
 - `tests/ui/stress2.html` updated to assert the guards (E1 no-crash + auto-clean; E2/E3 blocked with a
   message). Full battery green: `npm test` 113/113; authoring 21/21; stress 24/24; stress2 33/33.
+
+## 2026-06-10 — Parallel assembly cells (group at a product's assembly root, now supported)
+
+- Replaced the run-time block for finding #3 with a real feature: a resource group at a product's
+  `route[0]` = N parallel assembly cells. Engine: mark every member as an assembler; `createAndAdmit`
+  places each authorised unit at the least-loaded cell (room-aware); `_leastLoadedMember` added.
+  Removed the `firstGroupAsAssembler` UI guard. Components deposit into the shared pool at any cell; the
+  BOM is enforced unchanged.
+- New engine test "Parallel assembly cells" (BOM consumed = 2 × created, both cells used, component
+  conservation). `tests/ui/stress2.html` E2 flipped from "blocked" to "produces". `npm test` 114/114;
+  authoring 21/21; stress 24/24; stress2 34/34.

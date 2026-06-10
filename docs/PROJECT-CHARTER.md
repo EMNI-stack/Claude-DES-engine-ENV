@@ -219,6 +219,9 @@ load. This makes models more realistic (and ties to Factory Physics *pooling* an
   transport distance, in v1.
 - **No jockeying:** once a part is sent to a chosen machine it stays in that
   machine's queue.
+- A group may also sit at a product's **assembly root** — *parallel assembly cells*: several
+  identical cells share the assembly load (a new unit is built at the freest cell). The BOM is
+  consumed from the shared component pool exactly as for a single assembler.
 
 **Not in v1:** transport-aware routing, custom split weights, jockeying,
 load-balancing across groups.

@@ -157,7 +157,7 @@ async function E1_emptyGroup() {
 
 // E2 — EDGE: a product whose ASSEMBLY ROOT (route[0]) is a group (scoped out of v1)
 async function E2_groupAsAssembler() {
-  log('\n— E2 (edge): group as a product assembly root —'); await reset();
+  log('\n— E2: parallel assembly cells (group as a product assembly root) —'); await reset();
   ['Source', 'Source', 'Workcenter', 'Workcenter', 'Sink'].forEach(addStation);
   setNum(openCard(0), 'mean', 1); setNum(openCard(1), 'mean', 1);
   setText(openCard(2), 'Name', 'Assy1'); toggle(card(2), 'Assembly station', true);
@@ -173,12 +173,11 @@ async function E2_groupAsAssembler() {
   // product route: GROUP → Sink ; component: srcB → GROUP
   routeAppend(0, groupId(0)); routeAppend(0, N[4]);
   routeAppend(1, N[1]); routeAppend(1, groupId(0));
-  apply(); step(1500); const e2hint = D.getElementById('floorHint').textContent; endRun();
-  log('  E2 route0=='+(model().parts[0].route[0]===(model().groups[0]||{}).id)+' bom='+(model().parts[0].bom||[]).length+' out='+clkOut()+' hint='+e2hint.slice(0,80));
-  // FIX: a group as a product's assembly root is now refused at build with a clear message
-  ok(/assembled at a group|single station/i.test(e2hint), 'E2: group-as-assembler is blocked with a guidance message');
-  ok(clkOut() === 0, 'E2: refused to run (out 0)');
-  noErr('E2 no JS errors (group assembler)');
+  apply(); step(2000); endRun();
+  // FEATURE: a group at a product's assembly root = parallel assembly cells; it builds at the cells
+  ok(model().parts[0].route[0] === model().groups[0].id, 'product assembly root is the group of cells');
+  ok(clkOut() > 0, 'parallel assembly cells produce — out ' + clkOut());
+  noDeadlock('E2 no deadlock'); noErr('E2 no JS errors (parallel assembly)');
 }
 
 // E3 — EDGE: a feeder that never joins the primary route (dangling)

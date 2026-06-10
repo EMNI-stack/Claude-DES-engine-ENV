@@ -965,12 +965,6 @@ function firstDanglingFeeder() {
   }
   return null;
 }
-// a resource GROUP is a processing step, never a product's assembly root (route[0]) — assembly must
-// happen at a single station, or the BOM is not assembled correctly. Refuse and explain.
-function firstGroupAsAssembler() {
-  for (const p of model.parts) if ((p.bom || []).length && isGroupId((p.route || [])[0])) return { p };
-  return null;
-}
 function inspectNode(n, body) {
   if (!n) { selected = null; renderInspector(); return; }
   $('propKind').textContent = n.kind;
@@ -1326,9 +1320,6 @@ function buildSim() {
   // convergence guard (Phase 3.8): a feeder must reach the route it converges into
   const df = firstDanglingFeeder();
   if (df) { sim = null; needsBuild = true; lastBuildError = `Cannot run — a feeder line on “${df.p.name || 'a part'}” doesn’t reach its route. End the feeder at a station that is on ${df.p.name || 'the part'}’s main route (the merge point).`; return false; }
-  // parallel-resource guard (Phase 3.7): a group can't be a product's assembly root
-  const ga = firstGroupAsAssembler();
-  if (ga) { sim = null; needsBuild = true; lastBuildError = `Cannot run — “${ga.p.name || 'a product'}” is assembled at a group. Assembly must happen at a single station; make the group a processing step instead, and assemble at one workcenter.`; return false; }
   lastBuildError = '';
   sim = new FloorSim(buildRunModel(), 1);
   simCursor = 0; needsBuild = false; finished = false; scrapSeen = 0;

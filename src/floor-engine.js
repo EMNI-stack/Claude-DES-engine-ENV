@@ -192,12 +192,13 @@ export class FloorSim {
     // which parts are consumed by some assembly (components) — for the deposit rule
     this.componentPids = new Set();
     for (const p of parts) for (const b of (p.bom || [])) this.componentPids.add(b.partId);
-    // assembly nodes: the product whose route STARTS at a resource is assembled there;
-    // components routed to that node are deposited (consumed), not processed.
+    // assembly nodes: the product whose route STARTS at a resource is assembled there; components
+    // routed to that node are deposited (consumed), not processed. If the route starts at a GROUP
+    // (Phase 3.7 parallel assembly cells), EVERY member is an assembler — components deposit at any
+    // cell (into the shared pool) and a unit is built at whichever cell is free (see createAndAdmit).
     for (const p of parts) {
       if (p.bom && p.bom.length) {
-        const nodeId = (p.routing || [])[0];
-        if (this.res[nodeId]) this.res[nodeId].product = p.id;
+        for (const mid of this.membersOf((p.routing || [])[0])) if (this.res[mid]) this.res[mid].product = p.id;
       }
     }
     // Supply legs (Phase 3.6): a component consumed by an assembler whose route does NOT end there
@@ -253,10 +254,19 @@ export class FloorSim {
   isSource(p) { return !(p.bom && p.bom.length); }
   inDemandM(pid) { return this.demandStats[pid] != null; }
 
+  // least-loaded member of a group (room-aware) — used to place a product at a free assembly cell
+  _leastLoadedMember(gid) {
+    const ms = this.groups[gid].members; let best = ms[0], bl = this.memberLoad(ms[0]);
+    for (let i = 1; i < ms.length; i++) { const l = this.memberLoad(ms[i]); if (l < bl) { bl = l; best = ms[i]; } }
+    return best;
+  }
   // create a job of part p on its routing #ridx (default 0) and admit it to that route's first node
   createAndAdmit(p, ridx = 0) {
-    const routing = ((this.partRoutings && this.partRoutings[p.id]) || [p.routing])[ridx] || p.routing;
-    const job = { id: ++this.pid, part: p.id, routing: routing.slice(), step: 0, entry: this.now, transit: 0, loc: null };
+    const routing = (((this.partRoutings && this.partRoutings[p.id]) || [p.routing])[ridx] || p.routing).slice();
+    // parallel assembly cells: a product whose route starts at a GROUP is built at one member cell
+    // (the least-loaded, so it has room — firstResAccepts already confirmed a cell is free)
+    if (this.isGroup(routing[0])) routing[0] = this._leastLoadedMember(routing[0]);
+    const job = { id: ++this.pid, part: p.id, routing, step: 0, entry: this.now, transit: 0, loc: null };
     this.jobs.set(job.id, job);
     this.entered++; this.wip++; this.pstats[p.id].created++; this.pstats[p.id].wip++;
     this.admit(job, 0);
