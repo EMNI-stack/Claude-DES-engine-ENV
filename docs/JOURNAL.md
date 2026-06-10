@@ -1605,3 +1605,21 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
 - **Not executed:** no Phase-5 code or Milestone-0 design note yet — research only, per request.
 
 **Sources:** theory-notes §4/§6/§8; Reference/_notes/{hopp-spearman,fp-managers}.md; Charter §7.
+
+## 2026-06-10 — Phase 5 (autonomous run): M0 design + 5.1 reference computations
+
+- **M0** — `docs/PHASE-5-DESIGN.md`: the four comparisons (Little's Law, utilisation, VUT/Kingman,
+  best/worst/PWC) and, for each, the **exact / approximate / out-of-range** rules tied to model features
+  (blocking, non-exponential, breakdowns, batch, assembly, convergence, groups). Summarised in DECISIONS.
+  Built straight through (autonomous) rather than pausing — applicability rules are the thing to review.
+- **5.1** — `src/analysis/factory_physics.js` (pure, tested): `effectiveProcess` (te, ce² with breakdown
+  inflation §4.4), `lineParams` (per-station te/ce²/u, bottleneck, rb, T₀, W₀, ra from the run-model +
+  distMean/distScv), `littlesLawCheck`, `vutQueueTime`/`vutCurve` (Kingman G/G/1 + Sakasegawa G/G/m),
+  `propagateScv` (linking equation), `modelFeatures`, and `applicability` (the honesty layer). Reuses
+  `characteristic.js` for best/PWC/worst.
+- **Tests** — `tests/analysis-physics.test.js`: Penny-Fab best/worst/PWC match §4.3 (rb=0.5,T₀=8,W₀=4);
+  lineParams derivation; clean M/M/1 simulation covers the utilisation and VUT predictions; Little's-Law
+  consistency on a run; applicability flags correct (M/M/1 exact; finite buffer/batch out-of-range;
+  non-exp/breakdown approximate; scrap ⇒ utilisation approximate). `npm test` **125/125**.
+
+**Sources:** theory-notes §4/§8; Charter §3/§7.
