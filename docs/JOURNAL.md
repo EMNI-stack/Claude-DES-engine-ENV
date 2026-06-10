@@ -1324,3 +1324,12 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   renders two streams converging into Paint (one merge marker, five legs), runs end-to-end (666 out), and
   Paint's utilisation (67%) ≈ the sum of the two mills (33% + 34%) — the combined stream. Authoring
   self-test 21/21, stress 24/24, `npm test` 113/113.
+
+## 2026-06-10 — Phase 3.8 Milestone 3: integrate convergence into the study project
+
+- Feeders are part of `model`, so they persist with the project and round-trip through `ensureModel`;
+  the merge structure is editable in the Routing step's feeder editor. Added a **converging-streams**
+  experimental factor (`merge:<partId>:streams`, baseline = primary + feeders) declared from the feeder
+  UI — letting a student study how superposing more feeders loads the downstream line.
+- Headless-verified the factor records into `project.conceptual.factors` (`merge:X:streams=2`). Phase 3.8
+  complete — `npm test` 113/113; authoring 21/21; stress 24/24.

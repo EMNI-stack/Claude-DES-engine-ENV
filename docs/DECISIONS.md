@@ -743,3 +743,19 @@ and 3.6.3 (integration); `npm test` 103/103.*
   components) — must not be conflated.
 - Governing principle / source: Charter §6.2 (inverse split), §6.3 (new), §9; theory-notes §4.5
   (variability propagation / superposition), §4.6 (pooling); `docs/PHASE-3-8-DESIGN.md`. **PENDING REVIEW.**
+
+---
+
+## 2026-06-10 — Phase 3.8 ratified & built (supersedes the "pending review" status above)
+
+- The stakeholder **confirmed all** of the design note: (1) build-vs-surface = reuse the existing shared
+  FIFO (no new queue primitive); (2) the **tail-splice** feeder model (a part's primary `route` +
+  `feeders` joining at a node on it, spliced into `part.routings` at build); (3) round-robin feeder
+  release under limitless/CONWIP with per-feeder interarrival under stream supply; (4) the merge node may
+  be a resource **or** a storage buffer. It remains a FLOW merge — never assembly synchronisation.
+- Built across 3.8.1 (engine), 3.8.2 (UI & floor), 3.8.3 (study integration). The number of converging
+  streams is a declarable **experimental factor** (`merge:<partId>:streams`) recorded in the conceptual
+  model for the Phase-4 runner, consistent with `group:*` and `movers:*` factors.
+- Governing principle / source: Charter §6.2 (inverse split), §6.3, §9; theory-notes §4.5 (variability
+  superposition), §4.6 (pooling); `docs/PHASE-3-8-DESIGN.md`. **Covered by `tests/floor-merge.test.js`
+  (5); authoring 21/21, stress 24/24, `npm test` 113/113.**

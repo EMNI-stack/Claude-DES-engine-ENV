@@ -1895,6 +1895,8 @@ function renderFeeders(p, block) {
   add.disabled = p.route.length < 1;
   add.addEventListener('click', () => { (p.feeders = p.feeders || []).push({ path: [] }); persist(); renderSetupRoutes(); renderSetupMini(); });
   wrap.append(add);
+  // the number of converging streams is an experimental factor (study the superposition / pooling effect)
+  if (partFeeders(p).length) wrap.append(factorButton(`merge:${p.id}:streams`, { name: `Converging streams — ${p.name}`, unit: 'streams', baseline: String(1 + partFeeders(p).length), description: 'How many upstream streams of this part converge at the merge. Vary to study how superposing more feeders loads the downstream line (variability superposition, theory-notes §4.5; pooling §4.6).' }, () => { renderSetupRoutes(); renderSetupMini(); }));
   block.append(wrap);
 }
 // Layered auto-layout: column = longest-path depth along route edges; row = a lane per part.
