@@ -759,3 +759,24 @@ and 3.6.3 (integration); `npm test` 103/103.*
 - Governing principle / source: Charter §6.2 (inverse split), §6.3, §9; theory-notes §4.5 (variability
   superposition), §4.6 (pooling); `docs/PHASE-3-8-DESIGN.md`. **Covered by `tests/floor-merge.test.js`
   (5); authoring 21/21, stress 24/24, `npm test` 113/113.**
+
+---
+
+## 2026-06-10 — Pre-Phase-4 UI hardening (resolutions from the stress sweep)
+
+Three findings from the `tests/ui/stress2.html` sweep were resolved (stakeholder-chosen):
+- **Empty group still in a route → crash** (phantom node → `legDistance` read `.x` on undefined).
+  Resolution: **guard the engine + auto-clean the UI** — `legDistance` is now defensive against a
+  missing endpoint, and emptying a group in the Setup editor strips it from all routes/feeders
+  (`stripGroupFromRoutes`). No crash; the model stays runnable.
+- **A feeder that never joins its route** ran but completed parts at a non-sink (silent). Resolution:
+  **block the run** with a clear message (`firstDanglingFeeder` build guard) until the feeder ends on a
+  node that is on the part's primary route.
+- **A group used as a product's assembly root** ran but didn't assemble the BOM (out of scope per the
+  Phase-3.7 design). Resolution: **block the run** with a guidance message (`firstGroupAsAssembler`) —
+  assembly must happen at a single station. *(Recommended default applied; the unanswered option.)*
+- Also fixed two UI bugs surfaced by the sweep: the group **Selection-rule** picker passed `segmented`
+  the wrong arg shape (even-split was unselectable), and the **Routing picker** didn't refresh when a
+  group's membership changed (a freshly-populated group didn't appear as routable until another action).
+- Governing principle / source: Charter §6.2/§6.3/§9; the build-guard pattern mirrors the existing
+  batch-deadlock guard. **Covered by `tests/ui/stress2.html` (33 checks); `npm test` 113/113.**

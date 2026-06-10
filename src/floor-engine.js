@@ -22,8 +22,9 @@ import { mulberry32, sample } from './distributions.js';
 /* Euclidean distance between two placed nodes (metres). Isolated so the metric
    is a one-line change if we ever switch to Manhattan. */
 export function legDistance(a, b) {
-  const dx = (a.x || 0) - (b.x || 0);
-  const dy = (a.y || 0) - (b.y || 0);
+  // defensive against a missing endpoint (e.g. a stale/phantom routing token) — never throw
+  const dx = ((a && a.x) || 0) - ((b && b.x) || 0);
+  const dy = ((a && a.y) || 0) - ((b && b.y) || 0);
   return Math.sqrt(dx * dx + dy * dy);
 }
 

@@ -957,6 +957,20 @@ function firstBatchDeadlock() {
   for (const n of model.nodes) if (n.kind === 'resource') { const w = batchWarning(n); if (w) return { n, w }; }
   return null;
 }
+// a feeder (Phase 3.8) must converge: its path must end on the part's primary route, else its parts
+// would "finish" at a non-sink. Refuse to run and say how to fix it.
+function firstDanglingFeeder() {
+  for (const p of model.parts) for (const f of partFeeders(p)) {
+    if ((f.path || []).length && !feederJoin(p, f.path)) return { p };
+  }
+  return null;
+}
+// a resource GROUP is a processing step, never a product's assembly root (route[0]) — assembly must
+// happen at a single station, or the BOM is not assembled correctly. Refuse and explain.
+function firstGroupAsAssembler() {
+  for (const p of model.parts) if ((p.bom || []).length && isGroupId((p.route || [])[0])) return { p };
+  return null;
+}
 function inspectNode(n, body) {
   if (!n) { selected = null; renderInspector(); return; }
   $('propKind').textContent = n.kind;
@@ -1309,6 +1323,12 @@ function buildSim() {
   // static deadlock guard: a batch that can provably never form would jam the model — refuse and explain
   const dl = firstBatchDeadlock();
   if (dl) { sim = null; needsBuild = true; lastBuildError = `Cannot run — ${dl.n.name || 'a batch station'}: ${dl.w}`; return false; }
+  // convergence guard (Phase 3.8): a feeder must reach the route it converges into
+  const df = firstDanglingFeeder();
+  if (df) { sim = null; needsBuild = true; lastBuildError = `Cannot run — a feeder line on “${df.p.name || 'a part'}” doesn’t reach its route. End the feeder at a station that is on ${df.p.name || 'the part'}’s main route (the merge point).`; return false; }
+  // parallel-resource guard (Phase 3.7): a group can't be a product's assembly root
+  const ga = firstGroupAsAssembler();
+  if (ga) { sim = null; needsBuild = true; lastBuildError = `Cannot run — “${ga.p.name || 'a product'}” is assembled at a group. Assembly must happen at a single station; make the group a processing step instead, and assemble at one workcenter.`; return false; }
   lastBuildError = '';
   sim = new FloorSim(buildRunModel(), 1);
   simCursor = 0; needsBuild = false; finished = false; scrapSeen = 0;
@@ -1851,7 +1871,9 @@ function groupEditor(g, body) {
   model.nodes.filter((n) => n.kind === 'resource').forEach((n) => {
     const inOther = model.groups.some((x) => x.id !== g.id && x.members.includes(n.id));
     const ch = H('input', { type: 'checkbox' }); ch.checked = g.members.includes(n.id); ch.disabled = inOther;
-    ch.addEventListener('change', () => { if (ch.checked) { if (!g.members.includes(n.id)) g.members.push(n.id); } else g.members = g.members.filter((m) => m !== n.id); persist(); render(); renderSetupGroups(); renderSetupSummary(); });
+    ch.addEventListener('change', () => { if (ch.checked) { if (!g.members.includes(n.id)) g.members.push(n.id); } else g.members = g.members.filter((m) => m !== n.id);
+      if (!g.members.length) stripGroupFromRoutes(g.id);   // an empty group can't be routed through — drop it from routes/feeders
+      persist(); render(); renderSetupGroups(); renderSetupRoutes(); renderSetupSummary(); });   // route picker offers a group once it has members
     body.append(H('label', { class: 'toggle-row' }, [ch, (n.name || 'machine') + (inOther ? ' (in another group)' : '')]));
   });
   body.append(H('p', { class: 'floor-hint', style: 'margin:var(--s-2) 0 0' }, 'Then add this group to a part’s route in step 3 — its operation is shared across these machines.'));
@@ -1861,10 +1883,14 @@ function addGroup() {
   model.groups.push({ id, name: 'Group ' + (model.groups.length + 1), rule: 'shortest', members: [] });
   setupOpenGroup = id; persist(); renderSetup();
 }
+// remove a group id from every route + feeder path (without deleting the group itself)
+function stripGroupFromRoutes(id) {
+  for (const p of model.parts) { p.route = p.route.filter((x) => x !== id);
+    for (const f of partFeeders(p)) f.path = (f.path || []).filter((x) => x !== id); }
+}
 function removeGroup(id) {
   model.groups = model.groups.filter((g) => g.id !== id);
-  for (const p of model.parts) { p.route = p.route.filter((x) => x !== id);   // drop the group from every route + feeder
-    for (const f of partFeeders(p)) f.path = (f.path || []).filter((x) => x !== id); }
+  stripGroupFromRoutes(id);   // drop the group from every route + feeder
   if (selected && selected.kind === 'group' && selected.id === id) selected = null;
   persist();
 }

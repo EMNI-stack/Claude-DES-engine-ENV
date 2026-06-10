@@ -149,13 +149,10 @@ async function E1_emptyGroup() {
   routeAppend(0, N[0]); routeAppend(0, groupId(0)); routeAppend(0, N[3]);
   gb = openG(0); setMember(gb, 0, false); setMember(gb, 1, false);   // empty it AFTER routing
   const g = model().groups[0];
-  log('  empty group members=' + g.members.length + ', still in route=' + model().parts[0].route.includes(g.id));
+  // FIX: emptying a group auto-strips it from routes/feeders, so no phantom node remains
+  ok(!model().parts[0].route.includes(g.id), 'emptied group auto-removed from the route');
   apply(); step(800); endRun();
-  log('  result: out=' + clkOut() + ' wip=' + clkWip() + ' err=' + errs.length);
-  if (errs.length) note('E1: an empty group in a route throws a JS error: ' + errs[0]);
-  else if (clkOut() === 0 && clkWip() === 0 && model().parts[0].route.includes(g.id)) note('E1: parts vanish through an empty group (no output, no WIP) — premature completion at a non-node.');
-  else ok(true, 'E1 handled (out ' + clkOut() + ')');
-  noErr('E1 no JS errors (empty group)');
+  ok(!errs.length, 'E1: no JS crash after emptying a routed group — out ' + clkOut());
 }
 
 // E2 — EDGE: a product whose ASSEMBLY ROOT (route[0]) is a group (scoped out of v1)
@@ -176,11 +173,11 @@ async function E2_groupAsAssembler() {
   // product route: GROUP → Sink ; component: srcB → GROUP
   routeAppend(0, groupId(0)); routeAppend(0, N[4]);
   routeAppend(1, N[1]); routeAppend(1, groupId(0));
-  apply(); step(1500); endRun();
-  log('  result: out=' + clkOut() + ' wip=' + clkWip() + ' err=' + errs.length);
-  if (errs.length) note('E2: group as assembly root throws: ' + errs[0]);
-  else if (clkOut() === 0) note('E2: group as a product assembly root produces NOTHING (the assembler node is a group, so BOM never assembles).');
-  else ok(true, 'E2 produced ' + clkOut());
+  apply(); step(1500); const e2hint = D.getElementById('floorHint').textContent; endRun();
+  log('  E2 route0=='+(model().parts[0].route[0]===(model().groups[0]||{}).id)+' bom='+(model().parts[0].bom||[]).length+' out='+clkOut()+' hint='+e2hint.slice(0,80));
+  // FIX: a group as a product's assembly root is now refused at build with a clear message
+  ok(/assembled at a group|single station/i.test(e2hint), 'E2: group-as-assembler is blocked with a guidance message');
+  ok(clkOut() === 0, 'E2: refused to run (out 0)');
   noErr('E2 no JS errors (group assembler)');
 }
 
@@ -195,10 +192,11 @@ async function E3_danglingFeeder() {
   addFeeder(0); feederAppend(0, 0, N[1]); feederAppend(0, 0, N[3]);   // feeder srcB→MB (MB NOT on primary route → no join)
   const join = model().parts[0].feeders[0].path;
   log('  feeder path=' + JSON.stringify(join) + ' (MB not on primary → dangling)');
-  apply(); step(1200); endRun();
-  log('  result: out=' + clkOut() + ' wip=' + clkWip() + ' err=' + errs.length);
-  if (errs.length) note('E3: dangling feeder throws: ' + errs[0]);
-  else note('E3: a feeder that never joins the route still runs but its parts complete at a non-sink (MB) — silent; the UI warns but does not block. out=' + clkOut());
+  apply(); step(1200); const e3hint = D.getElementById('floorHint').textContent; endRun();
+  log('  E3 out='+clkOut()+' hint='+e3hint.slice(0,110));
+  // FIX: a feeder that never joins the route is now refused at build with a clear message
+  ok(/feeder|reach|merge/i.test(e3hint), 'E3: dangling feeder is blocked with a guidance message');
+  ok(clkOut() === 0, 'E3: refused to run (out 0)');
   noErr('E3 no JS errors (dangling feeder)');
 }
 

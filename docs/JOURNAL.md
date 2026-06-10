@@ -1382,3 +1382,17 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
 - Verified non-issues: group line via UI, even-split, convergence-via-UI (merge marker drawn), a group
   inside a feeder + batch merge, deleting a group member (cleanup), and a group+feeder model surviving a
   page reload all work. `npm test` 113/113; authoring 21/21; stress 24/24.
+
+## 2026-06-10 — Resolutions applied from the UI stress sweep (pre-Phase-4 hardening)
+
+- **Empty-group crash (fixed):** `src/floor-engine.js` `legDistance` is defensive against a missing
+  endpoint; `app/js/floor.js` auto-strips an emptied group from all routes/feeders (`stripGroupFromRoutes`,
+  called from the group member toggle and `removeGroup`).
+- **Dangling feeder (now blocked):** `firstDanglingFeeder` build guard refuses to run with a message until
+  every feeder ends on a node on its part's primary route.
+- **Group-as-assembly-root (now blocked):** `firstGroupAsAssembler` build guard refuses with guidance
+  (assembly happens at a single station).
+- **Route-picker refresh:** changing a group's membership now re-renders the Routing step, so a group
+  becomes selectable as a route step as soon as it has members.
+- `tests/ui/stress2.html` updated to assert the guards (E1 no-crash + auto-clean; E2/E3 blocked with a
+  message). Full battery green: `npm test` 113/113; authoring 21/21; stress 24/24; stress2 33/33.
