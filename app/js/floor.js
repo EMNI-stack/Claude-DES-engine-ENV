@@ -508,11 +508,28 @@ function onHover(e) {
   if (id && sim && !needsBuild) { hoverNodeId = id; showTip(id, e); }
   else { hoverNodeId = null; hideTip(); }
 }
+/* point at fraction p (0..1) along a polyline given as metre-coord points, measured by arc length */
+function polyAt(pts, p) {
+  const seg = []; let total = 0;
+  for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); seg.push(d); total += d; }
+  if (total === 0) return { x: pts[0].x, y: pts[0].y };
+  let target = p * total;
+  for (let i = 0; i < seg.length; i++) {
+    if (target <= seg[i] || i === seg.length - 1) { const fr = seg[i] ? target / seg[i] : 0; return { x: pts[i].x + (pts[i + 1].x - pts[i].x) * fr, y: pts[i].y + (pts[i + 1].y - pts[i].y) * fr }; }
+    target -= seg[i];
+  }
+  return { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y };
+}
 function jobPos(job, cursor) {
   const loc = job.loc; if (!loc) return null;
   if (loc.k === 'transit') {
     const f = node(loc.from), t = node(loc.to); if (!f || !t) return null;
     const p = Math.min(1, Math.max(0, (cursor - loc.t0) / ((loc.t1 - loc.t0) || 1)));
+    // a bent conveyor moves the unit along the belt polyline, not the straight line —
+    // interpolate by arc length through the waypoints so the token tracks the drawn path
+    const key = `${loc.from}>${loc.to}`, leg = model.legs[key];
+    const wps = (leg && effMover(key) === 'conveyor' && Array.isArray(leg.waypoints)) ? leg.waypoints : null;
+    if (wps && wps.length) { const pt = polyAt([f, ...wps, t], p); return { x: px(pt.x), y: px(pt.y), r: 6.5 }; }
     return { x: px(f.x + (t.x - f.x) * p), y: px(f.y + (t.y - f.y) * p), r: 6.5 };
   }
   const n = node(loc.node); if (!n) return null;

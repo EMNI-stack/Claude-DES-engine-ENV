@@ -1200,3 +1200,13 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
 - **Principle (added to PRINCIPLES.md):** under a pull/CONWIP component, a batch station's batch size
   must divide the downstream assembly appetite, or the `need+1` pipeline bound starves it. `npm test`
   **103/103**.
+
+## 2026-06-10 — Bent-conveyor token follows the belt path (animation fix)
+
+- A unit travelling a **bent conveyor** was animated straight from source to destination — it ignored
+  the waypoints, so the token visibly cut across the bend even though the engine already *timed* the
+  move by the full polyline length (test "Conveyor with bends times by the full (polyline) path length").
+  Fixed `jobPos` to interpolate the transit token along the belt polyline by **arc length** (new
+  `polyAt(points, p)` helper); only conveyor legs with waypoints take the polyline path — AGV/operator/
+  instant legs are point-to-point and unchanged. Render-only change. Verified the example7 bend
+  (Mill→WIP via (33,3)): at p=0.5 the token sits on the waypoint, not the straight-line midpoint.
