@@ -667,3 +667,35 @@ and 3.6.3 (integration); `npm test` 103/103.*
   multi-floor.
 - Governing principle / source: Charter §6, §9; `Reference/theory-notes.md` §5.3; design note
   `docs/PHASE-3-6-DESIGN.md`. **Ratified and built (2026-06-09); covered by `tests/floor-transport.test.js`.**
+
+---
+
+## 2026-06-10 — Phase 3.7: parallel resources (resource groups) — DESIGN, pending review
+
+- **Decision (proposed, not yet ratified):** an operation may target a named **resource group** of
+  distinct, individually-placed member machines (`model.groups = [{id, name, rule, members:[nodeId…]}]`);
+  a routing operation references a group id in place of a node id.
+- **Where the selection happens:** in the engine's `board(job)` — the single point a part leaves its
+  current node toward the next routing entry. A group id is resolved to a concrete member **there, at
+  ready-time**, so **shortest-queue reads live member queues**. Each job carries a private routing copy;
+  the chosen member is written into it (⇒ **no jockeying** by construction).
+- **Two rules (per group):** (a) **even probabilistic split** — uniform `1/N`, ignores state, ≈equal
+  shares over many parts (not exact round-robin); (b) **shortest queue** — smallest *committed load* =
+  input-queue + in-process + in-transit-already-assigned (`incoming`); tie-break = lowest member index.
+  Both use **members' own state only** — ignore transport distance and operator availability.
+- **Transport integration:** the chosen member's location sets the leg (prev→member, then member→next),
+  using that link's configured mode/movers (3.6). Transport time therefore differs by member — placement
+  matters. No transport-engine changes.
+- **Members may be batch and/or operator-required** — free, because resolution substitutes a concrete
+  node and the job then flows through normal per-node machinery.
+- **Scope guards:** a group is a processing op only (never the assembly root / source / sink); one group
+  per member; group tokens are expanded to members wherever legs/accept-checks enumerate routing nodes.
+- Alternatives considered: deciding at the previous machine's *completion* vs at *board* (same instant
+  here — board is reached immediately after completion in settle); exact round-robin (rejected — §6.2
+  says "even probabilistic split"); shortest-queue counting input-queue only (offered as the alternative
+  to confirm — we propose including in-transit-assigned to avoid burst mis-balancing under transport
+  delay); group-as-assembler (rejected for v1 — fork-join-to-which-member is not the simplest form).
+- Out of scope per §6.2/§9: transport-aware routing, custom split weights, jockeying, cross-group
+  balancing.
+- Governing principle / source: Charter §6.2, §9; `Reference/theory-notes.md` §4.6 (pooling), §5.5
+  (parallel machines beat one big machine); design note `docs/PHASE-3-7-DESIGN.md`. **PENDING REVIEW.**

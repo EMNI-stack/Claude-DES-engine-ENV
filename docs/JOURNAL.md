@@ -1210,3 +1210,18 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   `polyAt(points, p)` helper); only conveyor legs with waypoints take the polyline path — AGV/operator/
   instant legs are point-to-point and unchanged. Render-only change. Verified the example7 bend
   (Mill→WIP via (33,3)): at p=0.5 the token sits on the waypoint, not the straight-line midpoint.
+
+## 2026-06-10 — Phase 3.7 Milestone 0: parallel-resources design note (PAUSE for review)
+
+- Wrote `docs/PHASE-3-7-DESIGN.md`: resource groups (`model.groups`), a routing op targeting a group,
+  the selection decision made in `board()` at ready-time (so shortest-queue reads live member queues),
+  per-job routing copies (⇒ no jockeying), the two rules defined precisely (even `1/N`; shortest-queue
+  load = queue + in-process + in-transit-assigned, tie-break lowest index), transport integration (the
+  chosen member's location sets the leg via the existing 3.6 movers), and scope guards (processing-op
+  only, members may be batch/operator-required, group-token expansion for leg/accept enumeration).
+- Confirmed against the engine: the pull/assembly logic keys on `inventory[partId]` and the assembly
+  root (`route[0]`), not on intermediate operation queues — so a mid-route group token leaves
+  `computePullNeeds` / `canAssemble` / `buildPullOrder` untouched as long as a group is never the
+  assembly root. Summarised the decision in `docs/DECISIONS.md` (pending review).
+- **No engine/UI code yet — paused for stakeholder confirmation of (1) decision point = board()/ready-time
+  and (2) members being batch/operator-required.** `npm test` unchanged (103/103).
