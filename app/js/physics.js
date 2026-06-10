@@ -87,12 +87,47 @@ function render(runModel, cut) {
   const wipCI = ci(rows, 'avgWIP'), thCI = ci(rows, 'throughput'), ctCI = ci(rows, 'cycleTime');
   const mWIP = wipCI.mean, mTH = thCI.mean, mCT = ctCI.mean;
 
+  // shared derived values (used by the read-out and the panels)
+  const bn = lp.bottleneck;
+  const bnUtil = bn ? ci(rows, 'util:' + bn.id).mean : NaN;
+  const fillRate = ci(rows, 'fillRate').mean;
+  const pwcTh = (Number.isFinite(mWIP) && Number.isFinite(lp.T0) && lp.T0 > 0) ? practicalWorstCase(mWIP, lp.T0, lp.rb, lp.W0).th : NaN;
+  const lean = Number.isFinite(pwcTh) && mTH > pwcTh;
+
   const h = [];
   h.push(`<p class="section-label">Theory vs simulation</p>
     <p class="small measure">Each comparison shows the closed-form Factory Physics prediction (dashed) next
     to the simulated result. The tag says whether the formula is <strong>exact</strong>,
     <strong>approximate</strong>, or <strong>out of range</strong> for this model — where it stops applying
     is exactly where the simulation earns its place.</p>`);
+
+  // ---- Decision-support read-out (M3, FP-for-Managers vocabulary) ----
+  if (bn) {
+    let buffer, bufferWhy;
+    if (Number.isFinite(fillRate) && fillRate < 0.98) {
+      buffer = 'Time'; bufferWhy = `customers wait — the fill rate is ${pct(fillRate)}, so product isn't always ready when demand arrives.`;
+    } else if (Number.isFinite(bnUtil) && bnUtil > 0.85) {
+      buffer = 'Inventory'; bufferWhy = `parts queue ahead of the busy ${esc(bn.name)} — the buffer is work-in-process (WIP ≈ ${fmt(mWIP)}).`;
+    } else {
+      buffer = 'Capacity'; bufferWhy = `machines wait — the bottleneck is only ${pct(bnUtil)} busy, so you are holding spare capacity, which buys responsiveness.`;
+    }
+    const ef = bnUtil > 0.9
+      ? 'Efficient but fragile — near 100% utilisation, cycle time blows up with any variability (the VUT curve). Little slack for demand spikes.'
+      : bnUtil < 0.7
+        ? 'Flexible, with spare capacity — low utilisation keeps cycle time short and absorbs spikes, at the cost of some idle time.'
+        : 'Balanced — moderate utilisation trades efficiency against responsiveness.';
+    const improve = lean
+      ? 'This line is already lean (above the practical worst case). To go faster still, reduce variability or speed the bottleneck.'
+      : 'To slim it down: cap WIP (CONWIP), reduce variability, or unbalance the line so one clear bottleneck carries the load.';
+    h.push(`<div class="readout"><h3>What this means — decision support</h3>
+      <dl>
+        <dt>Bottleneck</dt><dd><strong>${esc(bn.name)}</strong> at <span class="num">${pct(bnUtil)}</span> utilisation — it sets the line's capacity (r_b = ${fmt(lp.rb)}/${esc(timeUnit())}).</dd>
+        <dt>Lean or fat</dt><dd><strong>${lean ? 'Lean' : 'Fat'}</strong> relative to the practical worst case. ${lean ? 'More throughput per unit of WIP than a maximally-random balanced line.' : 'It carries more WIP than its throughput warrants.'}</dd>
+        <dt>Buffer at work</dt><dd>The variability is absorbed mainly by the <strong>${buffer}</strong> buffer — ${bufferWhy} Something or someone is always waiting; the question is which buffer makes the most sense here.</dd>
+        <dt>Efficiency vs flexibility</dt><dd>${ef}</dd>
+        <dt>To improve</dt><dd>${improve}</dd>
+      </dl></div>`);
+  }
 
   // ---- Little's Law ----
   const ll = littlesLawCheck(mWIP, mTH, mCT);
@@ -111,8 +146,6 @@ function render(runModel, cut) {
   const wMax = Math.max(Math.ceil((lp.W0 || 1) * 2), Math.ceil((mWIP || 1) * 1.4), 4);
   const ws = []; for (let w = 1; w <= wMax; w++) ws.push(w);
   const curves = (Number.isFinite(lp.T0) && Number.isFinite(lp.rb) && lp.T0 > 0) ? referenceCurves(lp.T0, lp.rb, lp.W0, ws) : [];
-  const pwcTh = (Number.isFinite(mWIP) && curves.length) ? practicalWorstCase(mWIP, lp.T0, lp.rb, lp.W0).th : NaN;
-  const lean = Number.isFinite(pwcTh) && mTH > pwcTh;
   const cplot = curves.length ? characteristicPlot({
     curves, W0: lp.W0, rb: lp.rb, muted: app.characteristic.level === 'approximate',
     point: { w: mWIP, th: mTH, wLow: wipCI.low, wHigh: wipCI.high, thLow: thCI.low, thHigh: thCI.high },
@@ -127,7 +160,6 @@ function render(runModel, cut) {
       : '<strong>Below the practical-worst-case line → a fat line</strong> — too much WIP for the throughput; unbalance the line, add parallel machines, or cut variability.') : ''}</p></div>`);
 
   // ---- VUT / Kingman ----
-  const bn = lp.bottleneck;
   if (bn) {
     const prop = propagateScv(lp.stations, lp.arrivalScv);
     const ca2 = (prop.find((p) => p.id === bn.id) || {}).ca2;

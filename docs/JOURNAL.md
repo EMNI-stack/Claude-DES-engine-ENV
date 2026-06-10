@@ -1641,3 +1641,15 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   errors. `npm test` 125/125 (theory functions; the page is browser-only).
 
 **Sources:** theory-notes §4; DESIGN-LANGUAGE §5; Charter §7.
+
+## 2026-06-10 — Phase 5.3: qualitative decision-support read-out
+
+- Added a plain-language **"What this means — decision support"** panel to `physics.js` (FP-for-Managers
+  vocabulary, theory-notes §6): the bottleneck and its utilisation; whether the line is **lean or fat**
+  vs the practical worst case; **which of the three buffers** (inventory / capacity / time) is absorbing
+  the variability — with the "something or someone is always waiting" framing; the **efficiency vs
+  flexibility** implication; and a concrete "to improve" suggestion. Styled via `.readout` in physics.css.
+- Refactored `render()` to compute the shared derived values (bottleneck, its measured utilisation, fill
+  rate, lean/fat) once. Verified in browser; no console errors.
+
+**Sources:** theory-notes §6 (buffers, efficiency/flexibility); Charter §3.
