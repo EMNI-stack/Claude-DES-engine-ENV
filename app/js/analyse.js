@@ -13,8 +13,9 @@
 import { load, save } from './project.js';
 import { buildRunModel } from './run-model.js';
 import { replicate, responsesAtCutoff, wipTimeseries } from '../../src/analysis/replicate.js';
-import { confidenceInterval, repsForPrecision, welchWarmup } from '../../src/analysis/output_analysis.js';
+import { confidenceInterval, repsForPrecision, welchWarmup, pairedDifference } from '../../src/analysis/output_analysis.js';
 import { welchPlot, repDotPlot, utilBars } from './charts.js';
+import { applyFactor, isComparableFactor } from './scenario.js';
 
 const $ = (id) => document.getElementById(id);
 const ALPHA = 0.05;
@@ -78,6 +79,9 @@ let welch = null;        // welchWarmup() output for the run
 let cutoffIndex = 0;     // snapshot index where the analysis window starts
 let studyType = 'steady';
 let lastOpts = { reps: 10, horizon: 480, target: 0.15 };
+let lastCards = [];        // measured response set from the most recent render (for compare + V&V)
+let lastBottleneck = null;
+let lastCompare = null;    // last scenario-comparison result, to keep it visible across re-renders
 
 /* ---- study bar ---- */
 function renderStudyBar() {
@@ -162,9 +166,12 @@ function renderResults() {
   $('results').innerHTML = `
     <p class="section-label">Results</p>
     <div id="warmupSection"></div>
-    <div id="responseSection"></div>`;
+    <div id="responseSection"></div>
+    <div id="compareSection"></div>
+    <div id="vvSection"></div>`;
   renderWarmup();
-  renderResponses();
+  renderResponses();      // fills responseSection + vvSection (cut-off-dependent)
+  renderCompareUI();      // scenario comparison controls (re-run on demand)
 }
 
 /* ---- warm-up section (Welch plot + cut-off slider), steady-state only ---- */
@@ -346,7 +353,9 @@ function renderResponses() {
     from verification &amp; validation.</p>`);
 
   $('responseSection').innerHTML = h.join('');
+  lastCards = cards; lastBottleneck = bottleneck;
   persist(cards, bottleneck, cutoffTime);
+  renderVV(cards);
 }
 
 /* ---- persist a compact results summary for the study export (Phase 4.5) ---- */
@@ -367,9 +376,201 @@ function persist(cards, bottleneck, cutoffTime) {
         meetsTarget: !!m.prec.achieved, repsForTarget: m.prec.needed_n,
       })),
       bottleneck: bottleneck ? { name: bottleneck.name, utilisation: bottleneck.util } : null,
+      comparison: lastCompare ? lastCompare.data : null,
     };
     save(project);
   } catch (e) { /* non-fatal */ }
+}
+
+/* ---- scenario comparison (paired-t on common random numbers) ---- */
+function comparableFactors() {
+  return ((project.conceptual && project.conceptual.factors) || []).filter((f) => isComparableFactor(f.bindingHint));
+}
+function betterText(better) { return better === 'higher' ? 'higher is better' : better === 'lower' ? 'lower is better' : ''; }
+
+function levelInputs(f) {
+  if (/:rule$/.test(f.bindingHint)) {
+    return `<label>Levels (A vs B)</label><div class="row">
+      <select class="select" id="cmpA"><option value="shortest">shortest queue</option><option value="even">even split</option></select>
+      <span class="faint">vs</span>
+      <select class="select" id="cmpB"><option value="even">even split</option><option value="shortest">shortest queue</option></select></div>`;
+  }
+  const base = parseFloat(f.baseline) || 1;
+  const isCount = /count$|machines$|membercount$|streams$/.test(f.bindingHint);
+  const b2 = isCount ? base + 1 : +(base * 1.5).toFixed(2);
+  return `<label>Levels (A vs B) — baseline ${esc(f.baseline)} ${esc(f.unit || '')}</label><div class="row">
+    <input class="input num" type="number" id="cmpA" value="${base}" step="any" style="max-width:90px;">
+    <span class="faint">vs</span>
+    <input class="input num" type="number" id="cmpB" value="${b2}" step="any" style="max-width:90px;"></div>`;
+}
+
+function renderCompareUI() {
+  const host = $('compareSection'); if (!host) return;
+  const factors = comparableFactors();
+  let inner = `<div class="chart-card" style="margin-top:var(--s-6);">
+    <h3>Compare two scenarios</h3>
+    <p class="cap">Change one declared factor to two levels and test whether the response really differs.
+    Both scenarios run on the <strong>same random seeds</strong> — common random numbers, so shared luck
+    cancels and the <em>paired</em> comparison sees the design change, not the noise.</p>`;
+  if (!factors.length) {
+    inner += `<p class="not-measured">No comparable experimental factor is declared yet. On the
+      Model &amp; Floor page mark a factor — machine count, AGV/operator count, batch size, demand rate,
+      or a group's selection rule — as a study factor, then compare its levels here.</p></div>`;
+    host.innerHTML = inner; return;
+  }
+  const fopts = factors.map((f, i) => `<option value="${i}">${esc(f.name || f.bindingHint)}</option>`).join('');
+  const ropts = lastCards.map((c) => `<option value="${c.b.key}">${esc(c.label)}</option>`).join('');
+  inner += `<div class="run-controls" style="margin-top:var(--s-3); align-items:flex-end;">
+    <div class="field"><label for="cmpFactor">Factor</label><select class="select" id="cmpFactor">${fopts}</select></div>
+    <div class="field" id="cmpLevels"></div>
+    <div class="field"><label for="cmpResp">Response</label><select class="select" id="cmpResp">${ropts}</select></div>
+    <button class="btn btn-primary" id="cmpRun">Compare</button>
+  </div>
+  <div id="cmpResult" style="margin-top:var(--s-4);">${lastCompare ? lastCompare.html : ''}</div></div>`;
+  host.innerHTML = inner;
+  const renderLevels = () => { $('cmpLevels').innerHTML = levelInputs(factors[parseInt($('cmpFactor').value, 10) || 0]); };
+  renderLevels();
+  $('cmpFactor').addEventListener('change', renderLevels);
+  $('cmpRun').addEventListener('click', () => doCompare(factors));
+}
+
+function runCompare(f, A, B, respKey) {
+  const opts = { reps: lastOpts.reps, horizon: lastOpts.horizon, gridPoints: 200 };
+  const rowsAt = (m, seed) => responsesAtCutoff(replicate(buildRunModel(m), { ...opts, baseSeed: seed }), cutoffIndex).rows;
+  const rA = rowsAt(applyFactor(model, f.bindingHint, A), 1);
+  const rB = rowsAt(applyFactor(model, f.bindingHint, B), 1);                 // CRN — same seeds
+  const ciA = confidenceInterval(rA.map((r) => r[respKey]), ALPHA);
+  const ciB = confidenceInterval(rB.map((r) => r[respKey]), ALPHA);
+  const diff = pairedDifference(rA.map((r, i) => r[respKey] - rB[i][respKey]), ALPHA);
+  const rBi = rowsAt(applyFactor(model, f.bindingHint, B), 1 + opts.reps + 500); // independent seeds
+  const diffIndep = pairedDifference(rA.map((r, i) => r[respKey] - rBi[i][respKey]), ALPHA);
+  return { ciA, ciB, diff, diffIndep };
+}
+
+function doCompare(factors) {
+  const f = factors[parseInt($('cmpFactor').value, 10) || 0];
+  const respKey = $('cmpResp').value;
+  const card = lastCards.find((c) => c.b.key === respKey) || {};
+  const respLabel = card.label || respKey;
+  const better = card.b ? card.b.better : '';
+  const A = $('cmpA').value, B = $('cmpB').value;
+  const btn = $('cmpRun'); btn.textContent = 'Comparing…'; btn.disabled = true;
+  setTimeout(() => {
+    try {
+      const r = runCompare(f, A, B, respKey);
+      const html = compareHtml(f, A, B, respLabel, card.unit || '', better, r);
+      lastCompare = {
+        html,
+        data: { factor: f.name || f.bindingHint, bindingKey: f.bindingHint, levelA: String(A), levelB: String(B),
+          response: respLabel, unit: card.unit || '',
+          meanA: r.ciA.mean, meanB: r.ciB.mean,
+          difference: r.diff.mean, ci_low: r.diff.low, ci_high: r.diff.high, differs: r.diff.differs,
+          halfwidth_crn: r.diff.halfwidth, halfwidth_independent: r.diffIndep.halfwidth },
+      };
+      $('cmpResult').innerHTML = html;
+      persist(lastCards, lastBottleneck, lastResult.grid[cutoffIndex]);
+    } catch (e) {
+      $('cmpResult').innerHTML = `<p class="small" style="color:var(--down)">Comparison failed: ${esc(e.message || String(e))}</p>`;
+    }
+    btn.textContent = 'Compare'; btn.disabled = false;
+  }, 20);
+}
+
+function compareHtml(f, A, B, respLabel, unit, better, r) {
+  const lvl = (v) => /:rule$/.test(f.bindingHint) ? (String(v).includes('even') ? 'even split' : 'shortest queue') : v;
+  const d = r.diff;
+  let verdict;
+  if (d.differs) {
+    const dir = d.mean > 0 ? 'higher' : 'lower';
+    const goodBad = better ? (((d.mean > 0) === (better === 'higher')) ? 'A is the better design here' : 'B is the better design here') : '';
+    verdict = `<div class="precision-call ok"><strong>A real difference.</strong> Scenario A's ${esc(respLabel)} is
+      <strong>${dir}</strong> by ${fmt(Math.abs(d.mean))} ${esc(unit)} (95% CI on the difference
+      [${fmt(d.low)}, ${fmt(d.high)}] — excludes 0). ${goodBad ? esc(goodBad) + ' (' + betterText(better) + ').' : ''}</div>`;
+  } else {
+    verdict = `<div class="precision-call"><strong>No significant difference.</strong> The 95% CI on the
+      difference [${fmt(d.low)}, ${fmt(d.high)}] includes 0, so at ${lastOpts.reps} replications these designs
+      are indistinguishable on ${esc(respLabel)}. Try more replications or a larger change in the factor.</div>`;
+  }
+  const crn = (Number.isFinite(r.diff.halfwidth) && Number.isFinite(r.diffIndep.halfwidth))
+    ? `<p class="small faint" style="margin-top:var(--s-3);">Common random numbers at work: the difference is
+       pinned to <span class="num">±${fmt(r.diff.halfwidth)}</span> using the <strong>same</strong> seeds, versus
+       <span class="num">±${fmt(r.diffIndep.halfwidth)}</span> with independent seeds — pairing cancels shared
+       variation and sharpens the comparison without more runs.</p>`
+    : '';
+  return `<table class="table" style="margin-bottom:var(--s-3);"><thead><tr><th>Scenario</th>
+      <th class="num">${esc(respLabel)} (mean ± 95% half-width)</th></tr></thead><tbody>
+      <tr><td>A · ${esc(f.name || f.bindingKey || f.bindingHint)} = <strong>${esc(String(lvl(A)))}</strong></td>
+        <td class="num">${fmt(r.ciA.mean)} ± ${fmt(r.ciA.halfwidth)} ${esc(unit)}</td></tr>
+      <tr><td>B · = <strong>${esc(String(lvl(B)))}</strong></td>
+        <td class="num">${fmt(r.ciB.mean)} ± ${fmt(r.ciB.halfwidth)} ${esc(unit)}</td></tr></tbody></table>
+    ${verdict}${crn}`;
+}
+
+/* ---- V&V loop: experimentation adequacy + sensitivity prompts ---- */
+function renderVV(cards) {
+  const host = $('vvSection'); if (!host) return;
+  const unit = timeUnit();
+  const target = lastOpts.target;
+  const cutoffTime = lastResult.grid[cutoffIndex];
+  const allMeet = cards.length > 0 && cards.every((c) => c.prec && c.prec.achieved);
+  const worst = cards.filter((c) => c.prec && !c.prec.achieved).sort((a, b) => (b.prec.more || 0) - (a.prec.more || 0))[0];
+  const steady = studyType === 'steady';
+  const warmOK = !steady ? null : !!(welch && welch.converged && cutoffIndex > 0);
+  const runLenOK = !steady ? null : !!(welch && welch.converged);
+
+  const item = (ok, label, detail) => {
+    const cls = ok === true ? 'ok' : ok === false ? 'bad' : 'na';
+    const mark = ok === true ? '✓' : ok === false ? '!' : '–';
+    return `<li class="vv-item ${cls}"><span class="vv-mark">${mark}</span><span><strong>${label}.</strong> ${detail}</span></li>`;
+  };
+
+  const repsDetail = allMeet
+    ? `All responses meet ±${(target * 100).toFixed(0)}% at ${lastOpts.reps} replications.`
+    : (worst ? `The least-precise response (${esc(worst.label)}, ±${pct(worst.rel)}) needs about ${worst.prec.needed_n} replications for ±${(target * 100).toFixed(0)}%.` : 'Run the model to assess.');
+  const warmDetail = !steady
+    ? 'Terminating study — no warm-up needed; the run ends at its natural event.'
+    : (warmOK ? `Deleting the first ${fmt(cutoffTime)} ${esc(unit)}; the WIP curve has settled before the analysis window.`
+      : (welch && welch.converged ? 'Cut-off is at 0 — set a warm-up if the WIP curve climbs at the start.' : "The WIP curve hasn't settled — increase the run length, or treat this as a terminating study."));
+  const runDetail = !steady
+    ? 'Set by the natural end event of the terminating study.'
+    : (runLenOK ? 'Long enough for the WIP curve to reach a steady plateau.' : 'Too short to reach steady state — increase the run length.');
+
+  const cAss = (project.assumptions || []).filter((a) => a.data === 'C' || a.sensitivity);
+  const factors = comparableFactors();
+  let sens = '';
+  if (cAss.length) {
+    sens = `<h3 style="margin-top:var(--s-4);">Test your uncertain assumptions</h3>
+      <p class="cap">These assumptions are flagged category-C (no data) or for sensitivity. Vary each as a
+      factor and watch whether the response confidence intervals shift — if the answer barely moves, the
+      assumption is safe; if it swings, your decision depends on getting that input right.</p>
+      <ul class="not-measured">${cAss.map((a) => `<li>${esc(a.description || '(assumption)')}${a.data === 'C' ? ' <span class="faint">[category C]</span>' : ''} — ${factors.length ? 'use <em>Compare two scenarios</em> above to vary the related factor.' : 'declare a related study factor, then compare its levels above.'}</li>`).join('')}</ul>`;
+  }
+
+  const evDone = ((project.vv && project.vv.checklist) || []).find((c) => c.id === 'ev');
+  const adequacyAll = (steady ? (warmOK && runLenOK) : true) && allMeet;
+  const evBtn = `<div class="row" style="margin-top:var(--s-3);">
+    <button class="btn btn-ghost" id="vvMark"${evDone && evDone.done ? ' disabled' : ''}>${evDone && evDone.done ? 'Experimentation validation ✓ marked' : 'Mark experimentation validation done'}</button>
+    ${adequacyAll ? '' : '<span class="small faint">— resolve the flags above first for an honest tick.</span>'}</div>`;
+
+  host.innerHTML = `<div class="chart-card" style="margin-top:var(--s-6);">
+    <h3>Experimentation validation</h3>
+    <p class="cap">Robinson's experimentation validation asks whether the way you ran the model is sound —
+    are the warm-up, run length and number of replications adequate? Read from this run:</p>
+    <ul class="vv-list">
+      ${item(allMeet, 'Replications', repsDetail)}
+      ${item(warmOK, 'Warm-up', warmDetail)}
+      ${item(runLenOK, 'Run length', runDetail)}
+    </ul>
+    ${sens}
+    ${evBtn}
+    <p class="small faint" style="margin-top:var(--s-4);">All of this builds <strong>confidence</strong>, never
+    proof. A model is never valid in general — V&amp;V only fails to find it wrong (Robinson).</p>
+  </div>`;
+  const mb = $('vvMark');
+  if (mb && !(evDone && evDone.done)) mb.addEventListener('click', () => {
+    const ev = ((project.vv && project.vv.checklist) || []).find((c) => c.id === 'ev');
+    if (ev) { ev.done = true; save(project); renderVV(cards); }
+  });
 }
 
 /* ---- study-type control ---- */

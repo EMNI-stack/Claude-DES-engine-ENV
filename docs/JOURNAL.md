@@ -1515,3 +1515,31 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   machines starved — the transport-as-constraint lesson, rendered correctly. No console errors.
 
 **Sources:** DESIGN-LANGUAGE §5; theory-notes §3, §5.3 (transport as a constrained resource).
+
+## 2026-06-10 — Phase 4.4: scenario comparison & the V&V loop
+
+**Done today**
+- **`pairedDifference` (output_analysis.js)** — paired-t CI on the difference of two designs run on the
+  SAME seeds (theory-notes §3.6 / Law Eq 10.1); `differs` flags a CI that excludes 0.
+- **`app/js/scenario.js` (new)** — `applyFactor(model, bindingKey, level)` clones the authoring model and
+  overrides one declared factor (the binding key stored on the factor's `bindingHint`). Supports
+  resource machines / batch size, part demand-mean / CONWIP, AGV/operator count, mover speed, group rule;
+  `isComparableFactor` gates the rest (membercount / merge streams need structural cloning — out of scope).
+- **Compare two scenarios** (Run & Analyse): pick a declared factor, set two levels and a response; both
+  scenarios run on the **same seeds** (common random numbers). Shows each scenario's mean ± half-width and
+  the **paired-t CI on the difference** with a plain verdict ("a real difference… B is better"), plus the
+  CRN lesson — the difference half-width with same seeds vs independent seeds, so the student watches
+  pairing tighten the comparison. Persisted into `project.results.comparison` for the export.
+- **V&V loop closed.** An **Experimentation validation** panel reads adequacy straight from the run:
+  replications (do all responses meet the precision target?), warm-up (settled & deleted?), run length
+  (curve reached steady state?). Category-C / sensitivity-flagged assumptions are listed with a prompt to
+  test them via the comparison. A button ticks Robinson's `ev` checklist item. Reinforces
+  **confidence, never proof**.
+- **Test** — paired comparison detects a real difference (1 vs 2 machines on common random numbers cuts
+  cycle time; CI excludes 0) and reports none for equivalent designs (identical model + seeds ⇒ exactly
+  zero differences). `npm test` **120/120**.
+- **Verified in browser**: Weld 1→2 machines cut cycle time 16.8→9.17 min (CI [6.55, 8.73] excludes 0,
+  "B is better"); CRN half-width ±1.09 vs ±1.21 independent; V&V honestly flagged the near-saturated
+  line's warm-up/run-length as inadequate. No console errors.
+
+**Sources:** theory-notes §3.6 (paired-t, CRN); Robinson ch 12 (experimentation validation); Charter §5.

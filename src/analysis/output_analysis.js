@@ -62,6 +62,20 @@ export function summarizeReplications(scalars, metrics = null, alpha = 0.05) {
   });
 }
 
+/**
+ * Paired-t confidence interval on the difference of two designs run on the SAME seeds
+ * (theory-notes §3.6 / Law Eq 10.1). `zValues[j] = responseA(seedⱼ) − responseB(seedⱼ)`.
+ * If the interval excludes 0 the designs genuinely differ (and the sign says which is better).
+ * Pairing on common random numbers cancels shared noise, so it needs NO independence between
+ * the two systems — that is exactly why we reuse seeds across scenarios.
+ * @returns {object} the t-CI on the mean difference plus `differs` (CI excludes 0).
+ */
+export function pairedDifference(zValues, alpha = 0.05) {
+  const c = confidenceInterval(zValues, alpha);
+  const differs = Number.isFinite(c.low) && Number.isFinite(c.high) && (c.low > 0 || c.high < 0);
+  return { ...c, differs };
+}
+
 /** Average `metric` across replications at each aligned grid time. */
 export function welchAverage(timeseries, metric = 'wip') {
   if (!timeseries.length) return { t: [], ybar: [] };

@@ -8,7 +8,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newDist } from '../src/distributions.js';
 import { replicate, responsesAtCutoff, wipTimeseries, windowResponse } from '../src/analysis/replicate.js';
-import { summarizeReplications, repsForPrecision, welchWarmup } from '../src/analysis/output_analysis.js';
+import { summarizeReplications, repsForPrecision, welchWarmup, pairedDifference } from '../src/analysis/output_analysis.js';
+import { applyFactor } from '../app/js/scenario.js';
 
 // A clean M/M/1: source -> server -> sink, all co-located so transport is zero.
 // λ = 1/iaMean, μ = 1/svcMean, ρ = λ/μ. Analytic steady state: L = ρ/(1-ρ),
@@ -108,6 +109,29 @@ test('mover (transport/operator) utilisation is captured and can be the bottlene
   const mu = us.reduce((s, v) => s + v, 0) / us.length;
   assert.ok(mu > 0 && mu <= 1.0001, `mover utilisation should be a fraction in (0,1]: ${mu.toFixed(3)}`);
   assert.ok(bottleneck && bottleneck.name === 'AGV 1 (mover)', `the slow AGV should be the bottleneck, got ${bottleneck && bottleneck.name}`);
+});
+
+test('paired scenario comparison detects a real difference and none when equivalent (M4)', () => {
+  // base: ρ = 0.8 single server (id 'srv'). Compare 1 vs 2 machines on the same seeds (CRN).
+  const base = mm1({ iaMean: 1, svcMean: 0.8 });
+  const one = applyFactor(base, 'resource:srv:machines', 1);
+  const two = applyFactor(base, 'resource:srv:machines', 2);
+  const opts = { reps: 20, horizon: 2000, gridPoints: 40, baseSeed: 1 };
+  const rowsOf = (m) => responsesAtCutoff(replicate(m, opts), 0).rows;
+  const rOne = rowsOf(one), rTwo = rowsOf(two);
+
+  // real difference: doubling capacity must cut cycle time — the paired CI on (1mc − 2mc) excludes 0, positive.
+  const zReal = rOne.map((r, i) => r.cycleTime - rTwo[i].cycleTime);
+  const real = pairedDifference(zReal);
+  assert.ok(real.differs && real.low > 0,
+    `1 vs 2 machines should differ with 1mc slower: CI [${real.low.toFixed(2)}, ${real.high.toFixed(2)}]`);
+
+  // equivalent designs: the SAME model on the SAME seeds ⇒ identical paths ⇒ zero difference ⇒ no false positive.
+  const rTwoAgain = rowsOf(two);
+  const zNull = rTwo.map((r, i) => r.cycleTime - rTwoAgain[i].cycleTime);
+  const none = pairedDifference(zNull);
+  assert.ok(zNull.every((z) => z === 0), 'identical scenario on identical seeds must give exactly zero differences (CRN)');
+  assert.equal(none.differs, false, 'equivalent designs should not be reported as different');
 });
 
 test('repsForPrecision: meets target ⇒ no more reps; tighter target ⇒ asks for more', () => {

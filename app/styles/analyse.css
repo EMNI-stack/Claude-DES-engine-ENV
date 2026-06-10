@@ -82,3 +82,13 @@
 .dist-row { display: flex; align-items: center; gap: var(--s-4); }
 .dist-row .dist-label { min-width: 130px; font-size: var(--fs-small); color: var(--ink-2); }
 .dist-row .chart { flex: 1; }
+
+/* V&V experimentation-adequacy checklist */
+.vv-list { list-style: none; padding: 0; margin: var(--s-3) 0 0; }
+.vv-item { display: flex; gap: var(--s-3); align-items: baseline; padding: var(--s-2) 0; border-top: 1px solid var(--line); font-size: var(--fs-small); color: var(--ink-2); }
+.vv-item:first-child { border-top: 0; }
+.vv-mark { font-family: var(--mono); font-weight: 600; width: 18px; text-align: center; flex: none; }
+.vv-item.ok .vv-mark { color: var(--busy); }
+.vv-item.bad .vv-mark { color: var(--blocked); }
+.vv-item.na .vv-mark { color: var(--faint); }
+.vv-item strong { color: var(--ink); font-weight: 500; }
