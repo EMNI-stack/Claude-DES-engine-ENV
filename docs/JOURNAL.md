@@ -1422,3 +1422,46 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   declared responses/factors; export. Summarised the decision in `docs/DECISIONS.md`.
 - **No code yet — paused for review of the statistics + approach, then again after Milestone 1.**
   `npm test` unchanged (114/114).
+
+## 2026-06-10 — Phase 4.1: replications & confidence intervals (PAUSE for review)
+
+**Done today**
+- **Ratified Milestone 0** with the stakeholder: Student-t CI at α=0.05, Welch warm-up, sequential
+  reps-for-precision, paired-t; confirmed defaults **N=10 reps**, **γ=0.15 (±15%)** precision target.
+  Marked the Phase-4 decision RATIFIED in `docs/DECISIONS.md`.
+- **`app/js/run-model.js` (new)** — extracted the editor→engine transformation (`buildRunModel`, with its
+  pure helpers `node`/`partFeeders`/`feederJoin`/`partRoutings`/`isProcessModel`/`nodeForRun`) into a
+  single shared module. `floor.js` now delegates to it (byte-identical output preserved; its rendering
+  helpers untouched), so the floor a student watches and the runs the analysis replicates are built
+  identically — no drift.
+- **`src/analysis/replicate.js` (new)** — the replication driver. Runs `FloorSim` for N reps with distinct
+  reproducible seeds (`baseSeed + k`), stepping `run({until})` on a time grid and recording read-only
+  accumulator **snapshots** at each grid point (`snapshot()`). A response over a window `[a,b]` is a pure
+  delta of two snapshots (`windowResponse`) — so warm-up deletion at any cut-off (M2) will recompute
+  instantly with **no re-run** and **no engine change**. `responsesAtCutoff` flattens per-rep response
+  rows + per-resource utilisation and picks the bottleneck; `wipTimeseries` prepares the M2 Welch input.
+- **`repsForPrecision` (output_analysis.js)** — the sequential rule (theory-notes §3.5 / Law Eq 9.2–9.3),
+  γ′ = γ/(1+γ) for the relative target. Reports "you need ~N reps (M more)".
+- **Run & Analyse view** — `app/analyse.html` + `app/js/analyse.js` + `app/styles/analyse.css`: loads the
+  study model, runs N reps, and shows each **declared** response (matched to a measure by name) as a
+  **mean ± half-width with a 95% CI** and a prominent **relative half-width**; a precision callout names
+  the least-precise response and how many reps it needs; unmapped declared responses are listed as "not
+  auto-measured"; an always-on utilisation table + bottleneck readout. Results persist to
+  `project.results` (`des-results/v1`) for the Phase-4.5 export. On-brand per DESIGN-LANGUAGE §5.
+- **Tests** — `tests/analysis-replicate.test.js` (new): M/M/1 CI **coverage** of the analytic value
+  (~nominal across 24 macro-experiments); half-width **shrinks ~1/√N**; `repsForPrecision` meets a loose
+  target and asks for more on a tight one. `npm test` **117/117**.
+- **Verified the view in a real browser** (headless Chrome via puppeteer-core, served over HTTP): seeded a
+  Bracket-line study, ran 10 reps — Throughput 0.466 ±0.022/min (±4.6%, meets target); Cycle time 17.1
+  ±3.85 min (±22.5%, "~25 reps for ±15%"); Weld flagged bottleneck at 93.5%. No console errors (only a
+  benign favicon 404). Screenshot confirmed the layout.
+
+**Doubts / notes**
+- Headline responses use overall completions (matches the floor's displayed metrics); product-vs-component
+  breakdown for multi-part models is left for the M3 visualisation.
+- The measured Weld utilisation (93.5%) sits above the analytic ρ≈0.85 — start-empty bias, which is exactly
+  what Milestone 2's warm-up deletion will address.
+
+**Sources:** Charter §5/§9; theory-notes §3.2–3.5; DESIGN-LANGUAGE §5; `docs/PHASE-4-DESIGN.md`.
+
+**PAUSED for review of the statistics + results view before Milestones 2–5.**

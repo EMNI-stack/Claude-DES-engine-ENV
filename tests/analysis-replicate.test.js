@@ -1,0 +1,76 @@
+// Output-analysis driver tests — Phase 4 (theory-notes §3, Law ch 9).
+// Built up milestone by milestone:
+//   M1 (4.1) — replications + confidence: CI coverage of an analytic value; the
+//              half-width shrinks ~1/√N as replications increase.
+//   M2 (4.2) — warm-up: deletion reduces initialisation bias (added later).
+//   M4 (4.4) — paired scenario comparison (added later).
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { newDist } from '../src/distributions.js';
+import { replicate, responsesAtCutoff } from '../src/analysis/replicate.js';
+import { summarizeReplications, repsForPrecision } from '../src/analysis/output_analysis.js';
+
+// A clean M/M/1: source -> server -> sink, all co-located so transport is zero.
+// λ = 1/iaMean, μ = 1/svcMean, ρ = λ/μ. Analytic steady state: L = ρ/(1-ρ),
+// W (time in system) = (1/μ)/(1-ρ). Instant (zero-time) transport keeps it pure M/M/1.
+function mm1({ iaMean, svcMean }) {
+  return {
+    schema: 'des-floor/v1',
+    units: { time: 'min', distance: 'm', speed: 'm/min' },
+    transport: { default: 'instant', speed: 100, legs: {} },
+    nodes: [
+      { kind: 'source', id: 'src', x: 0, y: 0 },
+      { kind: 'resource', id: 'srv', name: 'Server', x: 0, y: 0, machines: 1, service: newDist('exp', { mean: svcMean }) },
+      { kind: 'sink', id: 'snk', x: 0, y: 0 },
+    ],
+    parts: [{ id: 'p', kind: 'product', routing: ['src', 'srv', 'snk'], demand: newDist('exp', { mean: iaMean }) }],
+  };
+}
+
+const metric = (summary, name) => summary.find((s) => s.metric === name);
+
+test('M/M/1: the replicated mean CI covers the analytic value at ~nominal rate', () => {
+  // ρ = 0.5 ⇒ L = 1.0, W = 2.0. Low utilisation ⇒ small start-empty bias, so a
+  // long horizon with no warm-up is close enough to read coverage cleanly.
+  const model = mm1({ iaMean: 2, svcMean: 1 });
+  const L = 1.0, W = 2.0;                         // ρ/(1-ρ), (1/μ)/(1-ρ)
+  const horizon = 4000, reps = 12, macro = 24;   // 24 independent CIs of 12 reps each
+  let coverWIP = 0, coverCT = 0;
+  for (let e = 0; e < macro; e++) {
+    const res = replicate(model, { reps, horizon, gridPoints: 50, baseSeed: 1 + e * reps });
+    const { rows } = responsesAtCutoff(res, 0);
+    const sum = summarizeReplications(rows, ['avgWIP', 'cycleTime']);
+    const wip = metric(sum, 'avgWIP'), ct = metric(sum, 'cycleTime');
+    if (L >= wip.ci_low && L <= wip.ci_high) coverWIP++;
+    if (W >= ct.ci_low && W <= ct.ci_high) coverCT++;
+  }
+  // Nominal 95% coverage; allow generous slack for finite macro count + mild init bias.
+  assert.ok(coverWIP / macro >= 0.75, `WIP coverage ${coverWIP}/${macro} too low`);
+  assert.ok(coverCT / macro >= 0.75, `CT coverage ${coverCT}/${macro} too low`);
+});
+
+test('half-width shrinks roughly as 1/√N as replications increase', () => {
+  // Same model; compare the half-width from the first 8 reps vs all 32. √(8/32)=0.5,
+  // so we expect the 32-rep half-width near half the 8-rep one (with sampling noise).
+  const model = mm1({ iaMean: 2, svcMean: 1 });
+  const res = replicate(model, { reps: 32, horizon: 3000, gridPoints: 40, baseSeed: 101 });
+  const { rows } = responsesAtCutoff(res, 0);
+  const hw = (n) => metric(summarizeReplications(rows.slice(0, n), ['avgWIP']), 'avgWIP').halfwidth;
+  const hw8 = hw(8), hw32 = hw(32);
+  assert.ok(hw32 < hw8, `expected hw to shrink: hw8=${hw8.toFixed(4)} hw32=${hw32.toFixed(4)}`);
+  const ratio = hw32 / hw8;                       // ideal 0.5
+  assert.ok(ratio > 0.3 && ratio < 0.75, `1/√N ratio off: ${ratio.toFixed(3)} (ideal ~0.5)`);
+});
+
+test('repsForPrecision: meets target ⇒ no more reps; tighter target ⇒ asks for more', () => {
+  // Synthetic IID-ish values with a clear mean/spread.
+  const vals = [10.2, 9.8, 10.5, 9.6, 10.1, 10.4, 9.9, 10.0, 10.3, 9.7];
+  const loose = repsForPrecision(vals, { target: 0.5, kind: 'relative' });   // ±50% — trivially met
+  assert.ok(loose.achieved, 'loose target should already be achieved');
+  assert.equal(loose.more, 0);
+  const tight = repsForPrecision(vals, { target: 0.01, kind: 'relative' });   // ±1% — needs more
+  assert.ok(!tight.achieved, 'tight target should not be met by 10 reps');
+  assert.ok(tight.needed_n > vals.length && tight.more > 0, `expected more reps, got needed=${tight.needed_n}`);
+  // current half-width must be finite and positive
+  assert.ok(Number.isFinite(tight.current_halfwidth) && tight.current_halfwidth > 0);
+});

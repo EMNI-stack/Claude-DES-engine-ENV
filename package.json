@@ -3,6 +3,6 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "test": "node --test tests/engine.test.js tests/advanced-engine.test.js tests/analysis-stats.test.js tests/analysis-port.test.js tests/analysis-characteristic.test.js tests/analysis-compare.test.js tests/floor-engine.test.js tests/floor-batch.test.js tests/floor-process.test.js tests/floor-transport.test.js tests/floor-groups.test.js tests/floor-merge.test.js"
+    "test": "node --test tests/engine.test.js tests/advanced-engine.test.js tests/analysis-stats.test.js tests/analysis-port.test.js tests/analysis-characteristic.test.js tests/analysis-compare.test.js tests/analysis-replicate.test.js tests/floor-engine.test.js tests/floor-batch.test.js tests/floor-process.test.js tests/floor-transport.test.js tests/floor-groups.test.js tests/floor-merge.test.js"
   }
 }

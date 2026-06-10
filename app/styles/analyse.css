@@ -1,0 +1,49 @@
+/* Run & Analyse — Phase 4. Quiet, data-forward; confidence shown as a half-width
+   and (later) shaded bands. Reuses the design-system tokens; no new colours. */
+
+.run-controls {
+  display: flex; flex-wrap: wrap; gap: var(--s-4); align-items: flex-end;
+}
+.run-controls .field { min-width: 150px; }
+.run-controls .btn { margin-left: auto; }
+
+/* a small guiding callout when there is no model / no responses yet */
+.notice {
+  border: 1px dashed var(--line-strong); border-radius: var(--r-card);
+  background: var(--surface-2); padding: var(--s-5) var(--s-6);
+}
+.notice h2 { margin: var(--s-2) 0; }
+
+/* response cards: mean ± half-width, with the relative half-width made prominent */
+.resp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--s-4); }
+.resp {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card);
+  padding: var(--s-4) var(--s-5);
+}
+.resp__label { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--faint); }
+.resp__mean { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 30px; color: var(--ink); margin-top: var(--s-2); line-height: 1.05; }
+.resp__mean .pm { color: var(--ink-2); font-size: 18px; }
+.resp__mean .hw { font-size: 18px; color: var(--ink-2); }
+.resp__unit { font-size: 13px; color: var(--faint); }
+.resp__ci { margin-top: var(--s-3); font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+.resp__rel { margin-top: var(--s-3); display: flex; align-items: baseline; gap: var(--s-2); }
+.resp__rel b { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 16px; }
+.resp__rel .tag-precise { color: var(--busy); }
+.resp__rel .tag-loose   { color: var(--blocked); }
+.resp__reps { margin-top: var(--s-2); font-size: 11px; color: var(--faint); }
+
+/* the headline precision callout */
+.precision-call {
+  border-left: 3px solid var(--accent); background: var(--surface-2);
+  padding: var(--s-3) var(--s-4); border-radius: 0 var(--r-control) var(--r-control) 0;
+  font-size: var(--fs-small); color: var(--ink-2);
+}
+.precision-call.ok { border-left-color: var(--busy); }
+
+.bottleneck-line { font-size: var(--fs-small); color: var(--ink-2); }
+.bottleneck-line .num { color: var(--ink); }
+
+.running { opacity: .55; pointer-events: none; }
+
+.not-measured { font-size: var(--fs-small); color: var(--faint); }
+.not-measured li { margin: 2px 0; }

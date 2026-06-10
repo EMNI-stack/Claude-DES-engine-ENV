@@ -1,8 +1,48 @@
 // JS port of des_analysis.output_analysis — warm-up detection and CIs.
-import { mean, sampleVar, confidenceInterval, finite } from './stats.js';
+import { mean, sampleVar, confidenceInterval, finite, studentTppf } from './stats.js';
 import { groupBy } from './ingest.js';
 
 export { confidenceInterval };
+
+/**
+ * How many replications for a target precision (theory-notes §3.5 / Law Eq 9.2–9.3).
+ * Holds the current variance estimate fixed and finds the smallest n ≥ n0 whose
+ * t-half-width meets the target — the practical "you need ~N reps (M more)" helper.
+ *
+ * @param {number[]} values  the per-rep response values collected so far
+ * @param {object} opts
+ *   alpha   significance (default 0.05 → 95%)
+ *   target  precision target: a relative fraction γ (kind 'relative') or an
+ *           absolute half-width β (kind 'absolute'). Default γ = 0.15.
+ *   kind    'relative' | 'absolute' (default 'relative')
+ *   maxReps cap on the search (default 2000)
+ * @returns {object} current_n, mean, sd, current_halfwidth, current_rel,
+ *   needed_n, more, achieved, target, kind, capped
+ */
+export function repsForPrecision(values, { alpha = 0.05, target = 0.15, kind = 'relative', maxReps = 2000 } = {}) {
+  const a = finite(values);
+  const n0 = a.length;
+  if (n0 < 2) return { current_n: n0, mean: n0 ? a[0] : NaN, sd: NaN, current_halfwidth: NaN, current_rel: NaN, needed_n: Math.max(n0, 2), more: Math.max(0, 2 - n0), achieved: false, target, kind, capped: false };
+  const xbar = mean(a);
+  const s2 = sampleVar(a);
+  const hwAt = (n) => studentTppf(1 - alpha / 2, n - 1) * Math.sqrt(s2 / n);
+  // γ' = γ/(1+γ) corrects the relative criterion (the half-width is relative to the
+  // *estimated* mean, which itself carries error) — Law Eq 9.3.
+  const gprime = kind === 'relative' ? target / (1 + target) : null;
+  const meets = (n) => kind === 'relative'
+    ? (Math.abs(xbar) > 0 && hwAt(n) / Math.abs(xbar) <= gprime)
+    : (hwAt(n) <= target);
+  const current_hw = hwAt(n0);
+  const current_rel = Math.abs(xbar) > 0 ? current_hw / Math.abs(xbar) : NaN;
+  let needed = n0;
+  if (!meets(n0)) { needed = n0 + 1; while (needed < maxReps && !meets(needed)) needed++; }
+  return {
+    current_n: n0, mean: xbar, sd: Math.sqrt(s2),
+    current_halfwidth: current_hw, current_rel,
+    needed_n: needed, more: Math.max(0, needed - n0),
+    achieved: meets(n0), target, kind, gprime, capped: needed >= maxReps,
+  };
+}
 
 /** Per-metric mean, sd, t-CI across replications. `scalars` = array of row objects. */
 export function summarizeReplications(scalars, metrics = null, alpha = 0.05) {

@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles/design-system.css">
+<link rel="stylesheet" href="styles/analyse.css">
 </head>
 <body data-page="analyse">
 
@@ -16,27 +17,54 @@
     <p class="section-label eyebrow">Step 03 · the rigour layer</p>
     <h1 class="display">Run &amp; Analyse</h1>
     <p class="lead" style="margin-top: var(--s-4);">
-      Run the model honestly and read the results with their uncertainty in view — never a single
-      run presented as "the answer".
+      A single run is <em>one sample path</em> of a random process — never "the answer". Run the model
+      several times with different random seeds and read every response as a <strong>mean with a
+      confidence interval</strong>, so the uncertainty is always in view.
     </p>
   </section>
 
-  <section class="reveal placeholder">
-    <p class="section-label">Coming soon</p>
-    <h2>Warm-up, replications &amp; confidence</h2>
-    <p class="small measure">
-      Output analysis framed in Robinson's terms: terminating vs steady-state runs, warm-up
-      (initialisation-bias) handling, multiple replications, and confidence intervals / half-widths.
-      Time-average metrics (WIP, utilisation) by the area method and per-entity metrics (cycle time)
-      by sample means — kept distinct. The earlier analysis &amp; charting work feeds in here.
-    </p>
-    <div class="row" style="justify-content:center; margin-top: var(--s-4);">
-      <a class="btn btn-ghost" href="smoke.html">See the engine check</a>
-      <a class="btn btn-ghost" href="index.html">Back to overview</a>
+  <!-- Which study / model is loaded -->
+  <section class="reveal" id="studyBar"></section>
+
+  <!-- Run controls -->
+  <section class="reveal panel" id="controls" hidden>
+    <div class="panel__head">
+      <p class="section-label">Replications</p>
+      <h2 class="panel__title">Run the model honestly</h2>
+      <p class="panel__sub">Each replication is an independent run with its own random seed (seeds
+        <span class="num" id="seedRange">1…10</span>). More replications &rarr; a tighter interval (the
+        precision improves with &radic;N).</p>
     </div>
+    <div class="run-controls">
+      <div class="field">
+        <label for="reps">Replications (N)</label>
+        <input class="input num" type="number" id="reps" min="2" max="200" step="1" value="10">
+      </div>
+      <div class="field">
+        <label for="horizon">Run length (<span id="timeUnit">min</span>)</label>
+        <input class="input num" type="number" id="horizon" min="1" step="10" value="480">
+      </div>
+      <div class="field">
+        <label for="precision">Precision target (relative half-width)</label>
+        <select class="select" id="precision">
+          <option value="0.15" selected>&plusmn;15%</option>
+          <option value="0.10">&plusmn;10%</option>
+          <option value="0.05">&plusmn;5%</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" id="runBtn">Run replications</button>
+    </div>
+    <p class="small faint" id="warmupHint" style="margin-top: var(--s-4);">
+      Warm-up handling for steady-state studies (deciding how much of the start to delete) arrives in the
+      next step. For now every replication is measured over its whole length.
+    </p>
   </section>
+
+  <!-- Results -->
+  <section class="reveal" id="results" hidden></section>
 </main>
 
 <script type="module" src="js/nav.js"></script>
+<script type="module" src="js/analyse.js"></script>
 </body>
 </html>

@@ -806,9 +806,13 @@ Three findings from the `tests/ui/stress2.html` sweep were resolved (stakeholder
 
 ---
 
-## 2026-06-10 — Phase 4: output analysis & statistical rigour — DESIGN, pending review
+## 2026-06-10 — Phase 4: output analysis & statistical rigour — DESIGN, RATIFIED
 
-- **Decision (proposed, not yet ratified):** every response is reported as a **mean ± Student-t
+- **Stakeholder ratification (2026-06-10):** the statistical core is confirmed as specified —
+  Student-t CI at **α=0.05 (95%)**, **Welch** moving-average warm-up, **sequential** reps-for-precision,
+  **paired-t** on same-seed differences. Confirmed defaults: **N=10 replications**, relative-precision
+  target **γ=0.15 (±15%)**. Build proceeds M1→M5; PAUSE again after M1 to show the statistics + view.
+- **Decision:** every response is reported as a **mean ± Student-t
   half-width** from **independent replications** (distinct reproducible seeds), never a bare point —
   surfaced in Robinson's vocabulary; Law informs the implementation only (Charter §5).
 - **No engine changes.** A new driver (`src/analysis/replicate.js`) runs `FloorSim(runModel, seed)` for N
@@ -832,4 +836,4 @@ Three findings from the `tests/ui/stress2.html` sweep were resolved (stakeholder
   `app/js/analyse.js`. Out of scope: Factory-Physics overlays (Phase 5), batch-means UI, ranking-&-
   selection, metamodelling.
 - Governing principle / source: Charter §5/§9; theory-notes §3; DESIGN-LANGUAGE §5;
-  `docs/PHASE-4-DESIGN.md`. **PENDING REVIEW.**
+  `docs/PHASE-4-DESIGN.md`. **RATIFIED 2026-06-10** (α=0.05, N=10, γ=0.15).

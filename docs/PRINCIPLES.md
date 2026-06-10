@@ -67,6 +67,16 @@
   the practical handle on "relate critically to results, uncertainty, and limitations." —
   [R]; [L] (theory-notes §2.5, §3.8)
 
+- **Independent replications are the unit of confidence.** Because a single run's output
+  is strongly autocorrelated, we group output into approximately-IID units by re-running
+  with distinct, reproducible seeds and applying the t-interval to the per-rep means — not
+  to one run's internal samples. *Applied in Phase 4.1.* — [L] (theory-notes §3.2–3.3)
+
+- **Precision improves with √N, so it gets slower to buy.** Quadrupling the replications
+  roughly halves the half-width. The app reports each response's relative half-width and a
+  "replications for a target precision" estimate, so the student sees the cost of certainty
+  rather than guessing a rep count. *Applied in Phase 4.1.* — [L] (theory-notes §3.3, §3.5)
+
 ## Metrics & conventions
 
 - **Time-average vs sample-average metrics are computed differently.** Time-persistent

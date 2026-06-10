@@ -7,6 +7,7 @@
 import { load, save, uid, newAssumption, newFactor, newResponse } from './project.js';
 import { FloorSim, legDistance } from '../../src/floor-engine.js';
 import { DISTS, newDist, distMean, distScv, sample, mulberry32 } from '../../src/distributions.js';
+import { buildRunModel as buildRunModelShared } from './run-model.js';
 
 /* symbol library — concrete (manufacturing / service) + abstract (value-stream-
    mapping) glyphs, 24×24, pickable per resource AND per storage. Each entry is
@@ -1279,38 +1280,10 @@ function isProcessModel() {
     || model.control === 'conwip' || model.parts.some((p) => p.demand && p.demand.on)
     || model.parts.some((p) => partFeeders(p).length);   // a converging part runs the process path
 }
-function nodeForRun(n) {
-  return n.kind === 'resource'
-    ? { kind: 'resource', id: n.id, name: n.name, x: n.x, y: n.y, machines: n.machines || 1, service: n.service, bufferCap: n.buffer.finite ? n.buffer.cap : Infinity, scrap: n.scrap || 0, brk: n.brk, assembly: !!n.assembly, operatorRequired: !!n.operatorRequired, batch: (n.batch && n.batch.on) ? { size: Math.max(2, n.batch.size | 0), setup: Math.max(0, n.batch.setup || 0) } : null }
-    : { kind: n.kind, id: n.id, name: n.name, x: n.x, y: n.y, cap: n.cap };
-}
-function buildRunModel() {
-  const nodes = model.nodes.map(nodeForRun);
-  const transport = { default: model.defaultMover, speed: model.defaultSpeed, conveyor: model.conveyor, movers: model.movers, legs: model.legs };
-  const groups = (model.groups || []).map((g) => ({ id: g.id, name: g.name, rule: g.rule === 'even' ? 'even' : 'shortest', members: g.members.filter((m) => node(m)) }));
-  const head = { schema: 'des-floor/v1', scale: S, units: model.units, nodes, transport, groups, control: model.control, supply: model.supply };
-  if (!isProcessModel()) {
-    // legacy single-part shape (exact pre-3.5 behaviour for the basics-first default)
-    const p = model.parts[0];
-    const src = node((p.route || [])[0]);
-    const demand = (src && src.kind === 'source') ? src.interarrival : (model.nodes.find((n) => n.kind === 'source') || {}).interarrival || newDist('exp', { mean: 3 });
-    return { ...head, conwipCap: model.conwipCap,
-      parts: [{ id: p.id, kind: 'product', routing: p.route.slice(), demand }],
-      demand: { mode: 'instant' } };
-  }
-  // process shape — each part carries its route, arrival (from its source node), and BOM;
-  // demand[] holds the per-product customer demand (each with its own interarrival distribution).
-  const parts = model.parts.map((p) => {
-    const routings = partRoutings(p);                                   // primary + spliced feeder routings (Phase 3.8)
-    const arrivals = routings.map((r) => { const s = node(r[0]); return (s && s.kind === 'source') ? s.interarrival : undefined; });
-    return { id: p.id, name: p.name, kind: p.kind, routing: p.route.slice(), routings, arrivals,
-      arrival: arrivals[0] || ((node((p.route || [])[0]) || {}).interarrival),
-      bom: (p.bom || []).map((b) => ({ partId: b.partId, qty: Math.max(1, b.qty | 0) })) };
-  });
-  const demand = model.parts.filter((p) => p.demand && p.demand.on)
-    .map((p) => ({ partId: p.id, dist: p.demand.dist, qty: Math.max(1, p.demand.qty | 0), conwip: Math.max(1, p.demand.conwip | 0) }));
-  return { ...head, parts, demand };
-}
+// The editor→engine transformation lives in run-model.js (shared with the analysis
+// replication driver) so the floor you watch and the runs the analysis replicates
+// are built identically. node()/partRoutings()/isProcessModel() above remain for rendering.
+function buildRunModel() { return buildRunModelShared(model, S); }
 /* ---- playback ----------------------------------------------------------- */
 function buildSim() {
   if (!model.parts.some((p) => p.route.length >= 2)) { sim = null; needsBuild = true; lastBuildError = 'Add at least a source, a resource and a sink to a part’s route, then press Play.'; return false; }
