@@ -1660,6 +1660,72 @@ function loadExample7() {
   persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
   $('floorHint').textContent = 'The works: Pump = 1 Motor + 2 Housings; Motor (sold spare) = 1 Rotor + 4 Magnets. Housings ride a BENT CONVEYOR via a WIP buffer; Rotors are turned on an OPERATOR-run Lathe; Magnets are BATCH heat-treated (B=4, one batch per Motor); 3 AGVs carry the rest incl. the shared Motors. Pull/CONWIP + scrap. Press Play and watch it all move.';
 }
+/* The grand demo (#example8) — every feature on one floor, grounded in the layout theory
+   (theory-notes §5.3–5.5): TWO heavy-duty automatic casting LINES, each a parallel-machine GROUP
+   (3.7 pooling) with breakdowns + scrap and AGV feed, CONVERGE (3.8) into a shared BATCH heat-treat
+   furnace (3.4), which delivers the Casing to a CELLULAR assembly station (3.5 BOM + a purchased
+   Bearing) run by TWO OPERATORS who both carry bearings and operate the cell (3.6 operator↔machine
+   coupling). Gearboxes are sold under pull/CONWIP. Stream supply lets the batch accumulate freely. */
+function loadExample8() {
+  const mk = (kind, name, x, y, extra = {}) => Object.assign({ kind, id: uid(kind.slice(0, 3)), name, x, y }, extra);
+  const brk = (on = false) => ({ on, ttf: newDist('weibull', { shape: 1.6, scale: 55 }), ttr: newDist('exp', { mean: 5 }) });
+  const buf = () => ({ finite: false, cap: 10, init: 0, target: 8 });
+  const res = (name, x, y, sym, mean, extra = {}) => mk('resource', name, x, y, Object.assign(
+    { machines: 1, symbol: sym, service: newDist('lognormal', { mean, sd: mean * 0.3 }), buffer: buf(),
+      scrap: 0, brk: brk(), batch: { on: false, size: 2, setup: 0 }, assembly: false, operatorRequired: false }, extra));
+  // raw sources (two heavy lines + a purchased part near the cell)
+  const steelA = mk('source', 'Steel A', 4, 8, { interarrival: newDist('exp', { mean: 6 }) });
+  const steelB = mk('source', 'Steel B', 4, 46, { interarrival: newDist('exp', { mean: 6 }) });
+  const bearings = mk('source', 'Bearings (bought)', 56, 6, { interarrival: newDist('exp', { mean: 1.5 }) });
+  // line A + line B casters — heavy-duty automatic machines, two per line (a parallel group), scrap + breakdowns
+  const castA1 = res('Caster A1', 22, 5, 'gear', 4, { scrap: 0.05, brk: brk(true) });
+  const castA2 = res('Caster A2', 22, 15, 'gear', 4, { scrap: 0.05, brk: brk(true) });
+  const castB1 = res('Caster B1', 22, 39, 'gear', 4, { scrap: 0.05, brk: brk(true) });
+  const castB2 = res('Caster B2', 22, 49, 'gear', 4, { scrap: 0.05, brk: brk(true) });
+  const heat = res('Heat-treat', 43, 27, 'furnace', 2.5, { batch: { on: true, size: 4, setup: 1.5 } });   // merge + batch
+  const cell = res('Assembly cell', 66, 27, 'assemble', 2, { assembly: true, operatorRequired: true });
+  const ship = mk('sink', 'Gearboxes out', 88, 27);
+  model.nodes = [steelA, castA1, castA2, steelB, castB1, castB2, bearings, heat, cell, ship];
+
+  // parallel-machine groups (3.7) — one per heavy line, shortest-queue
+  const castersA = { id: uid('grp'), name: 'Casters A', rule: 'shortest', members: [castA1.id, castA2.id] };
+  const castersB = { id: uid('grp'), name: 'Casters B', rule: 'shortest', members: [castB1.id, castB2.id] };
+  model.groups = [castersA, castersB];
+
+  // parts — Casing = two converging heavy lines (primary + feeder) through the batch furnace into the cell
+  const dem = (mean, cw) => ({ on: false, dist: newDist('exp', { mean }), qty: 1, conwip: cw });
+  const casing = { id: uid('part'), name: 'Casing', kind: 'fabricated',
+    route: [steelA.id, castersA.id, heat.id, cell.id],
+    feeders: [{ path: [steelB.id, castersB.id, heat.id] }], bom: [], demand: dem(6, 5) };
+  const bearing = { id: uid('part'), name: 'Bearing', kind: 'purchased', route: [bearings.id, cell.id], feeders: [], bom: [], demand: dem(2, 5) };
+  const gearbox = { id: uid('part'), name: 'Gearbox', kind: 'product', route: [cell.id, ship.id], feeders: [],
+    bom: [{ partId: casing.id, qty: 1 }, { partId: bearing.id, qty: 2 }], demand: { on: true, dist: newDist('exp', { mean: 3.2 }), qty: 1, conwip: 8 } };
+  model.parts = [casing, bearing, gearbox]; model.activePart = gearbox.id;
+
+  // transport — AGVs feed the heavy lines + carry the Casing to the cell; operators carry Bearings + run the cell
+  const agv = { mover: 'agv' }, bearingLeg = `${bearings.id}>${cell.id}`;
+  model.legs = {
+    [`${steelA.id}>${castA1.id}`]: agv, [`${steelA.id}>${castA2.id}`]: agv,
+    [`${castA1.id}>${heat.id}`]: agv, [`${castA2.id}>${heat.id}`]: agv,
+    [`${steelB.id}>${castB1.id}`]: agv, [`${steelB.id}>${castB2.id}`]: agv,
+    [`${castB1.id}>${heat.id}`]: agv, [`${castB2.id}>${heat.id}`]: agv,
+    [`${heat.id}>${cell.id}`]: agv,
+    [bearingLeg]: { mover: 'operator' },
+  };
+  const agvLinks = Object.keys(model.legs).filter((k) => model.legs[k].mover === 'agv');
+  model.movers = [
+    { id: uid('mv'), kind: 'agv', name: 'AGV 1', speed: 70, home: { x: 33, y: 20 }, serves: { links: agvLinks.slice(), machines: [] } },
+    { id: uid('mv'), kind: 'agv', name: 'AGV 2', speed: 70, home: { x: 33, y: 27 }, serves: { links: agvLinks.slice(), machines: [] } },
+    { id: uid('mv'), kind: 'agv', name: 'AGV 3', speed: 70, home: { x: 33, y: 34 }, serves: { links: agvLinks.slice(), machines: [] } },
+    { id: uid('mv'), kind: 'operator', name: 'Operator 1', speed: 60, home: { x: 60, y: 16 }, serves: { links: [bearingLeg], machines: [cell.id] } },
+    { id: uid('mv'), kind: 'operator', name: 'Operator 2', speed: 60, home: { x: 60, y: 38 }, serves: { links: [bearingLeg], machines: [cell.id] } },
+  ];
+  model.defaultMover = 'instant'; model.control = 'conwip'; model.supply = 'stream';
+  selected = { kind: 'node', id: cell.id }; sim = null;
+  ensureProcessAssumption(); ensureMoverAssumption();
+  persist(); refreshAll(); updateClock(); setPlayLabel(); zoomFit();
+  $('floorHint').textContent = 'The grand demo: two heavy-duty automatic CASTING LINES (each a parallel-machine GROUP, with breakdowns + scrap, AGV-fed) CONVERGE into a shared BATCH heat-treat furnace, then feed a CELLULAR assembly station — 1 Casing + 2 bought Bearings → Gearbox — run by TWO OPERATORS who carry bearings AND assemble. Sold under pull/CONWIP. Press Play and watch it all move.';
+}
 function clearFloor() { model.nodes = []; setSinglePartRoute(); model.legs = {}; model.movers = []; selected = null; sim = null;
   persist(); refreshAll(); updateClock(); setPlayLabel();
   $('results').innerHTML = '<p class="results-empty">Press Play, then “End” when you’ve seen enough, to see results.</p>';
@@ -2056,10 +2122,11 @@ function init() {
   else if (location.hash === '#example5') { loadExample5(); deep = true; }   // 3-level BOM, sub-assembly also sold
   else if (location.hash === '#example6') { loadExample6(); deep = true; }   // Phase 3.6 transport showcase
   else if (location.hash === '#example7') { loadExample7(); deep = true; }   // the works (most intricate)
+  else if (location.hash === '#example8') { loadExample8(); deep = true; }   // grand demo: groups + convergence + cell
   if (model.movers.length || ['agv', 'operator'].includes(model.defaultMover) || Object.values(model.legs).some((l) => l.mover === 'agv' || l.mover === 'operator')) ensureMoverAssumption();
   render(); renderInspector(); renderTransport(); renderBomInset();
   activateTab('inspect'); setPlayLabel(); updateClock(); zoomFit();
-  if (['#play', '#example2', '#example3', '#example4', '#example5', '#example6', '#example7'].includes(location.hash)) { if (!model.parts.some((p) => p.route.length >= 2)) loadExample(); play(); }   // deep-link: open running
+  if (['#play', '#example2', '#example3', '#example4', '#example5', '#example6', '#example7', '#example8'].includes(location.hash)) { if (!model.parts.some((p) => p.route.length >= 2)) loadExample(); play(); }   // deep-link: open running
   else if (!deep && model.nodes.length === 0) openSetup();   // empty model → start in the system builder
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

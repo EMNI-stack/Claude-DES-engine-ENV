@@ -1333,3 +1333,19 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   UI — letting a student study how superposing more feeders loads the downstream line.
 - Headless-verified the factor records into `project.conceptual.factors` (`merge:X:streams=2`). Phase 3.8
   complete — `npm test` 113/113; authoring 21/21; stress 24/24.
+
+## 2026-06-10 — Grand demo (#example8): every feature on one floor, grounded in layout theory
+
+- Added `loadExample8()` + a `#example8` deep link — the showcase the engine has been building toward.
+  Two heavy-duty **automatic casting lines**, each a **parallel-machine group** (3.7, shortest-queue) with
+  **breakdowns + scrap** and **AGV** feed, **converge** (3.8) into a shared **batch heat-treat furnace**
+  (3.4), which delivers the **Casing** to a **cellular assembly** station (3.5 BOM: 1 Casing + 2 bought
+  **Bearings**) run by **two operators** who both carry bearings and operate the cell (3.6 operator↔machine
+  coupling). **Gearboxes** are sold under **pull/CONWIP**; **stream** supply lets the batch accumulate.
+- Maps to the layout theory (theory-notes §5.3–5.5): disconnected heavy flow lines, parallel-machine
+  pooling, cellular-assembly ↔ AGV/operator co-evolution, and an unbalanced line where the expensive
+  heavy casting (with breakdowns + scrap) is the deliberate bottleneck.
+- Verified headless through the real build path (Step ×6000 → End): **~1060 Gearboxes out, no deadlock**,
+  product output ~0.28/min, cycle ~3.8 min, yield ~98%, two group hulls + one merge marker render, casters
+  show breakdown downtime, the cell runs ~57% on two operators. `npm test` 113/113; authoring 21/21;
+  stress 24/24.
