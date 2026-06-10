@@ -207,3 +207,15 @@
   (and favours faster members, since they stay less loaded). Both decide on members' own state only —
   not transport distance — in v1. Realised in Phase 3.7 (`tests/floor-groups.test.js` quantifies the
   pooling win). — theory-notes §4.6 (pooling, HS p.298), §5.5 (parallel machines, HS p.291); Charter §6.2
+
+- **A flow merge superposes the feeders' arrival variability (and is a form of pooling).** When several
+  upstream streams of the *same* part combine into one shared FIFO queue feeding a single downstream
+  operation, the downstream sees the **superposition** of the feeders' arrival processes — its offered
+  rate is the sum of the feeder rates (up to capacity) and its arrival variability is the combined
+  variability of the feeders (theory-notes §4.5). Sharing one queue across the streams is pooling (§4.6).
+  Crucially a flow merge requires **no synchronisation**: any single part flows straight through the
+  instant it arrives and the downstream resource is free — the exact opposite of a BOM/assembly join,
+  which *waits* for all components (fork-join). Same part, no wait, no priority/weighting — that "nothing
+  to decide" property is what distinguishes a merge from an assembly. Realised in Phase 3.8 as the inverse
+  of the §6.2 split (`tests/floor-merge.test.js`). — theory-notes §4.5 (variability propagation /
+  superposition), §4.6 (pooling); Charter §6.3

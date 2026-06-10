@@ -104,7 +104,7 @@ export class FloorSim {
     // conveyor leg state (per edge), precomputed from all parts' routings
     this.conv = {};
     for (const p of (model.parts || [])) {
-      const r = p.routing || [];
+      for (const r of ((p.routings && p.routings.length) ? p.routings : [p.routing || []]))   // 3.8: a part may have several feeder routings
       for (let i = 0; i < r.length - 1; i++) {
         // a group token expands to its members: every possible concrete member leg is set up
         for (const a of this.membersOf(r[i])) for (const b of this.membersOf(r[i + 1])) {
@@ -146,7 +146,9 @@ export class FloorSim {
     // object/absent `demand` stays on the single-product path (byte-identical to
     // pre-3.5 behaviour — the existing tests' regression guard).
     const parts = model.parts || [];
-    this.multiPart = parts.length > 1 || parts.some((p) => p.bom && p.bom.length) || Array.isArray(model.demand);
+    // a part with several feeder routings (Phase 3.8 convergence) also runs the process path
+    this.multiPart = parts.length > 1 || parts.some((p) => p.bom && p.bom.length) || Array.isArray(model.demand)
+      || parts.some((p) => Array.isArray(p.routings) && p.routings.length > 1);
 
     if (this.multiPart) {
       this.initProcess(model, parts);
@@ -215,6 +217,17 @@ export class FloorSim {
     }
     this.sourceParts = parts.filter((p) => this.isSource(p));
 
+    // Phase 3.8 — convergence: a part may have several feeder routings (each from its own source,
+    // joining a shared downstream queue). Default is a single routing → byte-identical to before.
+    this.partRoutings = {};
+    for (const p of parts) this.partRoutings[p.id] = (Array.isArray(p.routings) && p.routings.length) ? p.routings : [p.routing];
+    // flat feed points: one per (source part × its routings); each carries its own arrival stream
+    this.feeders = [];
+    for (const p of this.sourceParts) {
+      const rs = this.partRoutings[p.id], arrs = Array.isArray(p.arrivals) ? p.arrivals : null;
+      rs.forEach((r, ri) => this.feeders.push({ pid: p.id, ridx: ri, routing: r, arrival: (arrs && arrs[ri]) || p.arrival || p.demand || { type: 'exp', mean: 3 } }));
+    }
+
     // control: 'pull' (CONWIP) | 'push'. 'conwip' is accepted as a pull alias.
     this.pullMode = model.control === 'pull' || model.control === 'conwip';
     // demand: array of {partId, dist, qty, conwip}. Pull always runs a demand stream.
@@ -225,9 +238,10 @@ export class FloorSim {
     // round-robin + pull-explosion state (advanced-engine)
     this.rrPtr = 0; this.rrFeed = 0; this.pullPlan = {}; this.extTurn = {}; this._pullOrder = null;
 
-    // supply: stream schedules per-source arrivals; limitless seeds a FEED for feedMulti()
+    // supply: stream schedules per-FEEDER arrivals (each feeder its own interarrival, so the streams
+    // superpose at the merge — theory-notes §4.5); limitless seeds a FEED for feedMulti()
     if (this.supply === 'stream') {
-      for (const p of this.sourceParts) this.schedule(sample(p.arrival || p.demand || { type: 'exp', mean: 3 }, this.rng), { t: 'ARRIVE', part: p.id });
+      this.feeders.forEach((fd, fi) => this.schedule(sample(fd.arrival, this.rng), { t: 'ARRIVE', part: fd.pid, fidx: fi }));
     } else {
       this.schedule(0, { t: 'FEED' });
     }
@@ -238,9 +252,10 @@ export class FloorSim {
   isSource(p) { return !(p.bom && p.bom.length); }
   inDemandM(pid) { return this.demandStats[pid] != null; }
 
-  // create a job of part p and admit it to the first node of its route
-  createAndAdmit(p) {
-    const job = { id: ++this.pid, part: p.id, routing: p.routing.slice(), step: 0, entry: this.now, transit: 0, loc: null };
+  // create a job of part p on its routing #ridx (default 0) and admit it to that route's first node
+  createAndAdmit(p, ridx = 0) {
+    const routing = ((this.partRoutings && this.partRoutings[p.id]) || [p.routing])[ridx] || p.routing;
+    const job = { id: ++this.pid, part: p.id, routing: routing.slice(), step: 0, entry: this.now, transit: 0, loc: null };
     this.jobs.set(job.id, job);
     this.entered++; this.wip++; this.pstats[p.id].created++; this.pstats[p.id].wip++;
     this.admit(job, 0);
@@ -248,8 +263,8 @@ export class FloorSim {
   // Room to admit one more job at a part's first RESOURCE (queue + machines). A shallow
   // ready queue (machines + 1) on an infinite buffer is the flood guard, as in the single-part
   // firstCanAccept. Used for assembly admission and stream arrivals into a line.
-  firstResAccepts(p) {
-    for (const id of (p.routing || [])) {
+  firstResAcceptsRouting(routing) {
+    for (const id of (routing || [])) {
       const members = this.isGroup(id) ? this.groups[id].members : (this.res[id] ? [id] : null);
       if (!members) continue;                              // source/storage/sink — not the first resource
       return members.some((mid) => {                       // a group accepts if ANY member has room
@@ -261,30 +276,34 @@ export class FloorSim {
     }
     return true;   // no resource on the route (degenerate) — let it through
   }
+  firstResAccepts(p) { return this.firstResAcceptsRouting(p.routing || ((this.partRoutings && this.partRoutings[p.id]) || [])[0]); }
   // max units of component `pid` consumed by a single assembly (its just-in-time on-hand need)
   componentNeed(pid) { let n = 0; for (const p of this.parts) for (const b of (p.bom || [])) if (b.partId === pid) n = Math.max(n, b.qty); return n || 1; }
   // Limitless feed gate. A COMPONENT deposits straight to inventory (never occupies a queue),
   // so the resource-occupancy guard can't bound it — bound it by its PIPELINE instead
   // (on-hand + in-flight ≤ a shallow buffer), so feed never out-runs assembly consumption.
   // A raw part feeding a line is bounded by its first workcenter's shallow ready queue.
-  firstResFeedable(p) {
-    if (this.componentPids.has(p.id)) return (this.inventory[p.id] + this.pstats[p.id].wip) < this.componentNeed(p.id) + 1;
-    const srcHold = this.hold[(p.routing || [])[0]];
-    if (srcHold && srcHold.items.length > 0) return false;   // one staged at the source at a time
-    return this.firstResAccepts(p);
+  // feedability for one feeder ROUTING of part pid (bounds release so it can't out-run consumption)
+  firstRoutingFeedable(pid, routing) {
+    if (this.componentPids.has(pid)) return (this.inventory[pid] + this.pstats[pid].wip) < this.componentNeed(pid) + 1;
+    const srcHold = this.hold[(routing || [])[0]];
+    if (srcHold && srcHold.items.length > 0) return false;   // one staged at this feeder's source at a time
+    return this.firstResAcceptsRouting(routing);
   }
-  // limitless supply: release source parts while feedable (round-robin so they share a workcenter)
+  // limitless supply: release across all FEEDERS round-robin (so multiple same-part streams share fairly
+  // and converge at the merge node's shared queue — Phase 3.8)
   feedMulti() {
     if (this.supply !== 'limitless') return false;
-    const m = this.sourceParts.length; if (!m) return false;
+    const fds = this.feeders, m = fds.length; if (!m) return false;
     let progress = false, any = true, guard = 100000;
     while (any && guard-- > 0) {
       any = false;
       const base = this.rrFeed;
       for (let k = 0; k < m; k++) {
-        const p = this.sourceParts[(base + k) % m];
-        if (!this.firstResFeedable(p)) continue;
-        this.createAndAdmit(p); this.rrFeed = ((base + k) % m + 1) % m; any = true; progress = true;
+        const fd = fds[(base + k) % m];
+        if (!this.firstRoutingFeedable(fd.pid, fd.routing)) continue;
+        this.createAndAdmit(this.parts[this.partIdx.get(fd.pid)], fd.ridx);
+        this.rrFeed = ((base + k) % m + 1) % m; any = true; progress = true;
       }
     }
     return progress;
@@ -396,9 +415,11 @@ export class FloorSim {
 
   /* ---- process-mode event handlers ---- */
   onArriveMulti(ev) {
-    const p = this.parts[this.partIdx.get(ev.part)]; if (!p) return;
-    this.schedule(sample(p.arrival || p.demand || { type: 'exp', mean: 3 }, this.rng), { t: 'ARRIVE', part: p.id });
-    this.createAndAdmit(p);   // stream arrivals are self-pacing; admit to the source hold and let it flow
+    // each feeder reschedules its OWN next arrival and admits a job on its OWN routing (3.8 convergence)
+    const fd = (this.feeders && ev.fidx != null) ? this.feeders[ev.fidx] : null;
+    const p = this.parts[this.partIdx.get(fd ? fd.pid : ev.part)]; if (!p) return;
+    this.schedule(sample(fd ? fd.arrival : (p.arrival || p.demand || { type: 'exp', mean: 3 }), this.rng), { t: 'ARRIVE', part: p.id, fidx: ev.fidx });
+    this.createAndAdmit(p, fd ? fd.ridx : 0);   // stream arrivals are self-pacing; admit and let it flow to the merge
   }
   onDemandMulti(ev) {
     const d = this.demandList.find((x) => x.partId === ev.part); if (!d) return;

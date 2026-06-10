@@ -1289,3 +1289,22 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
 - **No engine/UI code yet — paused for stakeholder confirmation of (1) the build-vs-surface verdict
   (reuse the shared FIFO), (2) the tail-splice feeder model, and that this stays a FLOW merge, never an
   assembly join.** `npm test` unchanged (108/108).
+
+## 2026-06-10 — Phase 3.8 Milestone 1: same-part flow convergence (engine)
+
+- `src/floor-engine.js` only (frozen engines untouched). A part may carry several **feeder routings**
+  (`part.routings = [[…],[…]]`, falling back to `[part.routing]` → byte-identical default). Built
+  `this.partRoutings[pid]` and a flat `this.feeders` list (one per source part × routing, each with its
+  own arrival). `multiPart` now also triggers on a part with >1 routing. `createAndAdmit(p, ridx)`
+  creates a job on a chosen routing. **Stream** supply schedules an arrival per feeder (so the streams
+  superpose at the merge); **limitless** `feedMulti` round-robins across feeders; `firstResAccepts` was
+  refactored to `firstResAcceptsRouting` and a per-routing `firstRoutingFeedable` gate added. The
+  conveyor-leg precompute iterates all of a part's routings.
+- **Convergence is emergent, not synchronised:** every routing through the merge node deposits into that
+  node's existing shared FIFO (`res.queue` / `hold.items`); the downstream op drains it in arrival order;
+  no decision point added to the event loop, no partner wait. Demand/`pstats`/`inventory` stay per part
+  (one part = one WIP cap).
+- New `tests/floor-merge.test.js` (5, added to `npm test`): two feeders converge with conservation; the
+  merge sees the combined rate and neither feeder starves; coexistence with transport legs (time differs
+  by layout) + a batch feeder; Little's Law across the merge; and a flow merge needs no synchronisation
+  (feeder A flows even when feeder B is silent — contrast a BOM join). **113/113.**
