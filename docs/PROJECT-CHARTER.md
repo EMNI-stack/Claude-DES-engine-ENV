@@ -225,6 +225,31 @@ load-balancing across groups.
 
 ---
 
+## 6.3 Convergence / merge — several streams, one downstream line
+
+The **inverse of §6.2's split**. Several upstream streams of the **same part** combine into **one
+shared FIFO downstream queue** that a single downstream operation/line consumes — e.g. two identical
+lines both producing part X converge into one stream feeding a third line.
+
+**v1 definition (kept simple):**
+- A part may have, besides its primary route, one or more **feeder** paths — each from its own source,
+  joining the primary route at a single **merge node**. Every stream that passes through the merge node
+  shares that node's queue; the downstream operation consumes in **arrival order**.
+- Each feeder reaches the merge via its **own transport leg** (so transit time depends on layout).
+- A flow merge needs **no synchronisation** — any single part flows straight through as soon as it
+  arrives and the downstream resource is free.
+- **No source priority or weighting.** A merge superposes the feeders' arrival variability
+  (theory-notes §4.5) and is a form of pooling (§4.6).
+
+**Distinct from BOM/assembly synchronisation:** assembly combines *different* parts into a product and
+*waits* for all components (fork-join, §3.5). A flow merge combines the *same* part and waits for
+nothing. They must not be conflated.
+
+**Not in v1:** weighted or prioritised merges, synchronised joins (that is assembly), merging streams
+of *different* parts, anything beyond a shared FIFO queue.
+
+---
+
 ## 7. Factory Physics overlay (intuition meets output)
 
 After a model runs, the app should let students **compare simulation results to
@@ -305,6 +330,11 @@ too playful, too "cyber" (neon accents, glowing grids). **Retire that look.**
   *(Inserted after review — the original roadmap omitted an explicit
   model-definition phase; §4.2 had only assumed the engine's BOM/routing would
   carry through. Logically this precedes output analysis.)*
+- **Phase 3.8 — Convergence / merge.** Several upstream streams of the *same*
+  part combine into one shared FIFO downstream queue feeding a single downstream
+  line — the inverse of the §6.2 split; distinct from BOM/assembly sync. (See
+  §6.3.) Builds on the process model and the revised transport; comes after
+  parallel resources (3.7).
 - **Phase 4 — Output analysis & rigour.** Warm-up, replications, confidence
   intervals; integrate the analysis/visualisation work.
 - **Phase 5 — Factory Physics overlays.** Theory-vs-results comparison; the

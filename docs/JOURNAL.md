@@ -1273,3 +1273,19 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
 - Headless-verified: opening a group's editor and clicking its two "+ as experimental factor" buttons
   records both bindings (`rule`, `membercount`) into `project.conceptual.factors`. Phase 3.7 complete —
   `npm test` 108/108; authoring 21/21; stress 24/24.
+
+## 2026-06-10 — Phase 3.8 Milestone 0: convergence/merge audit + design note (PAUSE for review)
+
+- Audited the engine: a node's `queue`/`items` is already a **single shared FIFO** fed by any upstream
+  leg (`push` tail) and drained by the one downstream op in arrival order (`shift` front) — so a true
+  same-part convergence mechanism already exists (seen in 3.7 reconvergence and shared workcenters). The
+  missing piece is **authoring** a same-part multi-stream, since a part has one linear route.
+- Wrote `docs/PHASE-3-8-DESIGN.md`: a part gains optional **`feeders`** (each a path from its own source
+  to a merge node on the primary route); `buildRunModel` splices them into `part.routings`; convergence is
+  emergent via the existing shared FIFO; no synchronisation, no priority/weighting; feeders reach the
+  merge via their own transport legs; per-feeder interarrival (stream) / round-robin release (CONWIP);
+  per-part demand and WIP cap. Added Charter **§6.3** ("Convergence / merge") + a §10 roadmap entry, and
+  summarised the decision in `docs/DECISIONS.md`.
+- **No engine/UI code yet — paused for stakeholder confirmation of (1) the build-vs-surface verdict
+  (reuse the shared FIFO), (2) the tail-splice feeder model, and that this stays a FLOW merge, never an
+  assembly join.** `npm test` unchanged (108/108).

@@ -714,3 +714,32 @@ and 3.6.3 (integration); `npm test` 103/103.*
   the conceptual model for the Phase-4 runner, consistent with the existing `movers:*:count` factors.
 - Governing principle / source: Charter §6.2, §9; theory-notes §4.6, §5.5; `docs/PHASE-3-7-DESIGN.md`.
   **Covered by `tests/floor-groups.test.js` (5); authoring 21/21, stress 24/24, `npm test` 108/108.**
+
+---
+
+## 2026-06-10 — Phase 3.8: convergence / merge (same-part flow merge) — DESIGN, pending review
+
+- **Audit (build-vs-surface):** a shared FIFO downstream queue **already exists** — every resource
+  `queue` / storage `items` accepts jobs from any upstream leg (`push` to tail) and the downstream op
+  consumes in arrival order (`shift` from front). Proven today by two different parts sharing a workcenter
+  and by 3.7 group members re-converging into the next op's queue. The **only** gap is *authoring* a
+  same-part multi-stream (a part has one linear route). → 3.8 is mostly **surface + a contained enabling
+  change**: no new queue primitive; reuse the shared FIFO.
+- **Decision (proposed, not yet ratified):** a part keeps its primary `route` and gains optional
+  **`feeders`** — each a path from its own source to a **merge node** on the primary route. `buildRunModel`
+  splices each feeder into a full routing → the engine reads `part.routings = [primary, …]` (falls back to
+  `[routing]` so existing behaviour is byte-identical). Convergence is **emergent**: all routings through
+  the merge node share its existing FIFO; **no synchronisation, no priority/weighting**; a single part
+  flows through immediately. Feeders reach the merge via their own transport legs (3.6). Stream supply
+  gives each feeder its own interarrival (variability **superposes** — theory-notes §4.5); limitless/CONWIP
+  release **round-robin across feeders**; demand/`pstats`/`inventory` stay per-part (one part = one cap).
+- **FIFO discipline:** arrival order at the merge node (driven by transport arrival times); no decision
+  point is added to the event loop — the clearest evidence this is a flow merge, not an assembly join.
+- Alternatives considered: a brand-new shared-merge-queue primitive (rejected — the node queue already
+  is one); authoring each feeder as a full independent route with the downstream tail duplicated (offered
+  as the alternative to confirm — we propose **tail-splice** so the tail isn't duplicated and it reads as
+  "lines joining"); per-source priority/weighting (out of scope, §6.3/§9).
+- **Explicitly distinct from BOM/assembly synchronisation** (different parts, fork-join, waits for all
+  components) — must not be conflated.
+- Governing principle / source: Charter §6.2 (inverse split), §6.3 (new), §9; theory-notes §4.5
+  (variability propagation / superposition), §4.6 (pooling); `docs/PHASE-3-8-DESIGN.md`. **PENDING REVIEW.**
