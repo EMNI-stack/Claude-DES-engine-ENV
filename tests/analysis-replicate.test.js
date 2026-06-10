@@ -7,8 +7,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newDist } from '../src/distributions.js';
-import { replicate, responsesAtCutoff } from '../src/analysis/replicate.js';
-import { summarizeReplications, repsForPrecision } from '../src/analysis/output_analysis.js';
+import { replicate, responsesAtCutoff, wipTimeseries, windowResponse } from '../src/analysis/replicate.js';
+import { summarizeReplications, repsForPrecision, welchWarmup } from '../src/analysis/output_analysis.js';
 
 // A clean M/M/1: source -> server -> sink, all co-located so transport is zero.
 // λ = 1/iaMean, μ = 1/svcMean, ρ = λ/μ. Analytic steady state: L = ρ/(1-ρ),
@@ -60,6 +60,30 @@ test('half-width shrinks roughly as 1/√N as replications increase', () => {
   assert.ok(hw32 < hw8, `expected hw to shrink: hw8=${hw8.toFixed(4)} hw32=${hw32.toFixed(4)}`);
   const ratio = hw32 / hw8;                       // ideal 0.5
   assert.ok(ratio > 0.3 && ratio < 0.75, `1/√N ratio off: ${ratio.toFixed(3)} (ideal ~0.5)`);
+});
+
+test('warm-up deletion reduces initialisation bias on a system started empty (M2)', () => {
+  // ρ = 0.85 ⇒ a large, slow transient: started empty, WIP climbs over a long stretch toward
+  // steady state. Many reps (80) average out replication noise so the initialisation bias is the
+  // dominant signal. Grid step = 2400/120 = 20 time units.
+  const model = mm1({ iaMean: 1, svcMean: 0.85 });
+  const res = replicate(model, { reps: 80, horizon: 2400, gridPoints: 120, baseSeed: 7 });
+
+  // (a) the Welch method the UI uses must detect a warm-up: the empty-start dip is below the
+  //     plateau and the suggested cut-off is positive.
+  const w = welchWarmup(wipTimeseries(res), 'wip');
+  assert.ok(w.ybar[0] < w.plateau, `empty-start WIP (${w.ybar[0].toFixed(2)}) should be below the plateau (${w.plateau.toFixed(2)})`);
+  assert.ok((w.cutoff_time || 0) > 0, 'Welch should suggest a positive warm-up cut-off');
+
+  // (b) deletion reduces bias: an estimate that KEEPS the empty-start window [0,200] is biased low
+  //     relative to the converged tail [1200,2400]; deleting the warm-up ([600,2400]) recovers it.
+  const mean = (a) => { const f = a.filter(Number.isFinite); return f.reduce((s, v) => s + v, 0) / f.length; };
+  const winWIP = (a, b) => mean(res.reps.map((r) => windowResponse(r.snapshots[a], r.snapshots[b]).avgWIP));
+  const keepEmptyStart = winWIP(0, 10);   // [0, 200] — includes the near-empty start
+  const deleted = winWIP(30, 120);        // [600, 2400] — warm-up removed
+  const truth = winWIP(60, 120);          // [1200, 2400] — converged tail (steady-state proxy)
+  assert.ok(Math.abs(keepEmptyStart - truth) > Math.abs(deleted - truth),
+    `deletion should reduce bias: keep-start |${keepEmptyStart.toFixed(2)}-${truth.toFixed(2)}| should exceed deleted |${deleted.toFixed(2)}-${truth.toFixed(2)}|`);
 });
 
 test('repsForPrecision: meets target ⇒ no more reps; tighter target ⇒ asks for more', () => {

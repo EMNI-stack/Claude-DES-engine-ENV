@@ -1465,3 +1465,30 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
 **Sources:** Charter §5/§9; theory-notes §3.2–3.5; DESIGN-LANGUAGE §5; `docs/PHASE-4-DESIGN.md`.
 
 **PAUSED for review of the statistics + results view before Milestones 2–5.**
+
+## 2026-06-10 — Phase 4.2: warm-up detection & deletion
+
+**Done today**
+- **`app/js/charts.js` (new)** — small dependency-free SVG charts on-brand per DESIGN-LANGUAGE §5
+  (thin lines, faint grid, mono ticks, quiet shaded bands, grayscale-legible): `welchPlot` (avg WIP
+  over time with the warm-up region shaded + cut-off line + plateau reference), plus `repDotPlot` and
+  `utilBars` used by the results view.
+- **Terminating vs steady-state** (Robinson) as a segmented control. Terminating → whole run analysed,
+  no warm-up (initial conditions are part of the model). Steady-state → Welch across-replication WIP(t)
+  plot with a **draggable cut-off**; deleting the warm-up recomputes every response **instantly from the
+  snapshots — no re-running** (the payoff of the Phase-4.1 snapshot-on-a-grid driver).
+- **Degenerate-cut-off guard.** When the WIP curve never settles (`welchWarmup.converged === false` — a
+  too-short or near-saturated run), Welch pushes the cut-off near the end, which would delete almost the
+  whole run. The view caps the warm-up at 50% of the run, falls back to a light 10% default when not
+  converged, and shows a plain-language note: "the curve hasn't settled — run longer or treat as
+  terminating." (Caught in browser verification: a saturated line at the default horizon suggested
+  deleting 95.5% of the run.)
+- **Test** — `analysis-replicate.test.js` gains the warm-up case: at ρ=0.85 with 80 reps (noise averaged
+  out) the Welch curve's empty-start dip sits below the plateau and a positive cut-off is suggested; an
+  estimate that keeps the empty-start window is more biased (vs the converged tail) than the
+  warm-up-deleted estimate. `npm test` **118/118**.
+- **Verified in browser** (headless Chrome): long horizon → clean 10% warm-up, tight CIs, Little's Law
+  consistent (TH 0.503 × CT 12.5 ≈ WIP 6.36); slider drag recomputes instantly; terminating mode shows
+  the no-warm-up explanation. No console errors.
+
+**Sources:** theory-notes §3.4 (Welch); DESIGN-LANGUAGE §5; Charter §5.

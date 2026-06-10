@@ -35,6 +35,13 @@
         <span class="num" id="seedRange">1…10</span>). More replications &rarr; a tighter interval (the
         precision improves with &radic;N).</p>
     </div>
+    <div class="studytype" style="margin-bottom: var(--s-4);">
+      <div class="segmented" id="studyType" role="group" aria-label="Study type">
+        <button type="button" data-v="steady" aria-pressed="true">Steady-state</button>
+        <button type="button" data-v="terminating" aria-pressed="false">Terminating</button>
+      </div>
+      <p class="seg-help" id="studyTypeHelp"></p>
+    </div>
     <div class="run-controls">
       <div class="field">
         <label for="reps">Replications (N)</label>
@@ -54,10 +61,6 @@
       </div>
       <button class="btn btn-primary" id="runBtn">Run replications</button>
     </div>
-    <p class="small faint" id="warmupHint" style="margin-top: var(--s-4);">
-      Warm-up handling for steady-state studies (deciding how much of the start to delete) arrives in the
-      next step. For now every replication is measured over its whole length.
-    </p>
   </section>
 
   <!-- Results -->

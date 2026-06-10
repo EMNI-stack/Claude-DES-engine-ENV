@@ -47,3 +47,38 @@
 
 .not-measured { font-size: var(--fs-small); color: var(--faint); }
 .not-measured li { margin: 2px 0; }
+
+/* study-type chooser */
+.studytype { display: flex; flex-wrap: wrap; gap: var(--s-4); align-items: center; }
+.studytype .seg-help { font-size: var(--fs-small); color: var(--ink-2); max-width: 56ch; }
+
+/* warm-up control */
+.warmup-row { display: flex; flex-wrap: wrap; gap: var(--s-4); align-items: center; margin-top: var(--s-4); }
+.warmup-row label { font-size: var(--fs-small); color: var(--ink-2); font-weight: 500; }
+.warmup-row input[type="range"] { flex: 1; min-width: 220px; accent-color: var(--accent); }
+.warmup-readout { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: var(--fs-small); color: var(--ink); white-space: nowrap; }
+
+/* SVG charts (DESIGN-LANGUAGE §5: thin lines, faint grid, mono ticks, quiet bands) */
+.chart { width: 100%; height: auto; display: block; }
+.chart-grid { stroke: var(--line); stroke-width: 1; }
+.chart-axis { stroke: var(--line-strong); stroke-width: 1; }
+.chart-tick { font-family: var(--mono); font-size: 10px; fill: var(--faint); }
+.chart-axis-label { font-family: var(--mono); font-size: 10px; fill: var(--faint); }
+.chart-line { fill: none; stroke: var(--primary); stroke-width: 1.5; }
+.chart-line-faint { fill: none; stroke: var(--line-strong); stroke-width: 1; }
+.chart-cutoff { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.chart-warmup { fill: var(--accent); opacity: .08; }
+.chart-ref { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 2 3; opacity: .6; }
+.chart-ciband { fill: var(--primary); opacity: .10; }
+.chart-mean { stroke: var(--primary); stroke-width: 1.5; }
+.chart-dot { fill: var(--ink-2); opacity: .65; }
+.chart-bar { fill: var(--busy); opacity: .55; }
+.chart-bar--bn { fill: var(--blocked); opacity: .8; }
+.chart-whisker { stroke: var(--ink); stroke-width: 1.5; }
+
+.chart-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s-4) var(--s-5); }
+.chart-card h3 { font-family: var(--serif); font-size: 17px; font-weight: 500; margin: 0 0 var(--s-2); }
+.chart-card .cap { font-size: var(--fs-small); color: var(--ink-2); margin: 0 0 var(--s-3); }
+.dist-row { display: flex; align-items: center; gap: var(--s-4); }
+.dist-row .dist-label { min-width: 130px; font-size: var(--fs-small); color: var(--ink-2); }
+.dist-row .chart { flex: 1; }
