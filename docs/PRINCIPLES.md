@@ -186,3 +186,13 @@
 > straight/bent with capacity+blocking · AGV · Operator), placed flexible units with a home location +
 > travel-to-pickup + return-when-idle, the longest-waiting→nearest dispatch rule, and the operator↔machine
 > coupling (operator travels to the machine, then operates). Realised 2026-06-09.
+
+- **A batch upstream of a pull-driven assembler must divide the assembly's appetite.** Under
+  pull/CONWIP, the dependent-demand explosion bounds a component's in-flight quantity at roughly its
+  per-parent requirement `+1` (the `need+1` pipeline bound). If a batch station sits on that component,
+  the batch threshold competes with the assembler's appetite for the same scarce in-flight units: to
+  *both* clear the assembler (consume `q` units) *and* re-form the next batch (`B` units) you need
+  `q + B` in flight, but the bound only allows `q + 1`. So whenever `B > 1` and `B` does not divide `q`,
+  the line can freeze with non-zero WIP and zero throughput. Make `B` divide `q` (ideally `B = q`, one
+  batch per parent) — or relax the control to push/stream for that leg. Surfaced building `#example7`
+  (furnace B=3, Motor consumes 4 Magnets → permanent stall; B=4 fixed it). — theory-notes §3/§5

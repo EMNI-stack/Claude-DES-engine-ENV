@@ -1178,3 +1178,25 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   standard/home location and return when idle; *anticipatory* repositioning replaces "empty
   repositioning" in the NOT-list), and `docs/PHASE-3-6-DESIGN.md` reflects the confirmed
   operator-travels-to-the-machine decision. `npm test` 103/103.
+
+## 2026-06-10 — Manual stress-test pass + the "works" demo (`#example7`)
+
+- **Stress harness** `tests/ui/stress.html` (24/24): six scenarios built **through the real Setup/floor
+  UI** by simulated mouse+keyboard (blocking+breakdowns+scrap, batch+scrap, pull-assembly+conveyor, an
+  AGV bottleneck, an operator-required machine under contention, and a kitchen-sink combining them).
+  Captures `window.error`; all green — no authoring or engine bugs surfaced.
+- **`#example7` — "the works":** the most intricate single-floor demo so far. Pump (sold) = 1 Motor +
+  2 Housing; Motor (sold spare AND a component) = 1 Rotor + 4 Magnet. Housings: Steel → Mill (6% scrap)
+  → WIP buffer → Final assy over a **bent conveyor**; Rotors: Bar → **operator-run Lathe** → Motor assy;
+  Magnets: store → **batch furnace** → Motor assy; the shared Motor is delivered Motor assy → Final assy.
+  3 AGVs + 1 operator, pull/CONWIP, per-product demand.
+- **Stall found and fixed (no engine change):** the first cut set the furnace batch to **3** while a
+  Motor consumes **4** Magnets. The pull pipeline bounds Magnets in-flight at `need+1 = 5`, but clearing
+  the assembler (4) *and* forming the next batch (3) needs 7 in flight — so the line froze (only 10 jobs
+  ever entered in 6000 min; 0% utilisation everywhere). Diagnosed with a headless Node mirror of the
+  run-model reading `entered`/`pstats`/`inventory`. **Fix:** set the furnace batch to **4** so each batch
+  feeds exactly one Motor. Re-verified through the real UI: **300 pumps out**, 0.152/min, cycle 2.02 min,
+  yield 98.7% (matches the 6% scrap), stations 27–46% utilised, no deadlock.
+- **Principle (added to PRINCIPLES.md):** under a pull/CONWIP component, a batch station's batch size
+  must divide the downstream assembly appetite, or the `need+1` pipeline bound starves it. `npm test`
+  **103/103**.

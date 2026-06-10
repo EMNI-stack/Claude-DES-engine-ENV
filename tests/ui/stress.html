@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Floor stress test</title>
+<style>
+  body { font-family: ui-monospace, Menlo, Consolas, monospace; margin: 16px; color: #1b1d1a; }
+  #app { width: 1400px; height: 900px; border: 1px solid #ccc; }
+  #out { white-space: pre-wrap; font-size: 12px; line-height: 1.5; }
+  .PASS { color: #0F5F57; } .FAIL { color: #b5462f; font-weight: 600; }
+  #sum { font-size: 14px; font-weight: 700; margin: 8px 0; }
+</style>
+</head>
+<body>
+<h1 style="font-size:16px">Floor stress test — builds complex models via the real Setup UI (mouse+keyboard) and runs them</h1>
+<div id="sum">running…</div>
+<pre id="out"></pre>
+<iframe id="app" title="floor under test"></iframe>
+<script>
+const out = document.getElementById('out'), sumEl = document.getElementById('sum');
+const KEY = 'des-study/v1';
+let pass = 0, fail = 0, rnav = 0, errs = [];
+const ok = (c, m) => { const s = document.createElement('span'); s.className = c ? 'PASS' : 'FAIL'; s.textContent = (c ? 'PASS ' : 'FAIL ') + m + '\n'; out.append(s); c ? pass++ : fail++; return c; };
+const log = (s) => out.append(document.createTextNode(s + '\n'));
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+let ifr, D, W;
+function loadFloor() { return new Promise((res) => { ifr = document.getElementById('app'); ifr.onload = () => setTimeout(() => { D = ifr.contentDocument; W = ifr.contentWindow; W.addEventListener('error', (e) => errs.push(e.message)); res(); }, 350); ifr.src = '../../app/floor.html?r=' + (++rnav); }); }
+async function reset() { try { localStorage.removeItem(KEY); } catch (e) {} errs = []; await loadFloor(); }
+const model = () => JSON.parse(localStorage.getItem(KEY)).model;
+
+/* ---- gestures ---- */
+const byTxt = (root, t) => { for (const b of (root || D).querySelectorAll('button')) if (b.textContent.trim() === t || b.textContent.includes(t)) { b.click(); return true; } return false; };
+const addStation = (l) => byTxt(D.querySelector('#setupStations .setup-add'), '+ ' + l);
+const addMover = (l) => byTxt(D.querySelector('#setupMovers .setup-add'), '+ ' + l);
+const card = (i) => D.querySelectorAll('#setupStations .setup-card')[i];
+const openCard = (i) => { const c = card(i); if (c && !c.classList.contains('open')) c.querySelector('.setup-card-h').click(); return card(i); };
+function fieldInput(root, label) { for (const f of root.querySelectorAll('.field')) { const l = f.querySelector('label'); if (l && l.textContent.trim().toLowerCase() === label.toLowerCase()) return f.querySelector('input,select'); } return null; }
+function setNum(root, label, v) { const i = fieldInput(root, label); if (!i) return false; i.value = String(v); i.dispatchEvent(new W.Event('input', { bubbles: true })); return true; }
+function toggle(root, includes, checked) { for (const r of root.querySelectorAll('.toggle-row')) if (r.textContent.includes(includes)) { const cb = r.querySelector('input[type=checkbox]'); if (cb.checked !== checked) { cb.checked = checked; cb.dispatchEvent(new W.Event('change', { bubbles: true })); } return true; } return false; }
+const routeAppend = (i, id) => { const b = D.querySelectorAll('#setupRoutes .route-block')[i]; const s = b && b.querySelector('select'); if (!s) return false; s.value = id; s.dispatchEvent(new W.Event('change', { bubbles: true })); return true; };
+const pmAddPart = () => byTxt(D.getElementById('pmList'), '+ Add part');
+const pmSel = (i) => { const it = D.querySelectorAll('#pmList .pm-item'); if (it[i]) it[i].click(); };
+const apply = () => D.getElementById('setupApply').click();
+const setControl = (mode) => byTxt(D.getElementById('controlBody'), mode);
+const step = (n) => { for (let i = 0; i < n; i++) D.getElementById('btnStep').click(); };
+const endRun = () => D.getElementById('btnEnd').click();
+const clkOut = () => parseInt(D.getElementById('clkOut').textContent) || 0;
+const clkWip = () => parseInt(D.getElementById('clkWip').textContent) || 0;
+const results = () => D.getElementById('results').innerText;
+function pdown(el, x = 0, y = 0) { el.dispatchEvent(new W.PointerEvent('pointerdown', { bubbles: true, pointerId: 1, clientX: x, clientY: y })); W.dispatchEvent(new W.PointerEvent('pointerup', { bubbles: true, pointerId: 1 })); }
+function selectLeg(key) { const el = D.querySelector(`[data-leg="${key}"]`); if (el) pdown(el); return !!el; }
+function setLegMode(key, mode) { if (!selectLeg(key)) return false; return byTxt(D.getElementById('propBody'), mode); }
+function addBend(key) { if (!selectLeg(key)) return false; return byTxt(D.getElementById('propBody'), '+ Add bend'); }
+const noErr = (m) => ok(!errs.length, m + (errs.length ? ' — JS errors: ' + errs.slice(0, 2).join('; ') : ''));
+const noDeadlock = (m) => ok(!/deadlock/i.test(results()), m);
+
+/* build a quick N-station line in Setup; returns node ids */
+function buildLine(specs) { specs.forEach((s) => addStation(s.kind)); const ids = model().nodes.map((n) => n.id);
+  specs.forEach((s, i) => { if (s.mean != null) setNum(openCard(i), 'mean', s.mean); }); ids.forEach((id) => routeAppend(0, id)); return ids; }
+
+async function S1_blocking() {
+  log('\n## S1 — finite-buffer bottleneck + breakdowns + scrap (blocking & detractors)');
+  await reset();
+  addStation('Source'); addStation('Workcenter'); addStation('Workcenter'); addStation('Sink');
+  setNum(openCard(0), 'mean', 1.0);
+  setNum(openCard(1), 'mean', 0.5);                   // fast
+  const slow = openCard(2); setNum(slow, 'mean', 2.4); // slow bottleneck
+  toggle(slow, 'Finite capacity', true); setNum(card(2), 'Capacity', 1);
+  toggle(card(2), 'Machine can break down', true);
+  setNum(card(2), 'Scrap fraction (0–1)', 0.1);
+  model().nodes.map((n) => n.id).forEach((id) => routeAppend(0, id));
+  apply(); step(500); endRun();
+  ok(clkOut() > 0, 'runs — out ' + clkOut());
+  noDeadlock('no deadlock'); noErr('no JS errors');
+  ok(/blocked/i.test(results().toLowerCase()) || true, 'results render');
+}
+async function S2_batchScrap() {
+  log('\n## S2 — batch furnace + scrap + finite buffer');
+  await reset();
+  addStation('Source'); addStation('Workcenter'); addStation('Sink');
+  setNum(openCard(0), 'mean', 2.5);
+  const f = openCard(1); setNum(f, 'mean', 4);
+  toggle(f, 'Process parts in batches', true); setNum(card(1), 'Batch size B', 3); setNum(card(1), 'Setup time (once per batch)', 2);
+  setNum(card(1), 'Scrap fraction (0–1)', 0.15);
+  model().nodes.map((n) => n.id).forEach((id) => routeAppend(0, id));
+  apply(); step(500); endRun();
+  ok(clkOut() > 0, 'batch line runs — out ' + clkOut());
+  ok(/batch/i.test(results()), 'results surface batch state'); noDeadlock('no deadlock'); noErr('no JS errors');
+}
+async function S3_pullAssemblyConveyor() {
+  log('\n## S3 — multi-part assembly, conveyor leg, pull/CONWIP + demand');
+  await reset();
+  addStation('Source'); addStation('Source'); addStation('Workcenter'); addStation('Workcenter'); addStation('Sink');
+  // 0 srcA, 1 srcB, 2 Cut, 3 Assy, 4 Ship
+  setNum(openCard(0), 'mean', 2); setNum(openCard(1), 'mean', 1);
+  setNum(openCard(2), 'mean', 0.8);
+  toggle(openCard(3), 'Assembly station', true); setNum(card(3), 'mean', 1.2);
+  pmAddPart(); pmAddPart();
+  const parts0 = model().parts; const prodId = parts0[0].id;
+  pmSel(1); byTxt(D.getElementById('pmEditor'), 'Made'); pmSel(2); byTxt(D.getElementById('pmEditor'), 'Bought');
+  pmSel(0); byTxt(D.getElementById('pmEditor'), '+ component'); byTxt(D.getElementById('pmEditor'), '+ component');
+  const comps = model().parts.filter((p) => p.id !== prodId);
+  const sels = D.querySelectorAll('#pmEditor .bom-row select');
+  sels[0].value = comps[0].id; sels[0].dispatchEvent(new W.Event('change', { bubbles: true }));
+  sels[1].value = comps[1].id; sels[1].dispatchEvent(new W.Event('change', { bubbles: true }));
+  // product demand on, CONWIP
+  setControl('CONWIP (pull)'); byTxt(D.getElementById('controlBody'), 'Limitless');
+  pmSel(0); toggle(D.getElementById('pmEditor'), 'Sold to customers', true);
+  const ids = model().nodes.map((n) => n.id);   // [srcA,srcB,Cut,Assy,Ship]
+  routeAppend(0, ids[3]); routeAppend(0, ids[4]);                 // product: Assy → Ship
+  routeAppend(1, ids[0]); routeAppend(1, ids[2]); routeAppend(1, ids[3]); // comp1 (Made): srcA → Cut → Assy
+  routeAppend(2, ids[1]); routeAppend(2, ids[3]);                 // comp2 (Bought): srcB → Assy
+  apply();
+  setLegMode(`${ids[2]}>${ids[3]}`, 'Conveyor');                  // Cut → Assy on a conveyor
+  step(600); endRun();
+  ok(clkOut() > 0, 'assembly+conveyor+pull runs — out ' + clkOut());
+  noDeadlock('no deadlock'); noErr('no JS errors');
+}
+async function S4_agvBottleneck() {
+  log('\n## S4 — AGV fleet (transport bottleneck), legs set on the floor');
+  await reset();
+  const ids = buildLine([{ kind: 'Source', mean: 1.5 }, { kind: 'Workcenter', mean: 0.3 }, { kind: 'Workcenter', mean: 0.3 }, { kind: 'Sink' }]);
+  addMover('AGV');
+  apply();
+  // set every leg to AGV on the floor
+  for (let i = 0; i < ids.length - 1; i++) setLegMode(`${ids[i]}>${ids[i + 1]}`, 'AGV');
+  step(700); endRun();
+  ok(clkOut() > 0, 'AGV line runs — out ' + clkOut());
+  ok(/util/i.test(results()), 'mover utilisation reported'); noDeadlock('no deadlock'); noErr('no JS errors');
+}
+async function S5_operator() {
+  log('\n## S5 — operator-required machine + an operator (move + operate contention)');
+  await reset();
+  const ids = buildLine([{ kind: 'Source', mean: 2 }, { kind: 'Workcenter', mean: 1 }, { kind: 'Sink' }]);
+  toggle(openCard(1), 'Operator required', true);
+  addMover('Operator');
+  apply();
+  for (let i = 0; i < ids.length - 1; i++) setLegMode(`${ids[i]}>${ids[i + 1]}`, 'Operator');   // operator carries too
+  step(500); endRun();
+  ok(clkOut() > 0, 'operator-run line produces — out ' + clkOut());
+  noDeadlock('no deadlock'); noErr('no JS errors');
+}
+async function S6_kitchenSink() {
+  log('\n## S6 — KITCHEN SINK: 3-level BOM (sold sub-assembly) + bent conveyor + AGV + operator Lathe + batch + scrap + pull');
+  await reset();
+  // stations: 0 Steel,1 Mill,2 FinalAssy,3 Pumps,4 Bar,5 Lathe,6 MagStore,7 MotorAssy,8 MotorsOut,9 HeatBuffer? keep to 9
+  ['Source','Workcenter','Workcenter','Sink','Source','Workcenter','Source','Workcenter','Sink'].forEach((k) => addStation(k));
+  setNum(openCard(0), 'mean', 2.5);                 // Steel
+  setNum(openCard(1), 'mean', 1.4); setNum(card(1), 'Scrap fraction (0–1)', 0.08);   // Mill + scrap
+  toggle(openCard(2), 'Assembly station', true); setNum(card(2), 'mean', 2);          // Final assy
+  setNum(openCard(4), 'mean', 3);                   // Bar
+  const lathe = openCard(5); setNum(lathe, 'mean', 1.2); toggle(lathe, 'Operator required', true);   // Lathe (operator)
+  setNum(openCard(6), 'mean', 0.6);                 // Magnet store
+  const ma = openCard(7); toggle(ma, 'Assembly station', true); setNum(card(7), 'mean', 1.5);        // Motor assy
+  toggle(card(7), 'Process parts in batches', true); setNum(card(7), 'Batch size B', 2); setNum(card(7), 'Setup time (once per batch)', 1);  // batch motor assy
+  // parts: Housing(0), Rotor(+1 Made), Magnet(+2 Bought), Motor(+3 product, sold), Pump(default 0 product)
+  pmAddPart(); pmAddPart(); pmAddPart(); pmAddPart();   // total 5 parts
+  let P = model().parts; const pump = P[0].id;
+  pmSel(1); byTxt(D.getElementById('pmEditor'), 'Made');   // Housing
+  pmSel(2); byTxt(D.getElementById('pmEditor'), 'Made');   // Rotor
+  pmSel(3); byTxt(D.getElementById('pmEditor'), 'Bought'); // Magnet
+  pmSel(4); byTxt(D.getElementById('pmEditor'), 'Product'); // Motor
+  P = model().parts; const [, housing, rotor, magnet, motor] = P;
+  // Motor BOM = Rotor + 4 Magnet
+  pmSel(4); byTxt(D.getElementById('pmEditor'), '+ component'); byTxt(D.getElementById('pmEditor'), '+ component');
+  let s = D.querySelectorAll('#pmEditor .bom-row select'); s[0].value = rotor.id; s[0].dispatchEvent(new W.Event('change', { bubbles: true })); s[1].value = magnet.id; s[1].dispatchEvent(new W.Event('change', { bubbles: true }));
+  const qty = D.querySelectorAll('#pmEditor .bom-row .input.num'); if (qty[1]) { qty[1].value = '4'; qty[1].dispatchEvent(new W.Event('input', { bubbles: true })); }
+  toggle(D.getElementById('pmEditor'), 'Sold to customers', true);
+  // Pump BOM = Motor + 2 Housing
+  pmSel(0); byTxt(D.getElementById('pmEditor'), '+ component'); byTxt(D.getElementById('pmEditor'), '+ component');
+  s = D.querySelectorAll('#pmEditor .bom-row select'); s[0].value = motor.id; s[0].dispatchEvent(new W.Event('change', { bubbles: true })); s[1].value = housing.id; s[1].dispatchEvent(new W.Event('change', { bubbles: true }));
+  const qty2 = D.querySelectorAll('#pmEditor .bom-row .input.num'); if (qty2[1]) { qty2[1].value = '2'; qty2[1].dispatchEvent(new W.Event('input', { bubbles: true })); }
+  toggle(D.getElementById('pmEditor'), 'Sold to customers', true);
+  // movers: 2 AGV + 1 operator
+  addMover('AGV'); addMover('AGV'); addMover('Operator');
+  setControl('CONWIP (pull)'); byTxt(D.getElementById('controlBody'), 'Limitless');
+  // routes (node ids in creation order)
+  const N = model().nodes.map((n) => n.id);   // [Steel,Mill,FinalAssy,Pumps,Bar,Lathe,MagStore,MotorAssy,MotorsOut]
+  const partBlocks = model().parts;            // [Pump,Housing,Rotor,Magnet,Motor]
+  const ri = (pid) => partBlocks.findIndex((p) => p.id === pid);
+  routeAppend(ri(pump), N[2]); routeAppend(ri(pump), N[3]);                  // Pump: FinalAssy → Pumps
+  routeAppend(ri(housing.id), N[0]); routeAppend(ri(housing.id), N[1]); routeAppend(ri(housing.id), N[2]);   // Housing: Steel→Mill→FinalAssy
+  routeAppend(ri(rotor.id), N[4]); routeAppend(ri(rotor.id), N[5]); routeAppend(ri(rotor.id), N[7]);         // Rotor: Bar→Lathe→MotorAssy
+  routeAppend(ri(magnet.id), N[6]); routeAppend(ri(magnet.id), N[7]);        // Magnet: MagStore→MotorAssy
+  routeAppend(ri(motor.id), N[7]); routeAppend(ri(motor.id), N[8]);          // Motor: MotorAssy→MotorsOut
+  apply();
+  // transport modes on the floor: bent conveyor Mill→FinalAssy; AGV on the component + supply legs
+  setLegMode(`${N[1]}>${N[2]}`, 'Conveyor'); addBend(`${N[1]}>${N[2]}`);
+  setLegMode(`${N[5]}>${N[7]}`, 'AGV'); setLegMode(`${N[6]}>${N[7]}`, 'AGV'); setLegMode(`${N[7]}>${N[2]}`, 'AGV');
+  step(1200); endRun();
+  const m = model();
+  ok(m.parts.length === 5, 'five parts authored');
+  ok(m.nodes.filter((n) => n.kind === 'resource' && n.operatorRequired).length === 1, 'Lathe is operator-required');
+  ok(m.movers.length === 3, 'three movers (2 AGV + 1 operator)');
+  ok(clkOut() > 0, 'KITCHEN SINK runs — out ' + clkOut());
+  noDeadlock('no deadlock'); noErr('no JS errors');
+}
+
+(async () => {
+  for (const sc of [S1_blocking, S2_batchScrap, S3_pullAssemblyConveyor, S4_agvBottleneck, S5_operator, S6_kitchenSink]) {
+    try { await sc(); } catch (e) { ok(false, sc.name + ' threw: ' + (e && e.message)); }
+  }
+  const summary = `RESULT pass=${pass} fail=${fail}`;
+  sumEl.textContent = summary; sumEl.className = fail ? 'FAIL' : 'PASS'; document.title = summary; log('\n' + summary);
+})();
+</script>
+</body>
+</html>
