@@ -1623,3 +1623,21 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   non-exp/breakdown approximate; scrap ⇒ utilisation approximate). `npm test` **125/125**.
 
 **Sources:** theory-notes §4/§8; Charter §3/§7.
+
+## 2026-06-10 — Phase 5.2: quantitative theory overlays
+
+- `app/physics.html` is now the real Factory Physics page (was a placeholder): re-runs the Phase-4 driver
+  (reusing the stored steady-state warm-up if set) and overlays theory via `factory_physics.js`.
+- `app/js/charts.js` gains `characteristicPlot` (best/PWC/worst dashed curves + W₀ + the simulated
+  operating point with CI whiskers) and `vutPlot` (Kingman CTq-vs-utilisation curve + operating point;
+  y-clipped near the asymptote). On-brand dashed reference lines (DESIGN-LANGUAGE §5); new chart CSS.
+- `app/js/physics.js` renders four panels, each with an **applicability chip** (exact / approximate /
+  out-of-range + reason): Little's-Law read-out (WIP vs TH×CT, ✓/✗), the characteristic curve with a
+  lean/fat verdict, VUT/Kingman at the bottleneck with the V·U·T decomposition (muted when out of range),
+  and predicted-vs-measured utilisation. `app/styles/physics.css` for chips + read-out.
+- **Verified in browser** on a clean 2-station exponential line: Little's Law ✓ 0.0%; characteristic
+  curve reads the push line as "fat" (fatter than the CONWIP PWC reference — the CONWIP-efficiency
+  lesson); VUT flagged approximate (multi-station) with CTq=V·U·T shown; utilisation exact. No console
+  errors. `npm test` 125/125 (theory functions; the page is browser-only).
+
+**Sources:** theory-notes §4; DESIGN-LANGUAGE §5; Charter §7.

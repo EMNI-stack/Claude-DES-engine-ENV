@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles/design-system.css">
+<link rel="stylesheet" href="styles/analyse.css">
+<link rel="stylesheet" href="styles/physics.css">
 </head>
 <body data-page="physics">
 
@@ -17,26 +19,32 @@
     <h1 class="display">Factory Physics</h1>
     <p class="lead" style="margin-top: var(--s-4);">
       Compare what the simulation produced to what closed-form theory predicts — and see where the
-      formulas stop applying.
+      formulas stop applying. <strong>That gap is why discrete-event simulation exists.</strong>
     </p>
   </section>
 
-  <section class="reveal placeholder">
-    <p class="section-label">Coming soon</p>
-    <h2>Theory overlays &amp; interpretation</h2>
-    <p class="small measure">
-      Overlay Factory Physics references on simulated output — Little's Law consistency, the VUT
-      prediction, and the best / worst / practical-worst-case curves — as quiet dashed reference
-      lines. Interpretation in the Managers' vocabulary (buffers, the efficiency / flexibility
-      lens). The teaching payoff: seeing where simulation and theory agree, and where blocking,
-      non-exponential service, and breakdowns make simulation necessary.
-    </p>
-    <div class="row" style="justify-content:center; margin-top: var(--s-4);">
-      <a class="btn btn-ghost" href="index.html">Back to overview</a>
+  <section class="reveal" id="studyBar"></section>
+
+  <section class="reveal panel" id="controls" hidden>
+    <div class="panel__head">
+      <p class="section-label">Comparison run</p>
+      <h2 class="panel__title">Lay theory alongside the simulation</h2>
+      <p class="panel__sub">Re-runs the model and overlays Factory Physics references. If you set a
+        warm-up on Run &amp; Analyse, it is reused here.</p>
+    </div>
+    <div class="run-controls">
+      <div class="field"><label for="reps">Replications (N)</label>
+        <input class="input num" type="number" id="reps" min="2" max="200" step="1" value="12"></div>
+      <div class="field"><label for="horizon">Run length (<span id="timeUnit">min</span>)</label>
+        <input class="input num" type="number" id="horizon" min="1" step="10" value="1000"></div>
+      <button class="btn btn-primary" id="runBtn">Compare to theory</button>
     </div>
   </section>
+
+  <section class="reveal" id="results" hidden></section>
 </main>
 
 <script type="module" src="js/nav.js"></script>
+<script type="module" src="js/physics.js"></script>
 </body>
 </html>

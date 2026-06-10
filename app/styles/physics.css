@@ -1,0 +1,27 @@
+/* Factory Physics overlay page — Phase 5. Reuses analyse.css chart + card classes;
+   adds the applicability chips, the Little's-Law read-out, and the decision panel. Quiet, on-brand. */
+
+.appl-line { margin: 0 0 var(--s-3); display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2); }
+.appl-chip {
+  font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: var(--r-control); border: 1px solid var(--line-strong);
+}
+.chip-exact  { color: var(--busy);    border-color: var(--busy); }
+.chip-approx { color: var(--accent);  border-color: var(--accent); }
+.chip-out    { color: var(--down);    border-color: var(--down); }
+
+/* Little's Law read-out */
+.ll-grid { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-4) var(--s-5); margin: var(--s-3) 0; }
+.ll-eq { font-family: var(--serif); font-size: 24px; color: var(--faint); }
+.ll-num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 20px; color: var(--ink); margin-top: 2px; }
+.ll-num.ok  { color: var(--busy); }
+.ll-num.bad { color: var(--down); }
+
+/* qualitative decision-support panel (M3) */
+.readout { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s-5); }
+.readout h3 { font-family: var(--serif); font-size: 17px; font-weight: 500; margin: 0 0 var(--s-3); }
+.readout dl { display: grid; grid-template-columns: 150px 1fr; gap: var(--s-2) var(--s-4); margin: 0; }
+.readout dt { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); }
+.readout dd { margin: 0; color: var(--ink-2); font-size: var(--fs-small); }
+.readout dd strong { color: var(--ink); font-weight: 500; }
+@media (max-width: 560px) { .readout dl { grid-template-columns: 1fr; gap: 2px var(--s-4); } .readout dt { margin-top: var(--s-2); } }

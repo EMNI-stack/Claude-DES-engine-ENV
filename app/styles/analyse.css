@@ -78,6 +78,14 @@
 .chart-bar--bn { fill: var(--blocked); opacity: .8; }
 .chart-whisker { stroke: var(--ink); stroke-width: 1.5; }
 
+/* Phase 5 theory overlays — dashed, clearly-labelled reference lines (DESIGN-LANGUAGE §5) */
+.chart-ref-best  { fill: none; stroke: var(--c5); stroke-width: 1.5; stroke-dasharray: 6 3; }
+.chart-ref-pwc   { fill: none; stroke: var(--c1); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.chart-ref-worst { fill: none; stroke: var(--c4); stroke-width: 1.5; stroke-dasharray: 2 3; }
+.chart-oppoint   { fill: var(--ink); stroke: var(--surface); stroke-width: 1.5; }   /* simulated point */
+.chart-ref-pt    { fill: none; stroke: var(--accent); stroke-width: 2; }            /* theory point */
+.chart--muted    { opacity: .45; }                                                 /* formula out of range */
+
 .chart-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s-4) var(--s-5); }
 .chart-card h3 { font-family: var(--serif); font-size: 17px; font-weight: 500; margin: 0 0 var(--s-2); }
 .chart-card .cap { font-size: var(--fs-small); color: var(--ink-2); margin: 0 0 var(--s-3); }

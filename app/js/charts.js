@@ -155,3 +155,87 @@ export function utilBars(rows, { width = 720, rowH = 30, bottleneckName = null }
   }).join('');
   return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Resource utilisation">${grid.join('')}${bars}</svg>`;
 }
+
+/**
+ * Characteristic curve — throughput vs WIP, with best / PWC / worst reference curves (dashed) and the
+ * simulated operating point (with CI whiskers). Critical WIP W₀ marked. Above the PWC line = a lean
+ * line; below = a fat line. (theory-notes §4.3)
+ * @param {object} o  { curves:[{w,best_th,pwc_th,worst_th}], point:{w,th,wLow,wHigh,thLow,thHigh},
+ *                      W0, rb, muted, width, height }
+ */
+export function characteristicPlot({ curves, point, W0, rb, muted = false, width = 720, height = 300 }) {
+  const W = width, H = height, m = { l: 52, r: 64, t: 16, b: 36 };
+  const x0 = m.l, x1 = W - m.r, y0 = H - m.b, y1 = m.t;
+  if (!curves || !curves.length) return `<svg viewBox="0 0 ${W} ${H}" class="chart"></svg>`;
+  const wMax = curves[curves.length - 1].w;
+  const yMax = Math.max(rb || 0, ...curves.map((c) => c.best_th), point ? (point.thHigh || point.th) : 0) * 1.1 || 1;
+  const sx = scale(0, wMax, x0, x1), sy = scale(0, yMax, y0, y1);
+  const grid = [];
+  for (let g = 0; g <= 4; g++) {
+    const yv = yMax * g / 4, yy = sy(yv);
+    grid.push(`<line x1="${x0}" y1="${yy.toFixed(1)}" x2="${x1}" y2="${yy.toFixed(1)}" class="chart-grid"/>`);
+    grid.push(`<text x="${x0 - 6}" y="${(yy + 3).toFixed(1)}" class="chart-tick" text-anchor="end">${fmt(yv)}</text>`);
+    const xv = wMax * g / 4, xx = sx(xv);
+    grid.push(`<text x="${xx.toFixed(1)}" y="${y0 + 18}" class="chart-tick" text-anchor="${g === 0 ? 'start' : g === 4 ? 'end' : 'middle'}">${fmt(xv)}</text>`);
+  }
+  const line = (key, cls, label) => {
+    const p = pathFrom(curves.map((c) => [sx(c.w), sy(c[key])]));
+    const last = curves[curves.length - 1];
+    return `<path d="${p}" class="${cls}"/><text x="${(x1 + 4).toFixed(1)}" y="${(sy(last[key]) + 3).toFixed(1)}" class="chart-tick">${label}</text>`;
+  };
+  const w0line = (Number.isFinite(W0) && W0 <= wMax)
+    ? `<line x1="${sx(W0).toFixed(1)}" y1="${y1}" x2="${sx(W0).toFixed(1)}" y2="${y0}" class="chart-ref"/><text x="${(sx(W0) + 4).toFixed(1)}" y="${y1 + 11}" class="chart-tick">W₀=${fmt(W0)}</text>`
+    : '';
+  let pt = '';
+  if (point && Number.isFinite(point.w) && Number.isFinite(point.th)) {
+    const px = sx(point.w), py = sy(point.th);
+    const wh = (Number.isFinite(point.wLow) && Number.isFinite(point.wHigh)) ? `<line x1="${sx(point.wLow).toFixed(1)}" y1="${py.toFixed(1)}" x2="${sx(point.wHigh).toFixed(1)}" y2="${py.toFixed(1)}" class="chart-whisker"/>` : '';
+    const th = (Number.isFinite(point.thLow) && Number.isFinite(point.thHigh)) ? `<line x1="${px.toFixed(1)}" y1="${sy(point.thLow).toFixed(1)}" x2="${px.toFixed(1)}" y2="${sy(point.thHigh).toFixed(1)}" class="chart-whisker"/>` : '';
+    pt = `${wh}${th}<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4.5" class="chart-oppoint"/>`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart${muted ? ' chart--muted' : ''}" role="img" aria-label="Characteristic curve: throughput vs WIP">
+    ${grid.join('')}
+    ${line('best_th', 'chart-ref-best', 'best')}
+    ${line('pwc_th', 'chart-ref-pwc', 'PWC')}
+    ${line('worst_th', 'chart-ref-worst', 'worst')}
+    ${w0line}${pt}
+    <text x="${x0}" y="${y1 - 4}" class="chart-axis-label">throughput</text>
+    <text x="${x1}" y="${y1 - 4}" class="chart-axis-label" text-anchor="end">WIP (w)</text>
+  </svg>`;
+}
+
+/**
+ * VUT / Kingman queue-time curve (CTq vs utilisation), dashed, with the model's operating point and —
+ * when the formula is exact — the measured queue time on it. y clipped for readability. (theory-notes §4.4)
+ * @param {object} o { curve:[{u,ctq}], opU, opCtq, measuredCtq, unit, muted, width, height }
+ */
+export function vutPlot({ curve, opU, opCtq, measuredCtq, unit = 'min', muted = false, width = 720, height = 260 }) {
+  const W = width, H = height, m = { l: 52, r: 16, t: 16, b: 36 };
+  const x0 = m.l, x1 = W - m.r, y0 = H - m.b, y1 = m.t;
+  if (!curve || !curve.length) return `<svg viewBox="0 0 ${W} ${H}" class="chart"></svg>`;
+  // clip y so the asymptote near u→1 doesn't flatten everything else
+  const ref = Math.max(opCtq || 0, Number.isFinite(measuredCtq) ? measuredCtq : 0);
+  const yMax = Math.max(ref * 2.2, ...curve.filter((p) => p.u <= (opU || 0.9) + 0.1).map((p) => p.ctq)) || 1;
+  const clip = (v) => Math.min(v, yMax);
+  const sx = scale(0, 1, x0, x1), sy = scale(0, yMax, y0, y1);
+  const grid = [];
+  for (let g = 0; g <= 4; g++) {
+    const yv = yMax * g / 4, yy = sy(yv);
+    grid.push(`<line x1="${x0}" y1="${yy.toFixed(1)}" x2="${x1}" y2="${yy.toFixed(1)}" class="chart-grid"/>`);
+    grid.push(`<text x="${x0 - 6}" y="${(yy + 3).toFixed(1)}" class="chart-tick" text-anchor="end">${fmt(yv)}</text>`);
+    grid.push(`<text x="${sx(g / 4).toFixed(1)}" y="${y0 + 18}" class="chart-tick" text-anchor="${g === 0 ? 'start' : g === 4 ? 'end' : 'middle'}">${(g * 25)}%</text>`);
+  }
+  const path = pathFrom(curve.filter((p) => p.u < 1).map((p) => [sx(p.u), sy(clip(p.ctq))]));
+  let pts = '';
+  if (Number.isFinite(opU) && Number.isFinite(opCtq)) {
+    pts += `<line x1="${sx(opU).toFixed(1)}" y1="${y1}" x2="${sx(opU).toFixed(1)}" y2="${y0}" class="chart-ref"/>`;
+    pts += `<circle cx="${sx(opU).toFixed(1)}" cy="${sy(clip(opCtq)).toFixed(1)}" r="4" class="chart-ref-pt"/>`;
+  }
+  if (Number.isFinite(measuredCtq)) pts += `<circle cx="${sx(opU).toFixed(1)}" cy="${sy(clip(measuredCtq)).toFixed(1)}" r="4.5" class="chart-oppoint"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart${muted ? ' chart--muted' : ''}" role="img" aria-label="VUT queue time vs utilisation">
+    ${grid.join('')}
+    <path d="${path}" class="chart-ref-pwc"/>${pts}
+    <text x="${x0}" y="${y1 - 4}" class="chart-axis-label">queue time (${esc(unit)})</text>
+    <text x="${x1}" y="${y1 - 4}" class="chart-axis-label" text-anchor="end">utilisation</text>
+  </svg>`;
+}
