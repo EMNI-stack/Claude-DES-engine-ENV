@@ -1262,3 +1262,14 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
 - Verified headless: a single-part model with a `Mills {Mill A, Mill B}` shortest-queue group renders one
   hull + four fan-out legs, runs end-to-end (1000 out, both members utilised), and the authoring self-test
   (21/21) and stress harness (24/24) stay green. `npm test` 108/108.
+
+## 2026-06-10 — Phase 3.7 Milestone 3: integrate parallel resources into the study project
+
+- Groups are part of `model`, so they persist with the project (localStorage autosave + JSON save/load)
+  and round-trip through `ensureModel`; membership and the selection rule are editable in the Setup
+  builder's group editor. Added a **member-count** experimental factor (`group:<id>:membercount`)
+  alongside the **rule** factor (`group:<id>:rule`) — both declare into the conceptual model exactly like
+  `movers:agv:count`, ready for the Phase-4 experiment runner.
+- Headless-verified: opening a group's editor and clicking its two "+ as experimental factor" buttons
+  records both bindings (`rule`, `membercount`) into `project.conceptual.factors`. Phase 3.7 complete —
+  `npm test` 108/108; authoring 21/21; stress 24/24.

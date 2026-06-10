@@ -1734,6 +1734,7 @@ function groupEditor(g, body) {
   body.append(field('Name', textInput(g.name, (v) => { g.name = v || 'Group'; persist(); render(); renderSetupSummary(); })));
   body.append(field('Selection rule', segmented([['shortest', 'Shortest queue'], ['even', 'Even split']], g.rule, (v) => { g.rule = v; persist(); render(); }, 'Selection rule')));
   body.append(factorButton(`group:${g.id}:rule`, { name: `Rule — ${g.name || 'Group'}`, unit: '', baseline: g.rule, description: 'The member-selection rule for this parallel group (shortest queue vs even split). Vary to study state-dependent vs blind routing.' }, renderSetupGroups));
+  body.append(factorButton(`group:${g.id}:membercount`, { name: `Members — ${g.name || 'Group'}`, unit: 'machines', baseline: String(g.members.filter((m) => node(m)).length), description: 'Number of parallel machines in this group. Vary to study pooling — how added capacity cuts queueing, WIP and cycle time (theory-notes §5.5).' }, renderSetupGroups));
   body.append(H('p', { class: 'subhead' }, 'Member machines'));
   model.nodes.filter((n) => n.kind === 'resource').forEach((n) => {
     const inOther = model.groups.some((x) => x.id !== g.id && x.members.includes(n.id));

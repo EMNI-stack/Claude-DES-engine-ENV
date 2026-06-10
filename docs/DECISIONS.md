@@ -699,3 +699,18 @@ and 3.6.3 (integration); `npm test` 103/103.*
   balancing.
 - Governing principle / source: Charter §6.2, §9; `Reference/theory-notes.md` §4.6 (pooling), §5.5
   (parallel machines beat one big machine); design note `docs/PHASE-3-7-DESIGN.md`. **PENDING REVIEW.**
+
+---
+
+## 2026-06-10 — Phase 3.7 ratified & built (supersedes the "pending review" status above)
+
+- The stakeholder **accepted** the design note's two confirmations — (1) the selection decision is made
+  in `board()` at **ready-time** (so shortest-queue reads live member queues) and (2) members may
+  themselves be **batch and/or operator-required** machines — and chose the **in-transit-inclusive**
+  definition of shortest-queue load (committed load = input-queue + in-process + in-transit-assigned),
+  not the input-queue-only alternative.
+- Built across 3.7.1 (engine), 3.7.2 (UI & floor), 3.7.3 (study integration). Selection rule and member
+  count are declarable **experimental factors** (`group:<id>:rule`, `group:<id>:membercount`) recorded in
+  the conceptual model for the Phase-4 runner, consistent with the existing `movers:*:count` factors.
+- Governing principle / source: Charter §6.2, §9; theory-notes §4.6, §5.5; `docs/PHASE-3-7-DESIGN.md`.
+  **Covered by `tests/floor-groups.test.js` (5); authoring 21/21, stress 24/24, `npm test` 108/108.**
