@@ -69,6 +69,15 @@ export class FloorSim {
       }
     }
 
+    // Resource groups (Phase 3.7): an operation may target a named group; board() resolves a group
+    // id to one concrete member at ready-time. Members are ordinary placed resources (each with its
+    // own location/service/buffer; may itself be batch / operator-required).
+    this.groups = {};
+    for (const g of (model.groups || [])) {
+      const members = (g.members || []).filter((id) => this.res[id]);   // only placed resources count
+      if (members.length) this.groups[g.id] = { id: g.id, name: g.name, rule: g.rule === 'even' ? 'even' : 'shortest', members };
+    }
+
     this.transport = model.transport || {};
     this.defaultMover = this.transport.default || 'instant';
     this.defaultSpeed = this.transport.speed || 60;
@@ -97,13 +106,16 @@ export class FloorSim {
     for (const p of (model.parts || [])) {
       const r = p.routing || [];
       for (let i = 0; i < r.length - 1; i++) {
-        const key = `${r[i]}>${r[i + 1]}`;
-        if (this.moverFor(r[i], r[i + 1]) === 'conveyor' && !this.conv[key]) {
-          const leg = (this.transport.legs || {})[key] || {};
-          const cd = this.transport.conveyor || {};            // floor-wide conveyor default
-          const cap = leg.cap != null ? leg.cap : (cd.cap != null ? cd.cap : Infinity);
-          const speed = leg.speed || cd.speed || this.defaultSpeed;
-          this.conv[key] = { key, cap, speed, items: [], aBusy: 0 };
+        // a group token expands to its members: every possible concrete member leg is set up
+        for (const a of this.membersOf(r[i])) for (const b of this.membersOf(r[i + 1])) {
+          const key = `${a}>${b}`;
+          if (this.moverFor(a, b) === 'conveyor' && !this.conv[key]) {
+            const leg = (this.transport.legs || {})[key] || {};
+            const cd = this.transport.conveyor || {};            // floor-wide conveyor default
+            const cap = leg.cap != null ? leg.cap : (cd.cap != null ? cd.cap : Infinity);
+            const speed = leg.speed || cd.speed || this.defaultSpeed;
+            this.conv[key] = { key, cap, speed, items: [], aBusy: 0 };
+          }
         }
       }
     }
@@ -228,7 +240,7 @@ export class FloorSim {
 
   // create a job of part p and admit it to the first node of its route
   createAndAdmit(p) {
-    const job = { id: ++this.pid, part: p.id, routing: p.routing, step: 0, entry: this.now, transit: 0, loc: null };
+    const job = { id: ++this.pid, part: p.id, routing: p.routing.slice(), step: 0, entry: this.now, transit: 0, loc: null };
     this.jobs.set(job.id, job);
     this.entered++; this.wip++; this.pstats[p.id].created++; this.pstats[p.id].wip++;
     this.admit(job, 0);
@@ -237,11 +249,15 @@ export class FloorSim {
   // ready queue (machines + 1) on an infinite buffer is the flood guard, as in the single-part
   // firstCanAccept. Used for assembly admission and stream arrivals into a line.
   firstResAccepts(p) {
-    for (const id of (p.routing || [])) if (this.res[id]) {
-      const R = this.res[id];
-      if (this.occ(id) >= R.cap) return false;
-      if (R.cap === Infinity && this.occ(id) >= R.machines.length + 1) return false;
-      return true;
+    for (const id of (p.routing || [])) {
+      const members = this.isGroup(id) ? this.groups[id].members : (this.res[id] ? [id] : null);
+      if (!members) continue;                              // source/storage/sink — not the first resource
+      return members.some((mid) => {                       // a group accepts if ANY member has room
+        const R = this.res[mid];
+        if (this.occ(mid) >= R.cap) return false;
+        if (R.cap === Infinity && this.occ(mid) >= R.machines.length + 1) return false;
+        return true;
+      });
     }
     return true;   // no resource on the route (degenerate) — let it through
   }
@@ -501,21 +517,25 @@ export class FloorSim {
     const r = this.mainPart && this.mainPart.routing; if (!r) return false;
     const srcHold = this.hold[r[0]];
     if (srcHold && srcHold.items.length > 0) return false;     // one staged at the source at a time
-    for (const id of r) if (this.res[id]) {
-      const R = this.res[id];
-      if (this.occ(id) >= R.cap) return false;                 // respect a finite input buffer
-      // Push has no WIP cap, so an INFINITE first buffer would let limitless supply
-      // release a job on essentially every event and flood the line (WIP → ∞). Keep
-      // only a shallow ready queue (machines + 1) so the first station stays fed
-      // without WIP exploding. CONWIP bounds WIP via its cap, so it is exempt.
-      if (this.control !== 'conwip' && R.cap === Infinity && this.occ(id) >= R.machines.length + 1) return false;
-      return true;
+    for (const id of r) {
+      const members = this.isGroup(id) ? this.groups[id].members : (this.res[id] ? [id] : null);
+      if (!members) continue;
+      return members.some((mid) => {                           // a group accepts if ANY member has room
+        const R = this.res[mid];
+        if (this.occ(mid) >= R.cap) return false;              // respect a finite input buffer
+        // Push has no WIP cap, so an INFINITE first buffer would let limitless supply
+        // release a job on essentially every event and flood the line (WIP → ∞). Keep
+        // only a shallow ready queue (machines + 1) so the first station stays fed
+        // without WIP exploding. CONWIP bounds WIP via its cap, so it is exempt.
+        if (this.control !== 'conwip' && R.cap === Infinity && this.occ(mid) >= R.machines.length + 1) return false;
+        return true;
+      });
     }
     return false;
   }
   releaseJob() {
     const p = this.mainPart; if (!p) return;
-    const job = { id: ++this.pid, part: p.id, routing: p.routing, step: 0, entry: this.now, transit: 0, loc: null };
+    const job = { id: ++this.pid, part: p.id, routing: p.routing.slice(), step: 0, entry: this.now, transit: 0, loc: null };
     this.jobs.set(job.id, job);
     this.entered++; this.wip++; this.lineWip++;
     if (this.lineWip > this.maxLineWip) this.maxLineWip = this.lineWip;
@@ -564,6 +584,23 @@ export class FloorSim {
     if (!node || node.kind === 'sink') return true;
     if (node.kind === 'resource') { const r = this.res[id]; return this.occ(id) + r.incoming < r.cap; }
     const h = this.hold[id]; return h.items.length + h.incoming < h.cap;
+  }
+
+  /* ---- resource groups (Phase 3.7): resolve a group token to one member ---- */
+  isGroup(id) { return !!(this.groups && this.groups[id]); }
+  membersOf(id) { return this.isGroup(id) ? this.groups[id].members : [id]; }
+  // committed load at a member = its input-queue + parts in process + parts already routed there
+  // and still in transit (`incoming`). Counting in-transit-assigned parts keeps shortest-queue honest
+  // under a transport delay: with no jockeying, ignoring them would dump a burst on one empty member.
+  memberLoad(id) { const r = this.res[id]; return r ? this.occ(id) + r.incoming : Infinity; }
+  // pick a member by the group's rule, using members' own state only (ignores transport distance and
+  // operator availability). Even = uniform 1/N; shortest = least committed load, tie-break lowest index.
+  resolveGroupMember(gid) {
+    const g = this.groups[gid], ms = g.members;
+    if (g.rule === 'even') return ms[Math.min(ms.length - 1, Math.floor(this.rng() * ms.length))];
+    let best = ms[0], bl = this.memberLoad(ms[0]);
+    for (let i = 1; i < ms.length; i++) { const l = this.memberLoad(ms[i]); if (l < bl) { bl = l; best = ms[i]; } }
+    return best;
   }
 
   onArriveNode(ev) {
@@ -625,7 +662,11 @@ export class FloorSim {
   board(job) {
     const fromStep = job.step, toStep = fromStep + 1;
     if (toStep > job.routing.length - 1) { this.multiPart ? this.finishMulti(job) : this.exit(job); return true; }
-    const fromId = job.routing[fromStep], toId = job.routing[toStep];
+    const fromId = job.routing[fromStep];
+    let toId = job.routing[toStep];
+    // group operation: choose a member NOW (ready-time, so shortest-queue reads live member queues)
+    // and write it into this job's own routing — the path is then fixed (no jockeying).
+    if (this.isGroup(toId)) { toId = this.resolveGroupMember(toId); job.routing[toStep] = toId; }
     const mover = this.moverFor(fromId, toId);
     const tt = this._tt(fromId, toId, mover);
     if (mover === 'conveyor') {

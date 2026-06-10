@@ -1225,3 +1225,23 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   assembly root. Summarised the decision in `docs/DECISIONS.md` (pending review).
 - **No engine/UI code yet — paused for stakeholder confirmation of (1) decision point = board()/ready-time
   and (2) members being batch/operator-required.** `npm test` unchanged (103/103).
+
+## 2026-06-10 — Phase 3.7 Milestone 1: resource-group routing engine
+
+- `src/floor-engine.js` only (frozen engines untouched). Added `this.groups` parsed from `model.groups`
+  (`{id, name, rule:'even'|'shortest', members:[resId…]}`; members must be placed resources). A routing
+  op holds a group id; `board(job)` resolves it to one member **at ready-time** and writes the member
+  into the job's **own routing copy** (jobs now `routing: p.routing.slice()`), so the path is fixed —
+  **no jockeying**. Helpers: `isGroup` / `membersOf` / `memberLoad` (= queue + in-process + in-transit
+  `incoming`) / `resolveGroupMember` (even = uniform 1/N; shortest = least committed load, tie-break
+  lowest index; both use members' own state only — ignore transport distance and operator availability).
+- Group tokens expand to members where routing nodes are enumerated: conveyor-leg precompute, and the
+  `firstResAccepts` / `firstCanAccept` flood guards (a group accepts if **any** member has room). The
+  chosen member's location sets the transport leg, so a member is reached via its own 3.6 leg and
+  transit time differs by member — no transport-engine change. Members may themselves be batch and/or
+  operator-required (handled for free — resolution substitutes a concrete node and the job flows through
+  normal per-node machinery).
+- New `tests/floor-groups.test.js` (5, added to `npm test`): even split ≈ equal shares; shortest-queue
+  sends more to the less-loaded member and keeps queues bounded; mixed batch + operator-required members
+  route correctly with conservation; transport coexistence (own legs, Little's Law incl. transport);
+  pooling lesson (a group of N queues far less than forcing all flow through one member). **108/108.**

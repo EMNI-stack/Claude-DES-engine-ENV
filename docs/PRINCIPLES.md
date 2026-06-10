@@ -196,3 +196,14 @@
   the line can freeze with non-zero WIP and zero throughput. Make `B` divide `q` (ideally `B = q`, one
   batch per parent) — or relax the control to push/stream for that leg. Surfaced building `#example7`
   (furnace B=3, Motor consumes 4 Magnets → permanent stall; B=4 fixed it). — theory-notes §3/§5
+
+- **Pooling: parallel machines on a shared queue beat forcing flow through one.** When an operation is
+  served by a *group* of machines drawing from a shared queue, the group damps variability and slashes
+  queueing, WIP and cycle time versus routing all the flow to a single machine — the "bank line beats
+  grocery lines" effect, and the reason parallel machines are preferred to one big machine at equal
+  capacity (variability pooling; robustness to a single machine's downtime). The selection rule shapes
+  *how* the pool is shared: an **even probabilistic split** (1/N) ignores state, while **shortest-queue**
+  is state-dependent routing that sends each part to the least-loaded member and naturally balances load
+  (and favours faster members, since they stay less loaded). Both decide on members' own state only —
+  not transport distance — in v1. Realised in Phase 3.7 (`tests/floor-groups.test.js` quantifies the
+  pooling win). — theory-notes §4.6 (pooling, HS p.298), §5.5 (parallel machines, HS p.291); Charter §6.2
