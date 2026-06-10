@@ -1245,3 +1245,20 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   sends more to the less-loaded member and keeps queues bounded; mixed batch + operator-required members
   route correctly with conservation; transport coexistence (own legs, Little's Law incl. transport);
   pooling lesson (a group of N queues far less than forcing all flow through one member). **108/108.**
+
+## 2026-06-10 — Phase 3.7 Milestone 2: resource-group UI & floor
+
+- **Model:** `model.groups = [{id, name, rule, members:[resId…]}]`; `ensureModel` defaults/normalises it;
+  `buildRunModel` emits `groups` and routes pass group ids straight through. A route entry may be a group.
+- **Setup builder:** a new "Parallel groups" subsection in the Stations step (`renderSetupGroups` /
+  `groupEditor` / `addGroup` / `removeGroup`) — name, **selection rule** (segmented Shortest queue / Even
+  split), and member checkboxes (a machine can be in only one group). The Routing step now offers groups
+  in its picker and shows a group step as a distinct "⋔ name" chip. Deleting a machine removes it from any
+  group (and an emptied group is removed + de-routed).
+- **Floor (DESIGN-LANGUAGE §7):** group tokens expand to member legs in `allLegKeys` and `computeLayout`,
+  so the flow **fans out** prev→each member and each member→next using the existing renderer/auto-layout;
+  a quiet dashed **group hull** + "⋔ name · rule" tag ties the members together (`groupHullEl`,
+  non-interactive). The mini-preview routes a part's polyline through a synthetic group centroid.
+- Verified headless: a single-part model with a `Mills {Mill A, Mill B}` shortest-queue group renders one
+  hull + four fan-out legs, runs end-to-end (1000 out, both members utilised), and the authoring self-test
+  (21/21) and stress harness (24/24) stay green. `npm test` 108/108.

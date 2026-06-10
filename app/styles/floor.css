@@ -222,6 +222,12 @@ svg.floor .leg-worker { stroke: var(--accent); stroke-width: 2; stroke-dasharray
 svg.floor .leg-flex { stroke: var(--ink-2); stroke-width: 2; stroke-dasharray: 7 5; fill: none; opacity: .42; }   /* AGV / Operator leg */
 /* operator-required machine sitting idle, waiting for a free operator */
 svg.floor .node-rect.opwait { stroke: var(--accent); fill: rgba(184,133,42,.08); stroke-dasharray: 4 3; }
+/* parallel resource group (Phase 3.7): a quiet hull tying member machines together (non-interactive) */
+svg.floor .grouphull { pointer-events: none; }
+svg.floor .grouphull-box { fill: rgba(31,107,107,.045); stroke: var(--primary); stroke-width: 1.5;
+  stroke-dasharray: 6 4; opacity: .55; }
+svg.floor .grouphull.sel .grouphull-box { opacity: .9; stroke-width: 2; }
+svg.floor .grouphull-lab { font-family: var(--mono); font-size: 9px; font-weight: 600; fill: var(--primary); opacity: .85; }
 /* flexible mover markers (AGV / Operator) — small labelled units; conveyor bend handles */
 svg.floor .mover { cursor: grab; }
 svg.floor .mover-dot { stroke: var(--surface); stroke-width: 1.5; }
@@ -416,4 +422,5 @@ svg.floor .leg-dir.leg-off { opacity: .16; }
 .route-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; background: var(--surface-2);
   border: 1px solid var(--line); border-radius: 10px; padding: 1px 4px 1px 8px; }
 .route-chip .mini { padding: 0 4px; }
+.route-chip-group { background: rgba(31,107,107,.08); border-color: var(--primary); color: var(--primary); font-weight: 600; }
 .route-arrow { color: var(--faint); font-size: 11px; }

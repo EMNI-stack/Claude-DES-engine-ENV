@@ -85,6 +85,9 @@ function ensureModel(m) {
   m.defaultSpeed = m.defaultSpeed || (m.params && m.params.speed) || 40;
   m.conveyor = m.conveyor || base.conveyor; m.workers = m.workers || base.workers;
   m.legs = m.legs || {};
+  // Phase 3.7 — resource groups (a routing op may target several member machines)
+  m.groups = Array.isArray(m.groups) ? m.groups : [];
+  for (const g of m.groups) { g.rule = g.rule === 'even' ? 'even' : 'shortest'; g.members = Array.isArray(g.members) ? g.members : []; }
   m.control = m.control || 'push'; m.conwipCap = m.conwipCap || 10; m.supply = m.supply || 'stream';
   m.demand = m.demand || base.demand; if (!m.demand.dist) m.demand.dist = newDist('exp', { mean: 2 });
   const arr = (m.params && m.params.arrivalMean) || 3;
@@ -177,10 +180,25 @@ function bomDepLinks() {
   }
   return links;
 }
-// every transport leg used by ANY part (union of consecutive pairs) — shared physical edges = one leg
+/* ---- resource groups (Phase 3.7) — a route op may target a group of member machines ---- */
+function isGroupId(id) { return (model.groups || []).some((g) => g.id === id); }
+function groupById(id) { return (model.groups || []).find((g) => g.id === id); }
+function groupMembers(id) { const g = groupById(id); return g ? g.members.filter((m) => node(m)) : []; }
+// the concrete node id(s) a route entry resolves to (a group → its placed members; else itself)
+function routeUnits(id) { return isGroupId(id) ? groupMembers(id) : (node(id) ? [id] : []); }
+// display name for a route entry (group name, or the node's name)
+function routeName(id) { const g = groupById(id); return g ? (g.name || 'Group') : ((node(id) || {}).name || '?'); }
+// concrete node-id leg pairs along a route, expanding a group to its members (fan-out across a boundary)
+function routeLegPairs(route) {
+  const out = [];
+  for (let i = 0; i < route.length - 1; i++) for (const a of routeUnits(route[i])) for (const b of routeUnits(route[i + 1])) out.push([a, b]);
+  return out;
+}
+// every transport leg used by ANY part (union of consecutive pairs) — shared physical edges = one leg.
+// A group operation contributes one leg per member on each side (prev → each member, each member → next).
 function allLegKeys() {
   const set = new Set();
-  for (const p of model.parts) for (let i = 0; i < p.route.length - 1; i++) set.add(`${p.route[i]}>${p.route[i + 1]}`);
+  for (const p of model.parts) for (const [a, b] of routeLegPairs(p.route)) set.add(`${a}>${b}`);
   return [...set];
 }
 function legKeyAt(i) { const r = aRoute(); return `${r[i]}>${r[i + 1]}`; }
@@ -325,6 +343,10 @@ function render() {
   // Component supply legs (shared sub-assembly delivered into its assembler) — drawn like any leg.
   for (const d of bomDepLinks()) drawLegEl(legG, `${d.from}>${d.to}`, true);
   svg.append(legG);
+  // group hulls — a quiet rounded outline tying a group's members together, with the group name.
+  // Drawn behind the nodes so the machines sit on top (DESIGN-LANGUAGE §7: quiet, diagrammatic).
+  const hullG = E('g', {}); for (const g of (model.groups || [])) { const el = groupHullEl(g); if (el) hullG.append(el); }
+  svg.append(hullG);
   for (const n of model.nodes) svg.append(nodeEl(n));
   // flexible mover units (home markers in edit; their transform is updated live in renderFrame)
   const moverLayer = E('g', {}); moverEls = new Map();
@@ -354,6 +376,21 @@ function drawLegEl(legG, key, active) {
     const tx = p2[0] - Math.cos(ang) * hb, ty = p2[1] - Math.sin(ang) * hb;
     legG.append(E('polygon', { class: 'leg-dir' + (active ? '' : ' leg-off'), points: `${tx.toFixed(1)},${ty.toFixed(1)} ${(tx - Math.cos(ang - 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang - 0.4) * ah).toFixed(1)} ${(tx - Math.cos(ang + 0.4) * ah).toFixed(1)},${(ty - Math.sin(ang + 0.4) * ah).toFixed(1)}` }));
   }
+}
+// a quiet rounded hull around a group's member machines + a small name tag (selectable)
+function groupHullEl(g) {
+  const ms = (g.members || []).map(node).filter(Boolean); if (!ms.length) return null;
+  let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+  for (const n of ms) { minX = Math.min(minX, px(n.x)); maxX = Math.max(maxX, px(n.x)); minY = Math.min(minY, px(n.y)); maxY = Math.max(maxY, px(n.y)); }
+  const hx = 46 + 14, hy = 32 + 16;   // resource half-extents + padding
+  const x = minX - hx, y = minY - hy, w = (maxX - minX) + hx * 2, h = (maxY - minY) + hy * 2;
+  const sel = selected && selected.kind === 'group' && selected.id === g.id;
+  const gg = E('g', { class: 'grouphull' + (sel ? ' sel' : ''), 'data-group': g.id });
+  gg.append(E('rect', { class: 'grouphull-box', x: x.toFixed(1), y: y.toFixed(1), width: w.toFixed(1), height: h.toFixed(1), rx: 14 }));
+  const tag = E('g', { class: 'grouphull-tag', transform: `translate(${(x + 10).toFixed(1)},${(y - 2).toFixed(1)})` });
+  tag.append(E('text', { class: 'grouphull-lab', x: 0, y: 0 }, `⋔ ${g.name || 'Group'} · ${g.rule === 'even' ? 'even split' : 'shortest queue'}`));
+  gg.append(tag);
+  return gg;
 }
 function moverEl(u) {
   const p = simMoverPos(u) || u.home;
@@ -1101,6 +1138,9 @@ function removeNode(id) {
   model.nodes = model.nodes.filter((n) => n.id !== id);
   for (const p of model.parts) p.route = p.route.filter((x) => x !== id);   // drop from every part's route
   for (const k of Object.keys(model.legs)) if (k.startsWith(id + '>') || k.endsWith('>' + id)) delete model.legs[k];
+  // a deleted machine leaves any group it belonged to; a group emptied this way is removed + de-routed
+  for (const g of (model.groups || [])) g.members = g.members.filter((m) => m !== id);
+  for (const g of (model.groups || []).filter((g) => !g.members.length)) removeGroup(g.id);
   if (selected && ((selected.kind === 'node' && selected.id === id) || (selected.kind === 'leg' && selected.key.includes(id)))) selected = null;
   persist(); refreshAll();
 }
@@ -1203,7 +1243,8 @@ function nodeForRun(n) {
 function buildRunModel() {
   const nodes = model.nodes.map(nodeForRun);
   const transport = { default: model.defaultMover, speed: model.defaultSpeed, conveyor: model.conveyor, movers: model.movers, legs: model.legs };
-  const head = { schema: 'des-floor/v1', scale: S, units: model.units, nodes, transport, control: model.control, supply: model.supply };
+  const groups = (model.groups || []).map((g) => ({ id: g.id, name: g.name, rule: g.rule === 'even' ? 'even' : 'shortest', members: g.members.filter((m) => node(m)) }));
+  const head = { schema: 'des-floor/v1', scale: S, units: model.units, nodes, transport, groups, control: model.control, supply: model.supply };
   if (!isProcessModel()) {
     // legacy single-part shape (exact pre-3.5 behaviour for the basics-first default)
     const p = model.parts[0];
@@ -1601,6 +1642,7 @@ function applySetup() { autoLayout(); persist(); closeSetup(); selected = null; 
 function renderSetup() {
   renderSetupStations();
   renderSetupMovers();
+  renderSetupGroups();
   renderPartsModal();        // reuses the parts/BOM/demand editor, hosted in the drawer (#pmList/#pmEditor)
   renderSetupRoutes();
   renderControl();           // hosted in the drawer (#controlBody)
@@ -1663,6 +1705,55 @@ function moverEditor(u, body, rerender = renderSetupMovers) {
 }
 function addMover(kind) { const u = makeMover(kind, floorCentre(model), model.movers.length); model.movers.push(u); setupOpenMover = u.id; ensureMoverAssumption(); persist(); renderSetup(); }
 function removeMover(id) { model.movers = model.movers.filter((u) => u.id !== id); persist(); }
+/* ---- Setup: parallel resource groups (Phase 3.7) ---- */
+let setupOpenGroup = null;
+function groupSummary(g) { return `${g.members.filter((m) => node(m)).length} machines · ${g.rule === 'even' ? 'even split' : 'shortest queue'}`; }
+function renderSetupGroups() {
+  const host = $('setupGroups'); if (!host) return; host.innerHTML = '';
+  const resources = model.nodes.filter((n) => n.kind === 'resource');
+  const add = H('div', { class: 'setup-add' });
+  const ab = H('button', { class: 'btn btn-ghost' }, '+ Group'); ab.disabled = resources.length < 2;
+  ab.addEventListener('click', () => addGroup()); add.append(ab); host.append(add);
+  if (resources.length < 2) { host.append(H('p', { class: 'floor-hint', style: 'margin:0' }, 'Add two or more workcenters first, then group them so one operation can be served by any of them.')); return; }
+  if (!model.groups.length) { host.append(H('p', { class: 'floor-hint', style: 'margin:0' }, 'No groups. A group lets one routing step be served by any of several machines — chosen by even split or shortest queue.')); return; }
+  const list = H('div', { class: 'setup-list' });
+  model.groups.forEach((g) => {
+    const open = setupOpenGroup === g.id;
+    const card = H('div', { class: 'setup-card' + (open ? ' open' : '') });
+    const head = H('div', { class: 'setup-card-h' }, [H('span', { class: 'setup-kind' }, 'group'),
+      H('span', { class: 'setup-cardname' }, g.name || 'Group'), H('span', { class: 'setup-sum' }, open ? '' : groupSummary(g))]);
+    head.append(mini('✕', () => { removeGroup(g.id); if (setupOpenGroup === g.id) setupOpenGroup = null; renderSetup(); }));
+    head.addEventListener('click', (e) => { if (e.target.classList.contains('mini')) return; setupOpenGroup = open ? null : g.id; renderSetupGroups(); });
+    card.append(head);
+    if (open) { const bd = H('div', { class: 'setup-card-b stack' }); groupEditor(g, bd); card.append(bd); }
+    list.append(card);
+  });
+  host.append(list);
+}
+function groupEditor(g, body) {
+  body.append(field('Name', textInput(g.name, (v) => { g.name = v || 'Group'; persist(); render(); renderSetupSummary(); })));
+  body.append(field('Selection rule', segmented([['shortest', 'Shortest queue'], ['even', 'Even split']], g.rule, (v) => { g.rule = v; persist(); render(); }, 'Selection rule')));
+  body.append(factorButton(`group:${g.id}:rule`, { name: `Rule — ${g.name || 'Group'}`, unit: '', baseline: g.rule, description: 'The member-selection rule for this parallel group (shortest queue vs even split). Vary to study state-dependent vs blind routing.' }, renderSetupGroups));
+  body.append(H('p', { class: 'subhead' }, 'Member machines'));
+  model.nodes.filter((n) => n.kind === 'resource').forEach((n) => {
+    const inOther = model.groups.some((x) => x.id !== g.id && x.members.includes(n.id));
+    const ch = H('input', { type: 'checkbox' }); ch.checked = g.members.includes(n.id); ch.disabled = inOther;
+    ch.addEventListener('change', () => { if (ch.checked) { if (!g.members.includes(n.id)) g.members.push(n.id); } else g.members = g.members.filter((m) => m !== n.id); persist(); render(); renderSetupGroups(); renderSetupSummary(); });
+    body.append(H('label', { class: 'toggle-row' }, [ch, (n.name || 'machine') + (inOther ? ' (in another group)' : '')]));
+  });
+  body.append(H('p', { class: 'floor-hint', style: 'margin:var(--s-2) 0 0' }, 'Then add this group to a part’s route in step 3 — its operation is shared across these machines.'));
+}
+function addGroup() {
+  const id = uid('grp');
+  model.groups.push({ id, name: 'Group ' + (model.groups.length + 1), rule: 'shortest', members: [] });
+  setupOpenGroup = id; persist(); renderSetup();
+}
+function removeGroup(id) {
+  model.groups = model.groups.filter((g) => g.id !== id);
+  for (const p of model.parts) p.route = p.route.filter((x) => x !== id);   // drop the group from every route
+  if (selected && selected.kind === 'group' && selected.id === id) selected = null;
+  persist();
+}
 // live "at a glance" counts in the rail (fills the sidebar; helps a student track progress)
 function renderSetupSummary() {
   const host = $('setupSummary'); if (!host) return;
@@ -1719,7 +1810,8 @@ function renderSetupRoutes() {
     block.append(H('div', { class: 'route-block-h' }, [dot, H('span', { class: 'part-name' }, p.name)]));
     const chips = H('div', { class: 'route-seqs' });
     p.route.forEach((id, i) => {
-      const chip = H('span', { class: 'route-chip' }, (i + 1) + '. ' + ((node(id) || {}).name || '?'));
+      const isG = isGroupId(id);
+      const chip = H('span', { class: 'route-chip' + (isG ? ' route-chip-group' : '') }, (i + 1) + '. ' + (isG ? '⋔ ' : '') + routeName(id));
       chip.append(mini('✕', () => { p.route.splice(i, 1); persist(); renderSetupRoutes(); renderSetupMini(); }));
       chips.append(chip);
       if (i < p.route.length - 1) chips.append(H('span', { class: 'route-arrow' }, '→'));
@@ -1727,8 +1819,9 @@ function renderSetupRoutes() {
     if (!p.route.length) chips.append(H('span', { class: 'floor-hint', style: 'margin:0' }, '(no route yet)'));
     block.append(chips);
     const sel = H('select', { class: 'input' });
-    sel.append(H('option', { value: '' }, '+ add station to route…'));
+    sel.append(H('option', { value: '' }, '+ add station or group to route…'));
     model.nodes.forEach((nd) => sel.append(H('option', { value: nd.id }, (nd.name || nd.kind) + ' · ' + nd.kind)));
+    (model.groups || []).filter((g) => g.members.filter((m) => node(m)).length).forEach((g) => sel.append(H('option', { value: g.id }, '⋔ ' + (g.name || 'Group') + ' · group (parallel)')));
     sel.addEventListener('change', () => { if (sel.value) { p.route.push(sel.value); persist(); renderSetupRoutes(); renderSetupMini(); } });
     block.append(sel);
     host.append(block);
@@ -1739,15 +1832,23 @@ function computeLayout() {
   const nodes = model.nodes; const pos = {}; if (!nodes.length) return pos;
   const depth = {}, succ = {}, indeg = {};
   nodes.forEach((n) => { depth[n.id] = 0; succ[n.id] = []; indeg[n.id] = 0; });
-  for (const p of model.parts) for (let i = 0; i < p.route.length - 1; i++) {
-    const a = p.route[i], b = p.route[i + 1];
+  for (const p of model.parts) for (const [a, b] of routeLegPairs(p.route)) {   // group → member edges expanded
     if (depth[a] == null || depth[b] == null) continue;
     succ[a].push(b); indeg[b]++;
   }
   const q = nodes.filter((n) => indeg[n.id] === 0).map((n) => n.id);
   while (q.length) { const a = q.shift(); for (const b of succ[a]) { depth[b] = Math.max(depth[b], depth[a] + 1); if (--indeg[b] === 0) q.push(b); } }
   const COLX = 16, ROWY = 13, X0 = 8, Y0 = 9; let lane = 0;
-  for (const p of model.parts) { let used = false; for (const id of p.route) { if (pos[id]) continue; if (depth[id] == null) continue; pos[id] = { x: X0 + depth[id] * COLX, y: Y0 + lane * ROWY }; used = true; } if (used) lane++; }
+  for (const p of model.parts) {
+    let used = false, span = 1;
+    for (const id of p.route) {
+      const units = routeUnits(id);                                 // a group places all its members in its column
+      units.forEach((u, ui) => { if (pos[u] || depth[u] == null) return;
+        pos[u] = { x: X0 + depth[u] * COLX, y: Y0 + (lane + ui) * ROWY }; used = true; });
+      span = Math.max(span, units.length);
+    }
+    if (used) lane += span;                                         // reserve vertical room for the widest group
+  }
   for (const n of nodes) if (!pos[n.id]) { pos[n.id] = { x: X0 + (depth[n.id] || 0) * COLX, y: Y0 + lane * ROWY }; lane++; }
   return pos;
 }
@@ -1761,6 +1862,10 @@ function renderSetupMini() {
   if (!ns.length) { host.innerHTML = '<p class="floor-hint" style="margin:0">Add stations to preview the layout.</p>'; return; }
   const placed = ns.some((n) => (n.x || n.y));
   const pos = {}; if (placed) ns.forEach((n) => { pos[n.id] = { x: n.x || 0, y: n.y || 0 }; }); else Object.assign(pos, computeLayout());
+  // a group has no node — give it a synthetic position (its members' centroid) so a route polyline
+  // through the group passes neatly through the member cluster
+  for (const g of (model.groups || [])) { const ms = g.members.map((m) => pos[m]).filter(Boolean);
+    if (ms.length) pos[g.id] = { x: ms.reduce((a, q) => a + q.x, 0) / ms.length, y: ms.reduce((a, q) => a + q.y, 0) / ms.length }; }
   let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
   for (const n of ns) { const p = pos[n.id]; if (!p) continue; minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
   const W = 380, H = 250, pad = 40;   // smaller viewBox → everything renders larger / clearer
