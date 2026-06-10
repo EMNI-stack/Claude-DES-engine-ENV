@@ -48,7 +48,7 @@ function footer() {
       <a href="gallery.html">Design&nbsp;system</a>
       <a href="smoke.html">Engine&nbsp;check</a>
       <span class="faint">Legacy prototype:</span>
-      <a href="../index.html">Production line</a>
+      <a href="../demo.html">Production line</a>
       <a href="../advanced.html">Factory builder</a>
     </div>
   </footer>`;
