@@ -130,6 +130,8 @@ function ensureModel(m) {
     if (!p.name) p.name = 'Part';
     if (!p.kind) p.kind = 'product';
     if (!Array.isArray(p.route)) p.route = [];
+    if (!Array.isArray(p.feeders)) p.feeders = [];   // Phase 3.8 — convergence: extra upstream streams of this same part
+    for (const f of p.feeders) if (!Array.isArray(f.path)) f.path = [];
     if (!Array.isArray(p.bom)) p.bom = [];
     if (!p.demand) p.demand = { on: false, dist: newDist('exp', { mean: 2 }), qty: 1, conwip: 5 };
   }
@@ -194,11 +196,30 @@ function routeLegPairs(route) {
   for (let i = 0; i < route.length - 1; i++) for (const a of routeUnits(route[i])) for (const b of routeUnits(route[i + 1])) out.push([a, b]);
   return out;
 }
+/* ---- convergence / merge (Phase 3.8) — extra upstream feeder streams of the SAME part ---- */
+function partFeeders(p) { return Array.isArray(p.feeders) ? p.feeders : []; }
+// the join (merge) node for a feeder = the last node of its path that also lies on the primary route
+function feederJoin(p, path) { for (let i = (path || []).length - 1; i >= 0; i--) if (p.route.includes(path[i])) return path[i]; return null; }
+// every leg-bearing path of a part for DRAWING / layout: primary route + each feeder path
+function partPaths(p) { return [p.route, ...partFeeders(p).map((f) => f.path || [])]; }
+// full ENGINE routings: primary + each feeder spliced with the primary tail after its join node
+function partRoutings(p) {
+  const out = [p.route.slice()];
+  for (const f of partFeeders(p)) {
+    const path = f.path || [], j = feederJoin(p, path);
+    if (j) out.push([...path.slice(0, path.indexOf(j) + 1), ...p.route.slice(p.route.indexOf(j) + 1)]);
+    else if (path.length) out.push(path.slice());   // dangling feeder (no join yet) — still a valid stream
+  }
+  return out;
+}
+// nodes where 2+ streams of a part converge (a feeder joins the primary route there)
+function mergeNodeSet() { const s = new Set(); for (const p of model.parts) for (const f of partFeeders(p)) { const j = feederJoin(p, f.path || []); if (j) s.add(j); } return s; }
 // every transport leg used by ANY part (union of consecutive pairs) — shared physical edges = one leg.
-// A group operation contributes one leg per member on each side (prev → each member, each member → next).
+// A group op contributes one leg per member on each side; a feeder contributes its upstream legs into
+// the merge node (the visual convergence). Group tokens still expand to members within each path.
 function allLegKeys() {
   const set = new Set();
-  for (const p of model.parts) for (const [a, b] of routeLegPairs(p.route)) set.add(`${a}>${b}`);
+  for (const p of model.parts) for (const path of partPaths(p)) for (const [a, b] of routeLegPairs(path)) set.add(`${a}>${b}`);
   return [...set];
 }
 function legKeyAt(i) { const r = aRoute(); return `${r[i]}>${r[i + 1]}`; }
@@ -348,6 +369,9 @@ function render() {
   const hullG = E('g', {}); for (const g of (model.groups || [])) { const el = groupHullEl(g); if (el) hullG.append(el); }
   svg.append(hullG);
   for (const n of model.nodes) svg.append(nodeEl(n));
+  // merge markers — a quiet tag where 2+ same-part streams converge (the visual inverse of 3.7's split)
+  const mergeG = E('g', {}); for (const id of mergeNodeSet()) { const el = mergeMarkEl(id); if (el) mergeG.append(el); }
+  svg.append(mergeG);
   // flexible mover units (home markers in edit; their transform is updated live in renderFrame)
   const moverLayer = E('g', {}); moverEls = new Map();
   for (const u of model.movers) { const g = moverEl(u); moverLayer.append(g); moverEls.set(u.id, g); }
@@ -391,6 +415,13 @@ function groupHullEl(g) {
   tag.append(E('text', { class: 'grouphull-lab', x: 0, y: 0 }, `⋔ ${g.name || 'Group'} · ${g.rule === 'even' ? 'even split' : 'shortest queue'}`));
   gg.append(tag);
   return gg;
+}
+// a quiet "⋎ merge" tag above a node where 2+ same-part streams converge (non-interactive)
+function mergeMarkEl(id) {
+  const n = node(id); if (!n) return null;
+  const g = E('g', { class: 'mergemark', 'data-merge': id, transform: `translate(${px(n.x)},${px(n.y)})` });
+  g.append(E('text', { class: 'mergemark-lab', x: 0, y: -40, 'text-anchor': 'middle' }, '⋎ merge'));
+  return g;
 }
 function moverEl(u) {
   const p = simMoverPos(u) || u.home;
@@ -1136,7 +1167,9 @@ function addNode(kind, x, y) {   // legacy canvas add (kept for safety; the floo
 }
 function removeNode(id) {
   model.nodes = model.nodes.filter((n) => n.id !== id);
-  for (const p of model.parts) p.route = p.route.filter((x) => x !== id);   // drop from every part's route
+  for (const p of model.parts) { p.route = p.route.filter((x) => x !== id);   // drop from every part's route + feeders
+    for (const f of partFeeders(p)) f.path = (f.path || []).filter((x) => x !== id);
+    p.feeders = partFeeders(p).filter((f) => (f.path || []).length); }
   for (const k of Object.keys(model.legs)) if (k.startsWith(id + '>') || k.endsWith('>' + id)) delete model.legs[k];
   // a deleted machine leaves any group it belonged to; a group emptied this way is removed + de-routed
   for (const g of (model.groups || [])) g.members = g.members.filter((m) => m !== id);
@@ -1233,7 +1266,8 @@ function addStandardResponses() {
 // single-part path — the basics-first default behaves exactly as it did pre-3.5.
 function isProcessModel() {
   return model.parts.length > 1 || model.parts.some((p) => p.bom && p.bom.length)
-    || model.control === 'conwip' || model.parts.some((p) => p.demand && p.demand.on);
+    || model.control === 'conwip' || model.parts.some((p) => p.demand && p.demand.on)
+    || model.parts.some((p) => partFeeders(p).length);   // a converging part runs the process path
 }
 function nodeForRun(n) {
   return n.kind === 'resource'
@@ -1257,9 +1291,10 @@ function buildRunModel() {
   // process shape — each part carries its route, arrival (from its source node), and BOM;
   // demand[] holds the per-product customer demand (each with its own interarrival distribution).
   const parts = model.parts.map((p) => {
-    const src = node((p.route || [])[0]);
-    return { id: p.id, name: p.name, kind: p.kind, routing: p.route.slice(),
-      arrival: (src && src.kind === 'source') ? src.interarrival : undefined,
+    const routings = partRoutings(p);                                   // primary + spliced feeder routings (Phase 3.8)
+    const arrivals = routings.map((r) => { const s = node(r[0]); return (s && s.kind === 'source') ? s.interarrival : undefined; });
+    return { id: p.id, name: p.name, kind: p.kind, routing: p.route.slice(), routings, arrivals,
+      arrival: arrivals[0] || ((node((p.route || [])[0]) || {}).interarrival),
       bom: (p.bom || []).map((b) => ({ partId: b.partId, qty: Math.max(1, b.qty | 0) })) };
   });
   const demand = model.parts.filter((p) => p.demand && p.demand.on)
@@ -1751,7 +1786,8 @@ function addGroup() {
 }
 function removeGroup(id) {
   model.groups = model.groups.filter((g) => g.id !== id);
-  for (const p of model.parts) p.route = p.route.filter((x) => x !== id);   // drop the group from every route
+  for (const p of model.parts) { p.route = p.route.filter((x) => x !== id);   // drop the group from every route + feeder
+    for (const f of partFeeders(p)) f.path = (f.path || []).filter((x) => x !== id); }
   if (selected && selected.kind === 'group' && selected.id === id) selected = null;
   persist();
 }
@@ -1825,15 +1861,48 @@ function renderSetupRoutes() {
     (model.groups || []).filter((g) => g.members.filter((m) => node(m)).length).forEach((g) => sel.append(H('option', { value: g.id }, '⋔ ' + (g.name || 'Group') + ' · group (parallel)')));
     sel.addEventListener('change', () => { if (sel.value) { p.route.push(sel.value); persist(); renderSetupRoutes(); renderSetupMini(); } });
     block.append(sel);
+    renderFeeders(p, block);   // Phase 3.8 — extra upstream streams of this same part, converging into the route
     host.append(block);
   });
+}
+// feeder lines: additional upstream streams of the SAME part that converge into a node on its route
+function renderFeeders(p, block) {
+  const wrap = H('div', { class: 'feeders' });
+  partFeeders(p).forEach((f, fi) => {
+    const row = H('div', { class: 'feeder-row' });
+    row.append(H('span', { class: 'feeder-tag' }, '⋎ feeder ' + (fi + 1)));
+    const chips = H('div', { class: 'route-seqs' });
+    (f.path || []).forEach((id, i) => {
+      const isG = isGroupId(id);
+      const chip = H('span', { class: 'route-chip' + (isG ? ' route-chip-group' : '') }, (isG ? '⋔ ' : '') + routeName(id));
+      chip.append(mini('✕', () => { f.path.splice(i, 1); persist(); renderSetupRoutes(); renderSetupMini(); }));
+      chips.append(chip);
+      if (i < f.path.length - 1) chips.append(H('span', { class: 'route-arrow' }, '→'));
+    });
+    const join = feederJoin(p, f.path || []);
+    chips.append(H('span', { class: 'feeder-join' + (join ? '' : ' warn') }, join ? `↳ merges at ${routeName(join)}` : '↳ end at a station on the route above'));
+    row.append(chips);
+    const sel = H('select', { class: 'input' });
+    sel.append(H('option', { value: '' }, '+ add station to this feeder…'));
+    model.nodes.forEach((nd) => sel.append(H('option', { value: nd.id }, (nd.name || nd.kind) + ' · ' + nd.kind)));
+    (model.groups || []).filter((g) => g.members.filter((m) => node(m)).length).forEach((g) => sel.append(H('option', { value: g.id }, '⋔ ' + (g.name || 'Group') + ' · group')));
+    sel.addEventListener('change', () => { if (sel.value) { (f.path = f.path || []).push(sel.value); persist(); renderSetupRoutes(); renderSetupMini(); } });
+    row.append(sel);
+    row.append(mini('✕ remove feeder', () => { p.feeders.splice(fi, 1); persist(); renderSetupRoutes(); renderSetupMini(); }));
+    wrap.append(row);
+  });
+  const add = H('button', { class: 'btn btn-ghost', style: 'margin-top:var(--s-2)' }, '+ Feeder line (converge another stream)');
+  add.disabled = p.route.length < 1;
+  add.addEventListener('click', () => { (p.feeders = p.feeders || []).push({ path: [] }); persist(); renderSetupRoutes(); renderSetupMini(); });
+  wrap.append(add);
+  block.append(wrap);
 }
 // Layered auto-layout: column = longest-path depth along route edges; row = a lane per part.
 function computeLayout() {
   const nodes = model.nodes; const pos = {}; if (!nodes.length) return pos;
   const depth = {}, succ = {}, indeg = {};
   nodes.forEach((n) => { depth[n.id] = 0; succ[n.id] = []; indeg[n.id] = 0; });
-  for (const p of model.parts) for (const [a, b] of routeLegPairs(p.route)) {   // group → member edges expanded
+  for (const p of model.parts) for (const path of partPaths(p)) for (const [a, b] of routeLegPairs(path)) {   // primary + feeder edges; groups expanded
     if (depth[a] == null || depth[b] == null) continue;
     succ[a].push(b); indeg[b]++;
   }
@@ -1841,14 +1910,16 @@ function computeLayout() {
   while (q.length) { const a = q.shift(); for (const b of succ[a]) { depth[b] = Math.max(depth[b], depth[a] + 1); if (--indeg[b] === 0) q.push(b); } }
   const COLX = 16, ROWY = 13, X0 = 8, Y0 = 9; let lane = 0;
   for (const p of model.parts) {
-    let used = false, span = 1;
-    for (const id of p.route) {
-      const units = routeUnits(id);                                 // a group places all its members in its column
-      units.forEach((u, ui) => { if (pos[u] || depth[u] == null) return;
-        pos[u] = { x: X0 + depth[u] * COLX, y: Y0 + (lane + ui) * ROWY }; used = true; });
-      span = Math.max(span, units.length);
+    for (const path of partPaths(p)) {                              // primary route, then each feeder, on its own lane
+      let used = false, span = 1;
+      for (const id of path) {
+        const units = routeUnits(id);                               // a group places all its members in its column
+        units.forEach((u, ui) => { if (pos[u] || depth[u] == null) return;
+          pos[u] = { x: X0 + depth[u] * COLX, y: Y0 + (lane + ui) * ROWY }; used = true; });
+        span = Math.max(span, units.length);
+      }
+      if (used) lane += span;
     }
-    if (used) lane += span;                                         // reserve vertical room for the widest group
   }
   for (const n of nodes) if (!pos[n.id]) { pos[n.id] = { x: X0 + (depth[n.id] || 0) * COLX, y: Y0 + lane * ROWY }; lane++; }
   return pos;
@@ -1876,13 +1947,16 @@ function renderSetupMini() {
   // structural legs (quiet, behind the routes)
   const legSet = new Set([...allLegKeys(), ...bomDepLinks().map((d) => `${d.from}>${d.to}`)]);
   for (const key of legSet) { const [a, b] = key.split('>'); if (!pos[a] || !pos[b]) continue; g += `<line x1="${X(pos[a].x).toFixed(1)}" y1="${Y(pos[a].y).toFixed(1)}" x2="${X(pos[b].x).toFixed(1)}" y2="${Y(pos[b].y).toFixed(1)}" stroke="var(--line-strong)" stroke-width="2" stroke-linecap="round" opacity=".35"/>`; }
-  // each part's route — thick, coloured, with a direction arrowhead near the end
+  // each part's route AND its feeder paths — thick, coloured, with a direction arrowhead near the end
   model.parts.forEach((p, idx) => {
-    const col = partColor(idx); const r = p.route.map((id) => pos[id]).filter(Boolean); if (r.length < 2) return;
-    g += `<polyline points="${r.map((q) => `${X(q.x).toFixed(1)},${Y(q.y).toFixed(1)}`).join(' ')}" fill="none" stroke="${col}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>`;
-    const a = r[r.length - 2], b = r[r.length - 1], ang = Math.atan2(Y(b.y) - Y(a.y), X(b.x) - X(a.x));
-    const ex = X(b.x) - Math.cos(ang) * 17, ey = Y(b.y) - Math.sin(ang) * 17, ah = 8;
-    g += `<polygon points="${ex.toFixed(1)},${ey.toFixed(1)} ${(ex - Math.cos(ang - 0.5) * ah).toFixed(1)},${(ey - Math.sin(ang - 0.5) * ah).toFixed(1)} ${(ex - Math.cos(ang + 0.5) * ah).toFixed(1)},${(ey - Math.sin(ang + 0.5) * ah).toFixed(1)}" fill="${col}" opacity=".9"/>`;
+    const col = partColor(idx);
+    for (const path of partPaths(p)) {
+      const r = path.map((id) => pos[id]).filter(Boolean); if (r.length < 2) continue;
+      g += `<polyline points="${r.map((q) => `${X(q.x).toFixed(1)},${Y(q.y).toFixed(1)}`).join(' ')}" fill="none" stroke="${col}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>`;
+      const a = r[r.length - 2], b = r[r.length - 1], ang = Math.atan2(Y(b.y) - Y(a.y), X(b.x) - X(a.x));
+      const ex = X(b.x) - Math.cos(ang) * 17, ey = Y(b.y) - Math.sin(ang) * 17, ah = 8;
+      g += `<polygon points="${ex.toFixed(1)},${ey.toFixed(1)} ${(ex - Math.cos(ang - 0.5) * ah).toFixed(1)},${(ey - Math.sin(ang - 0.5) * ah).toFixed(1)} ${(ex - Math.cos(ang + 0.5) * ah).toFixed(1)},${(ey - Math.sin(ang + 0.5) * ah).toFixed(1)}" fill="${col}" opacity=".9"/>`;
+    }
   });
   // nodes — bigger, type-distinct shapes (filled in/out dots, accent ⊕ assemblers, dashed storage)
   for (const n of ns) { const q = pos[n.id]; if (!q) continue; const x = X(q.x), y = Y(q.y);

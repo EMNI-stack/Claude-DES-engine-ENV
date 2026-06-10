@@ -228,6 +228,9 @@ svg.floor .grouphull-box { fill: rgba(31,107,107,.045); stroke: var(--primary); 
   stroke-dasharray: 6 4; opacity: .55; }
 svg.floor .grouphull.sel .grouphull-box { opacity: .9; stroke-width: 2; }
 svg.floor .grouphull-lab { font-family: var(--mono); font-size: 9px; font-weight: 600; fill: var(--primary); opacity: .85; }
+/* convergence / merge (Phase 3.8): a quiet tag where 2+ same-part streams converge (non-interactive) */
+svg.floor .mergemark { pointer-events: none; }
+svg.floor .mergemark-lab { font-family: var(--mono); font-size: 9px; font-weight: 600; fill: var(--primary); opacity: .8; }
 /* flexible mover markers (AGV / Operator) — small labelled units; conveyor bend handles */
 svg.floor .mover { cursor: grab; }
 svg.floor .mover-dot { stroke: var(--surface); stroke-width: 1.5; }
@@ -424,3 +427,9 @@ svg.floor .leg-dir.leg-off { opacity: .16; }
 .route-chip .mini { padding: 0 4px; }
 .route-chip-group { background: rgba(31,107,107,.08); border-color: var(--primary); color: var(--primary); font-weight: 600; }
 .route-arrow { color: var(--faint); font-size: 11px; }
+/* convergence / merge feeders (Phase 3.8) */
+.feeders { margin-top: var(--s-2); padding-left: var(--s-3); border-left: 2px solid rgba(31,107,107,.25); }
+.feeder-row { margin-bottom: var(--s-2); }
+.feeder-tag { display: inline-block; font-family: var(--mono); font-size: 10px; font-weight: 600; color: var(--primary); margin-bottom: 2px; }
+.feeder-join { font-size: 10px; color: var(--faint); margin-left: 4px; }
+.feeder-join.warn { color: var(--accent); }

@@ -1308,3 +1308,19 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   merge sees the combined rate and neither feeder starves; coexistence with transport legs (time differs
   by layout) + a batch feeder; Little's Law across the merge; and a flow merge needs no synchronisation
   (feeder A flows even when feeder B is silent — contrast a BOM join). **113/113.**
+
+## 2026-06-10 — Phase 3.8 Milestone 2: convergence UI & floor
+
+- **Model/authoring:** a part gains `feeders = [{path:[…]}]` (defaulted in `ensureModel`). The Routing
+  step renders, under each part's primary route, a "Feeder line" editor — add a feeder, build its path
+  with the same station/group picker, and it shows where it merges (`↳ merges at <node>`, warning until it
+  ends on the primary route). `isProcessModel` triggers on feeders; `buildRunModel` splices each feeder
+  with the primary tail into `routings` and emits per-feeder `arrivals` (from each routing's source).
+- **Floor (DESIGN-LANGUAGE §7):** `allLegKeys`, `computeLayout`, and the mini-preview iterate a part's
+  primary route **plus** its feeder paths, so the upstream streams **fan in** to the merge node — the
+  clear visual inverse of 3.7's fan-out. A quiet "⋎ merge" tag marks each convergence node
+  (`mergeMarkEl`, non-interactive). Deleting a node/group strips it from feeder paths too.
+- Verified headless: a Widget with primary `Raw A→Mill A→Paint→Ship` + feeder `Raw B→Mill B→Paint`
+  renders two streams converging into Paint (one merge marker, five legs), runs end-to-end (666 out), and
+  Paint's utilisation (67%) ≈ the sum of the two mills (33% + 34%) — the combined stream. Authoring
+  self-test 21/21, stress 24/24, `npm test` 113/113.
