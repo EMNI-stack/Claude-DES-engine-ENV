@@ -803,3 +803,33 @@ Three findings from the `tests/ui/stress2.html` sweep were resolved (stakeholder
 - Governing principle / source: Charter §6.2; theory-notes §4.6 (pooling), §5.5 (cellular / parallel
   machines). **Covered by `tests/floor-groups.test.js` "Parallel assembly cells" + `tests/ui/stress2.html`
   E2; `npm test` 114/114.**
+
+---
+
+## 2026-06-10 — Phase 4: output analysis & statistical rigour — DESIGN, pending review
+
+- **Decision (proposed, not yet ratified):** every response is reported as a **mean ± Student-t
+  half-width** from **independent replications** (distinct reproducible seeds), never a bare point —
+  surfaced in Robinson's vocabulary; Law informs the implementation only (Charter §5).
+- **No engine changes.** A new driver (`src/analysis/replicate.js`) runs `FloorSim(runModel, seed)` for N
+  reps, stepping `run()` on a time grid and recording read-only **accumulator snapshots** (areaWIP,
+  completed, sumCycle, sumJobTransit, per-resource aBusy, demand). A response over a window `[a,b]` is a
+  pure delta of two snapshots — so **warm-up deletion at any cut-off recomputes instantly without
+  re-running**.
+- **CI:** Student-t `X̄ ± t_{n−1,1−α/2}·√(S²/n)`, α=0.05, via the existing tested `confidenceInterval`;
+  `summarizeReplications` aggregates. New `repsForPrecision` (sequential rule, §3.5) and `pairedDifference`
+  (paired-t, §3.6).
+- **Terminating vs steady-state:** terminating → analyse the full horizon, no warm-up; steady-state →
+  **Welch across-replication WIP(t)** plot (`welchWarmup`, adjustable window), student drags the cut-off,
+  responses recomputed post-cut-off (err slightly late). Batch-means/MSER kept behind the scenes.
+- **Scenario comparison:** a scenario = base model with one **declared factor** overridden; compare via
+  **paired-t on same-seed differences** (≈ common random numbers, with the honest single-RNG-stream
+  caveat — the paired-t is what guarantees validity). Closes the V&V loop (sensitivity on a category-C
+  assumption; experimentation-adequacy from rel half-width + warm-up plot). Confidence, never proof.
+- **Binding:** responses matched to the declared Phase-2 responses by name (Throughput, Avg WIP, Cycle
+  time, Fill rate) + always-collected utilisation/in-transport/bottleneck; factors are the comparison axes.
+- Reuses the prototyped, tested `src/analysis/*`; the view lives in `app/analyse.html` + new
+  `app/js/analyse.js`. Out of scope: Factory-Physics overlays (Phase 5), batch-means UI, ranking-&-
+  selection, metamodelling.
+- Governing principle / source: Charter §5/§9; theory-notes §3; DESIGN-LANGUAGE §5;
+  `docs/PHASE-4-DESIGN.md`. **PENDING REVIEW.**

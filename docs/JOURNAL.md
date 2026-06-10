@@ -1407,3 +1407,18 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
 - New engine test "Parallel assembly cells" (BOM consumed = 2 × created, both cells used, component
   conservation). `tests/ui/stress2.html` E2 flipped from "blocked" to "produces". `npm test` 114/114;
   authoring 21/21; stress 24/24; stress2 34/34.
+
+## 2026-06-10 — Phase 4 Milestone 0: output-analysis design note (PAUSE for review)
+
+- Audited the prototyped analysis lib: `src/analysis/stats.js` (Student-t `confidenceInterval`),
+  `output_analysis.js` (`summarizeReplications`, `welchWarmup`/`welchAverage`, `mser5`, `batchMeans`),
+  `compare.js` — the statistical core is already built and tested (the `analysis-*` suites). Phase 4
+  reuses it; the new work is a replication **driver**, two small helpers (`repsForPrecision`,
+  `pairedDifference`), and the **Run & Analyse view** (`app/analyse.html` + `app/js/analyse.js`).
+- Wrote `docs/PHASE-4-DESIGN.md`: replications with t-CIs and prominent half-widths; **no engine changes**
+  (driver snapshots read-only accumulators on a time grid → warm-up deletion at any cut-off via
+  window-deltas, instant, no re-run); Welch warm-up plot for steady-state vs terminating; paired-t
+  scenario comparison on same seeds (CRN explained with the single-stream caveat); binding to the
+  declared responses/factors; export. Summarised the decision in `docs/DECISIONS.md`.
+- **No code yet — paused for review of the statistics + approach, then again after Milestone 1.**
+  `npm test` unchanged (114/114).
