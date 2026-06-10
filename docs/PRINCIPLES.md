@@ -92,6 +92,30 @@
   assumptions by sensitivity — but a tight CI bounds *random* uncertainty, it is never *proof* the
   model is right. *Applied in Phase 4.4.* — [R] ch 12 (theory-notes §2.5)
 
+## Factory Physics overlays (theory vs simulation)
+
+- **A formula is truth only inside its assumptions.** Each theory comparison carries an explicit
+  applicability flag (exact / approximate / out-of-range): Kingman/VUT is exact for M/M/1, approximate
+  for G/G/1·G/G/m and breakdowns, and out of range under blocking, batching, assembly, or convergence.
+  Showing *where* a formula stops applying — not hiding it — is the lesson. *Applied in Phase 5.* —
+  [HS] (theory-notes §4)
+
+- **Little's Law is the one law that never leaves its domain.** `WIP = TH × CT` holds for long-run
+  averages regardless of distribution, blocking, or topology; because the three are measured
+  independently, their agreement is a genuine white-box consistency check. — [HS] (theory-notes §4.1)
+
+- **VUT/Kingman — variability × utilisation is multiplicative.** `CTq ≈ ((ca²+ce²)/2)·(u/(1−u))·te`;
+  high variability *and* high utilisation together are catastrophic, either alone is survivable. — [HS]
+  (theory-notes §4.4)
+
+- **Best / worst / practical-worst-case bound a line; W₀ = rb·T₀ is the ideal WIP.** A line above the
+  PWC curve is lean, below is fat; zero WIP is not optimal. — [HS] (theory-notes §4.3)
+
+- **Agreement with theory is confidence, never proof — and divergence is where simulation earns its
+  place.** Matching closed-form in the clean cases is black-box validation evidence; divergence once
+  blocking / non-exponential service / breakdowns / batching / convergence enter is *expected* and is
+  the whole reason DES exists. *Applied in Phase 5.4.* — [R] ch 12; [HS] (theory-notes §2.5, §4)
+
 ## Metrics & conventions
 
 - **Time-average vs sample-average metrics are computed differently.** Time-persistent

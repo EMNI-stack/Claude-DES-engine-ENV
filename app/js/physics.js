@@ -200,8 +200,42 @@ function render(runModel, cut) {
       flow conservation; a gap points to scrap, blocking, or a rate the formula doesn't see.</p></div>`);
   }
 
+  // ---- Theory-based validation (M4): black-box V&V evidence + confidence, never proof ----
+  const utilOk = urows.length && urows.every((r) => Math.abs(r.predicted - r.measured) <= Math.max(0.05, 2 * (r.hw || 0)));
+  const levels = [app.littlesLaw.level, app.utilisation.level, app.vut.level, app.characteristic.level];
+  const exactN = levels.filter((l) => l === 'exact').length;
+  const beyondN = levels.length - exactN;
+  const ll2 = littlesLawCheck(mWIP, mTH, mCT);
+  const cAss = (project.assumptions || []).filter((a) => a.data === 'C' || a.sensitivity);
+  const bb = ((project.vv && project.vv.checklist) || []).find((c) => c.id === 'bb');
+  const assumLine = cAss.length
+    ? `<p class="cap" style="margin-top:var(--s-3);">Stress-test your uncertain assumptions: a
+       category-C assumption (no data) can now be checked <em>two</em> ways — against theory here, and by
+       <a href="analyse.html">sensitivity</a> on Run &amp; Analyse. Flagged: ${cAss.map((a) => `<em>${esc(a.description || 'assumption')}</em>`).join(', ')}.</p>`
+    : '';
+  h.push(`<div class="chart-card"><h3>Validation — what the theory comparison tells you</h3>
+    <p class="cap">Little's Law is ${ll2.consistent ? '<strong>consistent</strong>' : '<strong>not consistent</strong>'}
+    (${pct(ll2.relErr)} error)${utilOk ? ', and measured utilisation matches r_a·t_e/m' : ''}.
+    Of the four comparisons, <strong>${exactN}</strong> ${exactN === 1 ? 'is' : 'are'} within the formula's
+    exact domain — agreement there is genuine <strong>black-box validation</strong> evidence that the model
+    behaves like the system it represents. ${beyondN ? `The other <strong>${beyondN}</strong> sit beyond the
+    closed form (blocking, non-exponential, breakdowns, batching, assembly, or convergence); divergence there
+    is <em>expected</em> — it is exactly where simulation earns its place.` : ''}</p>
+    <p class="cap"><strong>Agreement is confidence, never proof.</strong> A model is never valid in general
+    (Robinson); matching theory in the clean cases is one more test the model survived, not a guarantee.</p>
+    ${assumLine}
+    <div class="row" style="margin-top:var(--s-3);">
+      <button class="btn btn-ghost" id="bbMark"${bb && bb.done ? ' disabled' : ''}>${bb && bb.done ? 'Black-box validation ✓ marked' : 'Mark black-box validation done'}</button>
+    </div></div>`);
+
   $('results').hidden = false;
   $('results').innerHTML = h.join('');
+
+  const mb = $('bbMark');
+  if (mb && !(bb && bb.done)) mb.addEventListener('click', () => {
+    const item = ((project.vv && project.vv.checklist) || []).find((c) => c.id === 'bb');
+    if (item) { item.done = true; save(project); mb.textContent = 'Black-box validation ✓ marked'; mb.disabled = true; }
+  });
 }
 
 // wire up

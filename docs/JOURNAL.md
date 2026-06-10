@@ -1653,3 +1653,24 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   rate, lean/fat) once. Verified in browser; no console errors.
 
 **Sources:** theory-notes §6 (buffers, efficiency/flexibility); Charter §3.
+
+## 2026-06-10 — Phase 5.4: theory-based V&V close-out (Phase 5 complete)
+
+- Added a **Validation** panel to `physics.js`: counts how many comparisons fall inside the formulas'
+  exact domain (agreement there = **black-box validation evidence**) vs beyond them (divergence is
+  *expected* — where simulation earns its place); restates **agreement is confidence, never proof**
+  (a model is never valid in general); ties to the assumptions log (a category-C assumption can be
+  stress-tested against theory here AND by sensitivity on Run & Analyse); and offers a button to tick
+  Robinson's **black-box validation** checklist item.
+- **Test** — `tests/analysis-physics.test.js` gains an M/D/1 **divergence** case: constant service
+  (ce²=0) makes the real queue half the M/M/1 prediction; the applicability flag reports *approximate*
+  and the simulated queue sits near the corrected M/D/1 value, clearly below the naive M/M/1 — the
+  divergence is detected, not hidden. `npm test` **126/126**.
+- Updated PRINCIPLES (a formula is truth only inside its assumptions; Little's Law never leaves its
+  domain; VUT multiplicative; best/worst/PWC + W₀; agreement is confidence, never proof — divergence is
+  why DES exists) and DECISIONS/JOURNAL.
+
+**Phase 5 complete (M0 design → 5.4 V&V).** The capstone intuition layer: theory laid honestly beside
+simulation, agreement validating both, divergence teaching where closed-form stops and DES begins.
+
+**Sources:** theory-notes §4/§6; Charter §3/§7; Robinson ch 12.

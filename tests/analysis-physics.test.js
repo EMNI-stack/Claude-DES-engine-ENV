@@ -92,3 +92,20 @@ test('applicability: M/M/1 exact; blocking/non-exp/breakdown/batch/scrap correct
   const scrap = applicability(modelFeatures(mm1({ iaMean: 2, svcMean: 1, scrap: 0.2 })));
   assert.equal(scrap.utilisation.level, 'approximate', 'scrap ⇒ utilisation approximate');
 });
+
+test('non-exponential: VUT is approximate AND the simulation diverges from the M/M/1 assumption (M4)', () => {
+  // M/D/1: exponential arrivals, CONSTANT service (ce²=0), ρ=0.7. Assuming M/M/1 (ce²=1) overstates the
+  // queue 2× — the real M/D/1 queue is HALF. The flag must say "approximate", and the simulated queue
+  // must sit near the corrected (M/D/1) value, clearly below the naive M/M/1 — the divergence is the lesson.
+  const model = mm1({ iaMean: 1 / 0.7, svcMean: 1 });
+  model.nodes[1].service = newDist('const', { value: 1 });            // deterministic service ⇒ ce²=0
+  assert.equal(applicability(modelFeatures(model)).vut.level, 'approximate', 'non-exponential service ⇒ VUT approximate');
+  const te = 1, u = 0.7;
+  const naiveMM1 = (u / (1 - u)) * te;                                 // 2.333 — assumes exponential service
+  const md1 = 0.5 * (u / (1 - u)) * te;                                // 1.167 — correct for constant service
+  const res = replicate(model, { reps: 16, horizon: 6000, gridPoints: 60, baseSeed: 4 });
+  const { rows } = responsesAtCutoff(res, 3);
+  const measCTq = mean(rows.map((r) => r.cycleTime)) - te;            // queue time = cycle − service
+  assert.ok(measCTq < 0.7 * naiveMM1, `should diverge below the M/M/1 prediction: CTq=${measCTq.toFixed(2)} vs M/M/1=${naiveMM1.toFixed(2)}`);
+  assert.ok(Math.abs(measCTq - md1) < 0.4 * md1, `should match the corrected M/D/1: CTq=${measCTq.toFixed(2)} vs M/D/1=${md1.toFixed(2)}`);
+});
