@@ -1492,3 +1492,26 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
   the no-warm-up explanation. No console errors.
 
 **Sources:** theory-notes §3.4 (Welch); DESIGN-LANGUAGE §5; Charter §5.
+
+## 2026-06-10 — Phase 4.3: output-analysis visualisation
+
+**Done today**
+- Completed the Run & Analyse visualisation (charts introduced in 4.2 now fully wired): response means
+  with **CI bands** (replication dot-plots showing the spread each interval summarises), **WIP-over-time**
+  with the warm-up shaded (Welch plot), a **utilisation chart** with 95% whiskers, and a **bottleneck**
+  readout — all on-brand per DESIGN-LANGUAGE §5 (quiet, mono, grayscale-legible).
+- **Transport/operator utilisation.** Extended the driver snapshot with `perMover` (AGV/operator
+  `aBusy`); `windowResponse`/`responsesAtCutoff` now emit per-mover utilisation and a `moverNames` map,
+  and the bottleneck scan ranks resources **and** movers — so a saturated AGV/operator is correctly
+  surfaced as the constraint.
+- **Fixed an accumulator bug** found while adding mover utilisation: `run({until:t})` stops just *after*
+  crossing `t`, so the old `accumulate(t)` rewound `lastT` and the next step re-accrued the overlap
+  (double-counting — it pushed mover utilisation above 100%). Snapshots now extend forward-only and
+  record the **true** area-time; `wipTimeseries` labels buckets by the nominal grid time so replications
+  still align in the Welch average. All replication figures are now exact.
+- **Test** — added a transport case: a slow AGV serving a line has its utilisation captured per
+  replication (a fraction in [0,1]) and is identified as the bottleneck. `npm test` **119/119**.
+- **Verified in browser**: a line with AGV transport shows "AGV 1 (mover) 100% · bottleneck" with the
+  machines starved — the transport-as-constraint lesson, rendered correctly. No console errors.
+
+**Sources:** DESIGN-LANGUAGE §5; theory-notes §3, §5.3 (transport as a constrained resource).

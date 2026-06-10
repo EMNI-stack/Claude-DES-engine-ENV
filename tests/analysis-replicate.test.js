@@ -86,6 +86,30 @@ test('warm-up deletion reduces initialisation bias on a system started empty (M2
     `deletion should reduce bias: keep-start |${keepEmptyStart.toFixed(2)}-${truth.toFixed(2)}| should exceed deleted |${deleted.toFixed(2)}-${truth.toFixed(2)}|`);
 });
 
+test('mover (transport/operator) utilisation is captured and can be the bottleneck (M3)', () => {
+  // One slow AGV serving a line over long legs: it is busy carrying loads, so its utilisation must be
+  // collected per replication (in [0,1]) and surfaced as a named resource for the bottleneck readout.
+  const home = { x: 200, y: 0 };
+  const model = {
+    schema: 'des-floor/v1', units: { time: 'min', distance: 'm', speed: 'm/min' },
+    transport: { default: 'agv', speed: 50, legs: {}, movers: [{ id: 'a1', kind: 'agv', name: 'AGV 1', speed: 30, home, serves: { links: 'all' } }] },
+    nodes: [
+      { kind: 'source', id: 'src', x: 0, y: 0 },
+      { kind: 'resource', id: 'A', name: 'A', x: 200, y: 0, machines: 1, service: newDist('exp', { mean: 0.3 }) },
+      { kind: 'sink', id: 'snk', x: 400, y: 0 },
+    ],
+    parts: [{ id: 'p', kind: 'product', routing: ['src', 'A', 'snk'], demand: newDist('exp', { mean: 3 }) }],
+  };
+  const res = replicate(model, { reps: 6, horizon: 600, gridPoints: 30, baseSeed: 3 });
+  const { rows, moverNames, bottleneck } = responsesAtCutoff(res, 0);
+  assert.equal(Object.keys(moverNames).length, 1, 'one mover should be named');
+  const us = rows.map((r) => r['mover:a1']).filter(Number.isFinite);
+  assert.equal(us.length, rows.length, 'every replication has a mover utilisation');
+  const mu = us.reduce((s, v) => s + v, 0) / us.length;
+  assert.ok(mu > 0 && mu <= 1.0001, `mover utilisation should be a fraction in (0,1]: ${mu.toFixed(3)}`);
+  assert.ok(bottleneck && bottleneck.name === 'AGV 1 (mover)', `the slow AGV should be the bottleneck, got ${bottleneck && bottleneck.name}`);
+});
+
 test('repsForPrecision: meets target ⇒ no more reps; tighter target ⇒ asks for more', () => {
   // Synthetic IID-ish values with a clear mean/spread.
   const vals = [10.2, 9.8, 10.5, 9.6, 10.1, 10.4, 9.9, 10.0, 10.3, 9.7];

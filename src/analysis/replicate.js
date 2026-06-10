@@ -20,7 +20,13 @@ import { FloorSim } from '../floor-engine.js';
  * so resuming the run afterwards never double-counts).
  */
 export function snapshot(sim, t) {
-  sim.accumulate(t);
+  // Extend the area counters FORWARD to t only. run({until:t}) stops just AFTER crossing t (it
+  // processes the event that takes the clock past t), so sim.lastT may already exceed t; calling
+  // accumulate(t) then would rewind lastT and the next step would re-accrue the overlap (double
+  // counting — it inflated mover utilisation above 1). Never rewind; record the TRUE area-time so
+  // window spans use the exact elapsed time.
+  if (t > sim.lastT) sim.accumulate(t);
+  const tEff = sim.lastT;
   const perRes = {};
   for (const id in sim.res) {
     const r = sim.res[id];
@@ -28,6 +34,9 @@ export function snapshot(sim, t) {
   }
   const perPart = {};
   if (sim.pstats) for (const pid in sim.pstats) perPart[pid] = { completed: sim.pstats[pid].completed, sumCycle: sim.pstats[pid].sumCycle };
+  // flexible movers (AGV / operator): transport (and operator) resources can be the constraint too.
+  const perMover = {};
+  if (Array.isArray(sim.movers)) for (const u of sim.movers) perMover[u.id] = { name: u.name || u.id, kind: u.kind, aBusy: u.aBusy };
   // demand totals: prefer the per-part demand stats (process model), else the single-part counters.
   let demanded = sim.demanded || 0, fulfilled = sim.fulfilled || 0;
   if (sim.demandStats && Object.keys(sim.demandStats).length) {
@@ -35,11 +44,11 @@ export function snapshot(sim, t) {
     for (const k in sim.demandStats) { demanded += sim.demandStats[k].demanded; fulfilled += sim.demandStats[k].fulfilled; }
   }
   return {
-    t,
+    t: tEff,
     completed: sim.completed, scrapped: sim.scrapped,
     areaWIP: sim.areaWIP, sumCycle: sim.sumCycle,
     sumJobTransit: sim.sumJobTransit, areaTransit: sim.areaTransit,
-    demanded, fulfilled, perPart, perRes,
+    demanded, fulfilled, perPart, perRes, perMover,
   };
 }
 
@@ -104,6 +113,11 @@ export function windowResponse(A, B) {
     const m = B.perRes[id].machines || 1;
     util[id] = span > 0 ? (b - a) / (m * span) : NaN;
   }
+  const moverUtil = {};
+  for (const id in (B.perMover || {})) {
+    const a = (A.perMover[id] || { aBusy: 0 }).aBusy, b = B.perMover[id].aBusy;
+    moverUtil[id] = span > 0 ? (b - a) / span : NaN;   // one load at a time ⇒ no machine count
+  }
   const perPart = {};
   for (const pid in B.perPart) {
     const a = A.perPart[pid] || { completed: 0, sumCycle: 0 }, b = B.perPart[pid];
@@ -120,6 +134,7 @@ export function windowResponse(A, B) {
     fillRate: dDemanded > 0 ? (B.fulfilled - A.fulfilled) / dDemanded : NaN,
     completed: nDone,
     utilisation: util,
+    moverUtilisation: moverUtil,
     perPart,
   };
 }
@@ -147,20 +162,25 @@ export function responsesAtCutoff(result, cutoffIndex = 0) {
       fillRate: r.fillRate,
     };
     for (const id in r.utilisation) row['util:' + id] = r.utilisation[id];
+    for (const id in (r.moverUtilisation || {})) row['mover:' + id] = r.moverUtilisation[id];
     rows.push(row);
   }
-  // resource display names from the first rep's last snapshot
+  // resource / mover display names from the first rep's last snapshot
   const lastSnap = result.reps[0].snapshots[last];
   for (const id in lastSnap.perRes) resNames[id] = lastSnap.perRes[id].name;
-  // bottleneck = highest mean utilisation across reps
+  const moverNames = {};
+  for (const id in (lastSnap.perMover || {})) moverNames[id] = lastSnap.perMover[id].name;
+  // bottleneck = highest mean utilisation across reps, over resources AND movers
   let bottleneck = null;
-  for (const id in resNames) {
-    const us = rows.map((row) => row['util:' + id]).filter((v) => Number.isFinite(v));
-    if (!us.length) continue;
+  const consider = (key, name) => {
+    const us = rows.map((row) => row[key]).filter((v) => Number.isFinite(v));
+    if (!us.length) return;
     const mu = us.reduce((s, v) => s + v, 0) / us.length;
-    if (!bottleneck || mu > bottleneck.util) bottleneck = { id, name: resNames[id], util: mu };
-  }
-  return { rows, bottleneck, resNames, cutoffIndex: ci, cutoffTime: result.grid[ci] };
+    if (!bottleneck || mu > bottleneck.util) bottleneck = { id: key, name, util: mu };
+  };
+  for (const id in resNames) consider('util:' + id, resNames[id]);
+  for (const id in moverNames) consider('mover:' + id, moverNames[id] + ' (mover)');
+  return { rows, bottleneck, resNames, moverNames, cutoffIndex: ci, cutoffTime: result.grid[ci] };
 }
 
 /**
@@ -175,7 +195,9 @@ export function wipTimeseries(result) {
     for (let g = 1; g < rep.snapshots.length; g++) {
       const A = rep.snapshots[g - 1], B = rep.snapshots[g];
       const dt = B.t - A.t;
-      ts.push({ rep: k, t: B.t, wip: dt > 0 ? (B.areaWIP - A.areaWIP) / dt : 0 });
+      // label the bucket with the NOMINAL grid time so reps align in welchAverage (snapshot times
+      // jitter slightly past the grid); the WIP value is the true area-method bucket average.
+      ts.push({ rep: k, t: result.grid[g], wip: dt > 0 ? (B.areaWIP - A.areaWIP) / dt : 0 });
     }
   });
   return ts;
