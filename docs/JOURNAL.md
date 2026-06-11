@@ -1674,3 +1674,17 @@ UI/floor only (`app/floor.html`, `app/js/floor.js`, `app/styles/floor.css`); eng
 simulation, agreement validating both, divergence teaching where closed-form stops and DES begins.
 
 **Sources:** theory-notes §4/§6; Charter §3/§7; Robinson ch 12.
+
+## 2026-06-11 — Fix: `#example` deep link loaded inconsistently with `#example2..8`
+
+- **Trigger:** opening `app/floor.html#example` (the simple starter line) showed a previously-loaded
+  model (e.g. example8) instead of the simple line — surprising when switching between examples to
+  test the Phase-5 physics overlay (agreement case vs divergence case).
+- **Cause:** `#example` was guarded by `model.nodes.length === 0`, so it only loaded into an *empty*
+  model; with anything already saved to localStorage it silently did nothing. Every other example link
+  (`#example2`..`#example8`) loads unconditionally. The guard was meant to protect saved student work
+  from the plain default link, but it made the explicit `#example` URL behave differently from its
+  siblings.
+- **Fix (`app/js/floor.js`):** `#example` now calls `loadExample()` unconditionally like the others — an
+  explicit hash in the URL is a deliberate request for that example. UI-only; engine untouched.
+- **Verification:** `node --check` clean; `npm test` **126/126**.
