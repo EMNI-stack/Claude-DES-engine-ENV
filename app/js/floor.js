@@ -2116,7 +2116,7 @@ function init() {
   document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => activateTab(b.dataset.tab)));
 
   let deep = false;
-  if (location.hash === '#example' && model.nodes.length === 0) { loadExample(); const r = model.nodes.find((n) => n.kind === 'resource'); if (r) selected = { kind: 'node', id: r.id }; deep = true; }
+  if (location.hash === '#example') { loadExample(); const r = model.nodes.find((n) => n.kind === 'resource'); if (r) selected = { kind: 'node', id: r.id }; deep = true; }
   else if (location.hash === '#example2') { loadExample2(); const b = model.nodes.find((n) => n.kind === 'storage'); if (b) selected = { kind: 'node', id: b.id }; deep = true; }   // bottleneck + buffer demo
   else if (location.hash === '#example3') { loadExample3(); const b = model.nodes.find((n) => n.kind === 'resource' && n.batch && n.batch.on); if (b) selected = { kind: 'node', id: b.id }; deep = true; }   // batch-processing demo
   else if (location.hash === '#example4') { loadExample4(); deep = true; }   // assembly / multi-part demo
