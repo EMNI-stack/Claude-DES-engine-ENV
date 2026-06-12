@@ -1688,3 +1688,25 @@ simulation, agreement validating both, divergence teaching where closed-form sto
 - **Fix (`app/js/floor.js`):** `#example` now calls `loadExample()` unconditionally like the others — an
   explicit hash in the URL is a deliberate request for that example. UI-only; engine untouched.
 - **Verification:** `node --check` clean; `npm test` **126/126**.
+
+## 2026-06-12 — Verify breakdown semantics: preempt-resume priority & operator captivity
+
+- **Trigger:** question raised while reviewing the engines — does a breakdown take priority over
+  previously queued jobs, and does a seized resource (operator) wait out the repair or get released?
+- **Investigation (code, both engines):** `src/engine.js` (FAIL/REP handlers) and
+  `src/floor-engine.js` (`onFail`/`onRep`/`onOpArrive`/`onComplete`) implement **preempt-resume**:
+  a FAIL interrupts the in-progress job immediately, saves its remainder on the machine, and on REP
+  resumes that remainder *before* any queued job. The preempted job is never pushed back to the
+  queue. Queued jobs simply wait (FIFO preserved); a down machine raises no operator requests.
+  An operator **mid-operation is held captive** through the entire repair (released only when the
+  resumed op completes — its busy/utilisation clock keeps running, so repair waits inflate operator
+  utilisation). An operator merely *dispatched* to a machine that fails before it arrives **is
+  released** on arrival; the machine raises a fresh request after repair.
+- **Tests (`tests/breakdown-semantics.test.js`, added to `npm test`):** four fully deterministic
+  scenarios (const dists, exact event times) pin each property: preempt-resume + resume-ahead-of-queue
+  in both engines (work conserved: depTime = fail + repair + remainder, completion at exactly t=72);
+  operator captivity (state `operating` for all 30 repair minutes, aBusy +28 exactly); release-on-
+  arrival at a down machine, with work conserved across five preempt cycles (completes at exactly t=37).
+- **Verification:** `npm test` **130/130**.
+
+**Sources:** theory-notes (availability/preempt-resume convention); code reading of both engines.
